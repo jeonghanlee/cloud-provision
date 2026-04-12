@@ -1,0 +1,29 @@
+#cloud-config
+
+ssh_pwauth: false
+
+users:
+  - name: vmadmin
+    gecos: System Administrator
+    groups: [wheel]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+
+packages:
+  - git
+  - vim
+  - tmux
+  - net-tools
+  - autoconf
+  - automake
+  - gcc
+  - make
+  - openssl-devel
+
+runcmd:
+  - timedatectl set-timezone America/Los_Angeles
+
+final_message: "Rocky Linux 8.10 ready after $UPTIME seconds"
