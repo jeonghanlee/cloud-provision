@@ -1,74 +1,91 @@
 # cloud-provision
 
-Cloud-init based VM provisioner for libvirt/KVM test environments.
+Cloud-init based VM provisioner for libvirt/KVM.
+Provisions reproducible multi-node test environments from official cloud images.
+
+* Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+* CLI Reference: [docs/VIRSH_CLI.md](docs/VIRSH_CLI.md)
+* Host setup: `bin/setup_host.bash`
 
 ## Prerequisites
 
-Run the host setup script to verify and install required packages:
-
 ```bash
-./bin/setup_host.bash
+bin/setup_host.bash
 ```
 
-This checks for libvirt, qemu, genisoimage, SSH keys, and libvirt group membership.
-Manual installation if preferred:
+## Makefile Workflow
+
+Override image storage path via:
 
 ```bash
-# Rocky Linux 8
-sudo dnf install libvirt virt-install qemu-kvm genisoimage
-
-# Debian 13
-sudo apt install libvirt-daemon-system virt-install qemu-system-x86 genisoimage
+echo "IMAGE_DIR=/data/libvirt/images" > configure/CONFIG_SITE.local
 ```
 
-User must be in the `libvirt` group:
+### Provision
 
 ```bash
-sudo usermod -aG libvirt $USER
+make rocky8               # server + node1 + node2
+make debian13             # server + node1 + node2
+make all                  # all OS types
 ```
-
-## Supported OS
-
-| OS Type   | Base Image                                       |
-|-----------|--------------------------------------------------|
-| rocky8    | Rocky-8-GenericCloud-Base.latest.x86_64.qcow2    |
-| debian13  | debian-13-genericcloud-amd64.qcow2               |
-
-## Usage
 
 ```bash
-./bin/create_vm.bash -o <os_type> -n <node_id> [-d <image_dir>] [-p <prefix>]
-./bin/create_vm.bash -o <os_type> -n <node_id> -s    # check status
-./bin/create_vm.bash -o <os_type> -n <node_id> -c    # cleanup
+make rocky8.server
+make rocky8.node1
+make rocky8.node2
 ```
 
-## Multi-Node Test Environment
+### Status
 
 ```bash
-# Rocky 8.10 set
-./bin/create_vm.bash -o rocky8 -n server
-./bin/create_vm.bash -o rocky8 -n node1
-./bin/create_vm.bash -o rocky8 -n node2
-
-# Debian 13 set
-./bin/create_vm.bash -o debian13 -n server
-./bin/create_vm.bash -o debian13 -n node1
-./bin/create_vm.bash -o debian13 -n node2
+make status               # all VMs
+make rocky8.status        # all rocky8 nodes
+make rocky8.server.status
 ```
 
-## VM Specifications
+```bash
+make list                 # virsh list --all
+make leases               # DHCP lease table
+make net                  # libvirt network list
+```
 
-| Resource | Value          |
-|----------|----------------|
-| RAM      | 2048 MB        |
-| vCPUs    | 2              |
-| Disk     | 20 GB (qcow2)  |
-| Network  | libvirt default |
+### Cleanup
 
-## Cloud-Init Templates
+```bash
+make clean                # all VMs
+make rocky8.clean         # all rocky8 nodes
+make rocky8.server.clean
+```
 
-OS-specific templates in `templates/` provide:
+### Configuration
 
-- `vmadmin` account with SSH key injection
-- Development packages (gcc, make, autoconf, automake, OpenSSL headers)
-- Timezone set to America/Los_Angeles
+```bash
+make vars
+make PRINT.IMAGE_DIR
+```
+
+---
+
+## Direct CLI Workflow
+
+```bash
+bin/create_vm.bash -o rocky8   -n server
+bin/create_vm.bash -o rocky8   -n node1
+bin/create_vm.bash -o debian13 -n server
+```
+
+```bash
+bin/create_vm.bash -o rocky8 -n server -s   # status check
+bin/create_vm.bash -o rocky8 -n server -c   # cleanup
+```
+
+Options:
+
+| Flag | Description                              | Default            |
+|------|------------------------------------------|--------------------|
+| `-o` | OS type: `rocky8`, `debian13`            | `rocky8`           |
+| `-n` | Node ID: `server`, `node1`, `node2`, ... | `test` (DHCP)      |
+| `-d` | Image storage directory                  | `~/libvirt/images` |
+| `-p` | VM name prefix                           | `testbed`          |
+| `-s` | Check IP, SSH, and cloud-init readiness  |                    |
+| `-c` | Remove VM domain, disk, and seed ISO     |                    |

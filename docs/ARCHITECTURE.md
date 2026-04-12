@@ -40,7 +40,7 @@ OS installation.
 ```
 ${IMAGE_DIR}/
 ├── Rocky-8-GenericCloud-Base.latest.x86_64.qcow2   (base, read-only, shared)
-├── debian-13-genericcloud-amd64.qcow2              (base, read-only, shared)
+├── debian-13-genericcloud-amd64-daily.qcow2        (base, read-only, shared)
 ├── ${VM_NAME}.qcow2                                (layered, per-VM)
 └── ${VM_NAME}-seed.iso                             (cloud-init, per-VM)
 ```
@@ -95,17 +95,19 @@ ${VM_NAME}-seed.iso  →  attached as CDROM (bus=sata)
 
 ## 6. OS Support
 
-| OS Type   | Variant  | Base Image Source                     | Package Manager |
-|-----------|----------|---------------------------------------|-----------------|
-| rocky8    | rocky8   | download.rockylinux.org               | dnf             |
-| debian13  | debian13 | cloud.debian.org (trixie daily)       | apt             |
+| OS Type   | Variant  | Base Image Source                              | Package Manager |
+|-----------|----------|------------------------------------------------|-----------------|
+| rocky8    | rocky8   | download.rockylinux.org                        | dnf             |
+| debian13  | debian13 | cloud.debian.org/images/cloud/trixie/daily     | apt             |
 
-OS-specific differences are isolated to `templates/user-data.*`:
+OS-specific differences are isolated to `templates/user-data.*` and `bin/create_vm.bash`:
 
-| Concern           | Rocky 8.10            | Debian 13            |
-|-------------------|-----------------------|----------------------|
-| Admin group       | `wheel`               | `sudo`               |
-| OpenSSL headers   | `openssl-devel`       | `libssl-dev`         |
+| Concern           | Rocky 8.10            | Debian 13                          |
+|-------------------|-----------------------|------------------------------------|
+| Admin group       | `wheel`               | `sudo`                             |
+| OpenSSL headers   | `openssl-devel`       | `libssl-dev`                       |
+| Boot firmware     | BIOS                  | UEFI (`--boot uefi`, requires OVMF)|
+| Image filename    | `...Base.latest...`   | `...-daily.qcow2`                  |
 
 ---
 
