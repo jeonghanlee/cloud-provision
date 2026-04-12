@@ -25,6 +25,7 @@ declare -g NODE_ID
 declare -g BACKING_FORMAT="qcow2"
 declare -g LIBVIRT_URI="qemu:///system"
 declare -g LIBVIRT_NETWORK="default"
+declare -g VM_BOOT_FIRMWARE=""
 declare -g REQUIRED_GROUP="libvirt"
 
 # Network configuration: static IP via libvirt DHCP reservation
@@ -98,7 +99,8 @@ if [[ "${OS_TYPE}" == "rocky8" ]]; then
     BASE_URL="https://download.rockylinux.org/pub/rocky/8/images/x86_64/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "debian13" ]]; then
     OS_VARIANT="debian13"
-    BASE_IMAGE_NAME="debian-13-genericcloud-amd64.qcow2"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
 else
     printf "Error: Unsupported OS type: %s\n" "${OS_TYPE}"
@@ -302,6 +304,12 @@ function generate_seed {
 function provision_vm {
     printf "Provisioning: %s\n" "${VM_NAME}"
 
+    local boot_args=()
+    if [[ -n "${VM_BOOT_FIRMWARE}" ]]; then
+        boot_args=(--boot "${VM_BOOT_FIRMWARE}")
+    fi
+
+
     local net_args="network=default,model=virtio"
     if [[ -n "${VM_MAC}" ]]; then
         net_args="${net_args},mac=${VM_MAC}"
@@ -318,16 +326,32 @@ function provision_vm {
         --network "${net_args}" \
         --os-variant "${OS_VARIANT}" \
         --graphics none \
+        "${boot_args[@]+"${boot_args[@]}"}" \
         --noautoconsole
 }
 
-# --- VM Status Check ---
-function get_vm_ip {
+# --- VM Readiness Check ---
+function wait_for_vm {
     local mode="${1:-retry}"
+    local ip_addr="${VM_IP}"
+
+    # Static IP: skip polling, go straight to readiness check
+    if [[ -n "${ip_addr}" ]]; then
+        wait_for_ssh "${ip_addr}" "${mode}" || return 1
+        wait_for_cloud_init "${ip_addr}" "${mode}"
+
+        printf "%s\n" "------------------------------------------------------------"
+        printf "VM Name    : %s\n" "${VM_NAME}"
+        printf "IP Address : %s\n" "${ip_addr}"
+        printf "SSH        : ssh vmadmin@%s\n" "${ip_addr}"
+        printf "%s\n" "------------------------------------------------------------"
+        return 0
+    fi
+
+    # DHCP fallback: poll for IP
     local max_retry=3
     local interval=10
     local attempt=0
-    local ip_addr
 
     printf "Status: retrieving IP for %s...\n" "${VM_NAME}"
 
@@ -403,7 +427,7 @@ function wait_for_cloud_init {
 
     while [[ ${attempt} -lt ${max_retry} ]]; do
         status=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-                     "vmadmin@${ip_addr}" "cloud-init status" 2>/dev/null)
+                     "vmadmin@${ip_addr}" "cloud-init status" 2>/dev/null || true)
 
         if [[ "${status}" == *"done"* ]]; then
             printf "cloud-init: complete [OK]\n"
@@ -432,7 +456,7 @@ if [[ "${DO_CLEANUP}" == true ]]; then
 fi
 
 if [[ "${DO_STATUS}" == true ]]; then
-    get_vm_ip "once"
+    wait_for_vm "once"
     exit 0
 fi
 
@@ -447,11 +471,36 @@ if [[ -n "${VM_IP}" ]]; then
 fi
 printf "%s\n" "------------------------------------------------------------"
 
+# Check if VM already exists
+if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
+    printf "VM '%s' already exists.\n" "${VM_NAME}"
+    printf "  [1] Rebuild (destroy and reprovision)\n"
+    printf "  [2] Connect (show SSH info)\n"
+    printf "  [3] Abort\n"
+    printf "Select [1-3]: "
+    read -r choice
+    case "${choice}" in
+        1)
+            do_cleanup
+            ;;
+        2)
+            wait_for_vm "once"
+            exit 0
+            ;;
+        *)
+            printf "Aborted.\n"
+            exit 0
+            ;;
+    esac
+fi
+
 verify_base_image
 prepare_disk
 generate_seed
 register_dhcp
 provision_vm
+wait_for_vm
 
-printf "Provisioning: SUCCESS\n"
-get_vm_ip
+printf "%s\n" "------------------------------------------------------------"
+printf "READY\n"
+printf "%s\n" "------------------------------------------------------------"

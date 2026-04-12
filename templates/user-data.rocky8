@@ -23,7 +23,6 @@ packages:
   - make
   - openssl-devel
 
-runcmd:
-  - timedatectl set-timezone America/Los_Angeles
+timezone: America/Los_Angeles
 
 final_message: "Rocky Linux 8.10 ready after $UPTIME seconds"
