@@ -1,0 +1,6 @@
+VM_PREFIX := testbed
+OS_TYPES  := rocky8 debian13
+NODE_IDS  := server node1 node2
+
+-include $(TOP)/../RELEASE.local
+-include $(TOP)/configure/RELEASE.local

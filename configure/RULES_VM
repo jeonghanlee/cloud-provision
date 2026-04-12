@@ -1,0 +1,50 @@
+.DEFAULT_GOAL := help
+
+.PHONY: help all clean status
+
+help:
+	$(info -----------------------------------------)
+	$(info Make Targets)
+	$(info -----------------------------------------)
+	$(QUIET) awk '/^[a-zA-Z._0-9-]+:/ {             \
+	  nb = sub( /^## /, "", helpMsg );               \
+	  if(nb == 0) {                                  \
+	    helpMsg = $$0;                               \
+	    nb = sub( /^[^:]*:.* ## /, "", helpMsg );    \
+	  }                                              \
+	  if (nb)                                        \
+	    print  $$1 "\t" helpMsg;                     \
+	}                                                \
+	{ helpMsg = $$0 }'                               \
+	$(MAKEFILE_LIST) | column -ts:
+
+.PHONY: help.vm
+
+help.vm: ## Show dynamically generated VM targets
+	$(QUIET) printf "\nPer-VM targets (OS in: %s | NODE in: %s):\n" \
+	    "$(OS_TYPES)" "$(NODE_IDS)"
+	$(QUIET) printf "  make <os>               Provision all nodes for that OS\n"
+	$(QUIET) printf "  make <os>.clean         Remove all nodes for that OS\n"
+	$(QUIET) printf "  make <os>.status        Check all nodes for that OS\n"
+	$(QUIET) printf "  make <os>.<node>        Provision single VM\n"
+	$(QUIET) printf "  make <os>.<node>.clean  Remove VM domain, disk, seed ISO\n"
+	$(QUIET) printf "  make <os>.<node>.status Check IP, SSH, cloud-init readiness\n"
+	$(QUIET) printf "\nExamples:\n"
+	$(QUIET) printf "  make rocky8\n"
+	$(QUIET) printf "  make rocky8.server\n"
+	$(QUIET) printf "  make debian13.node1.clean\n"
+
+## Provision all VMs across all OS types
+all: $(OS_TYPES)
+
+## Remove all VM domains, disks, and seed ISOs
+clean: $(addsuffix .clean, $(OS_TYPES))
+
+## Check readiness of all VMs
+status: $(addsuffix .status, $(OS_TYPES))
+
+$(foreach os,  $(OS_TYPES), $(eval $(call os_group_targets,$(os))))
+$(foreach os,  $(OS_TYPES), \
+  $(foreach node, $(NODE_IDS), $(eval $(call vm_targets,$(os),$(node)))))
+
+FORCE:

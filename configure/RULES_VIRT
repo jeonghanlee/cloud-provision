@@ -1,0 +1,19 @@
+.PHONY: list leases net console.% domstate.% dumpxml.%
+
+list: ## List all VM domains with state
+	$(QUIET) virsh --connect $(LIBVIRT_URI) list --all
+
+leases: ## Show active DHCP leases on the default network
+	$(QUIET) virsh --connect $(LIBVIRT_URI) net-dhcp-leases $(LIBVIRT_NETWORK)
+
+net: ## List all libvirt networks
+	$(QUIET) virsh --connect $(LIBVIRT_URI) net-list --all
+
+console.%: ## Attach to VM serial console: make console.VM_NAME
+	$(QUIET) virsh --connect $(LIBVIRT_URI) console $*
+
+domstate.%: ## Query VM state: make domstate.VM_NAME
+	$(QUIET) virsh --connect $(LIBVIRT_URI) domstate $*
+
+dumpxml.%: ## Dump VM XML configuration: make dumpxml.VM_NAME
+	$(QUIET) virsh --connect $(LIBVIRT_URI) dumpxml $*

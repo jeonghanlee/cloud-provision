@@ -1,0 +1,3 @@
+CREATE_VM := $(TOP)/bin/create_vm.bash
+
+VARS_EXCLUDES += CREATE_VM
