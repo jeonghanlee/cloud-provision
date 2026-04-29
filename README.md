@@ -49,6 +49,14 @@ make leases               # DHCP lease table
 make net                  # libvirt network list
 ```
 
+### Stop
+
+```bash
+make stop                 # graceful shutdown of all VMs
+make rocky8.stop          # all rocky8 nodes
+make rocky8.server.stop
+```
+
 ### Cleanup
 
 ```bash
@@ -76,6 +84,7 @@ bin/create_vm.bash -o debian13 -n server
 
 ```bash
 bin/create_vm.bash -o rocky8 -n server -s   # status check
+bin/create_vm.bash -o rocky8 -n server -S   # graceful shutdown
 bin/create_vm.bash -o rocky8 -n server -c   # cleanup
 ```
 
@@ -87,5 +96,6 @@ Options:
 | `-n` | Node ID: `server`, `node1`, `node2`, ... | `test` (DHCP)      |
 | `-d` | Image storage directory                  | `~/libvirt/images` |
 | `-p` | VM name prefix                           | `testbed`          |
-| `-s` | Check IP, SSH, and cloud-init readiness  |                    |
+| `-s` | Check domain, IP, SSH, and cloud-init readiness |             |
+| `-S` | Graceful shutdown (ACPI, polls until shut off) |              |
 | `-c` | Remove VM domain, disk, and seed ISO     |                    |

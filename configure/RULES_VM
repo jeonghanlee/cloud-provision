@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help all clean status
+.PHONY: help all clean status stop
 
 help:
 	$(info -----------------------------------------)
@@ -26,9 +26,11 @@ help.vm: ## Show dynamically generated VM targets
 	$(QUIET) printf "  make <os>               Provision all nodes for that OS\n"
 	$(QUIET) printf "  make <os>.clean         Remove all nodes for that OS\n"
 	$(QUIET) printf "  make <os>.status        Check all nodes for that OS\n"
+	$(QUIET) printf "  make <os>.stop          Graceful shutdown of all nodes for that OS\n"
 	$(QUIET) printf "  make <os>.<node>        Provision single VM\n"
 	$(QUIET) printf "  make <os>.<node>.clean  Remove VM domain, disk, seed ISO\n"
 	$(QUIET) printf "  make <os>.<node>.status Check IP, SSH, cloud-init readiness\n"
+	$(QUIET) printf "  make <os>.<node>.stop   Graceful shutdown of single VM\n"
 	$(QUIET) printf "\nExamples:\n"
 	$(QUIET) printf "  make rocky8\n"
 	$(QUIET) printf "  make rocky8.server\n"
@@ -40,8 +42,17 @@ all: $(OS_TYPES)
 ## Remove all VM domains, disks, and seed ISOs
 clean: $(addsuffix .clean, $(OS_TYPES))
 
-## Check readiness of all VMs
-status: $(addsuffix .status, $(OS_TYPES))
+## Check readiness of all VMs (continues on per-OS failure, aggregates exit code)
+status:
+	$(QUIET) rc=0; for os in $(OS_TYPES); do \
+	  $(MAKE) --no-print-directory $$os.status || rc=$$?; \
+	done; exit $$rc
+
+## Stop all VMs across all OS types (continues on per-OS failure, aggregates exit code)
+stop:
+	$(QUIET) rc=0; for os in $(OS_TYPES); do \
+	  $(MAKE) --no-print-directory $$os.stop || rc=$$?; \
+	done; exit $$rc
 
 $(foreach os,  $(OS_TYPES), $(eval $(call os_group_targets,$(os))))
 $(foreach os,  $(OS_TYPES), \

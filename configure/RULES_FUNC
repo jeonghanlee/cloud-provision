@@ -11,7 +11,7 @@ VARS_EXCLUDES += QUIET SHELL
 # Generates per-VM provision, clean, and status targets for a given OS/node pair.
 # Usage: $(call vm_targets, os_type, node_id)
 define vm_targets
-.PHONY: $(1).$(2) $(1).$(2).clean $(1).$(2).status
+.PHONY: $(1).$(2) $(1).$(2).clean $(1).$(2).status $(1).$(2).stop
 
 $(1).$(2): ## Provision $(1) $(2)
 	$(QUIET) $(CREATE_VM) -o $(1) -n $(2) -d $(IMAGE_DIR) -p $(VM_PREFIX)
@@ -19,20 +19,31 @@ $(1).$(2): ## Provision $(1) $(2)
 $(1).$(2).clean: ## Remove $(1) $(2) domain, disk, and seed ISO
 	$(QUIET) $(CREATE_VM) -o $(1) -n $(2) -d $(IMAGE_DIR) -p $(VM_PREFIX) -c
 
-$(1).$(2).status: ## Check $(1) $(2) IP, SSH, and cloud-init readiness
+$(1).$(2).status: ## Check $(1) $(2) domain, IP, SSH, and cloud-init readiness
 	$(QUIET) $(CREATE_VM) -o $(1) -n $(2) -d $(IMAGE_DIR) -p $(VM_PREFIX) -s
+
+$(1).$(2).stop: ## Graceful shutdown of $(1) $(2)
+	$(QUIET) $(CREATE_VM) -o $(1) -n $(2) -d $(IMAGE_DIR) -p $(VM_PREFIX) -S
 endef
 
 # Generates group provision, clean, and status targets for all nodes of a given OS type.
 # Usage: $(call os_group_targets, os_type)
 define os_group_targets
-.PHONY: $(1) $(1).clean $(1).status
+.PHONY: $(1) $(1).clean $(1).status $(1).stop
 
 $(1): $(addprefix $(1)., $(NODE_IDS)) ## Provision all $(1) nodes
 
 $(1).clean: $(addsuffix .clean, $(addprefix $(1)., $(NODE_IDS))) ## Remove all $(1) nodes
 
-$(1).status: $(addsuffix .status, $(addprefix $(1)., $(NODE_IDS))) ## Check all $(1) nodes
+$(1).status: ## Check all $(1) nodes (continues on per-node failure, aggregates exit code)
+	$(QUIET) rc=0; for node in $(NODE_IDS); do \
+	  $(MAKE) --no-print-directory $(1).$$$$node.status || rc=$$$$?; \
+	done; exit $$$$rc
+
+$(1).stop: ## Stop all $(1) nodes (continues on per-node failure, aggregates exit code)
+	$(QUIET) rc=0; for node in $(NODE_IDS); do \
+	  $(MAKE) --no-print-directory $(1).$$$$node.stop || rc=$$$$?; \
+	done; exit $$$$rc
 endef
 
 VARS_EXCLUDES += vm_targets os_group_targets
