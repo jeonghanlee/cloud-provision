@@ -35,7 +35,43 @@ OS installation.
 
 ---
 
-## 3. Storage Architecture
+## 3. VM Lifecycle
+
+The provisioner exposes four idempotent operations on every VM. State
+transitions are deterministic and any operation can be replayed without
+side effects beyond the intended target state.
+
+```
+not defined ───provision───> shut off ───start───> running
+                              ^                       │
+                              └─────── stop ──────────┘
+
+any state   ───clean───>     not defined
+```
+
+| Operation | Effect | Idempotency rule |
+|---|---|---|
+| `provision` | Build disk, seed, virt-install, readiness check | Re-run on existing domain auto-routes to start (shut off) or no-op (running) |
+| `start` | libvirt domain start, readiness check | Routed automatically by `provision` re-run; not exposed as a separate target |
+| `stop` | ACPI shutdown plus 60-second poll | No-op for not-defined and shut off domains |
+| `clean` | destroy + undefine + remove disk + remove seed + remove DHCP reservation | Safe on missing domain |
+
+**Status reporting** is a separate read-only operation. It reports four
+indicators in a single pass (domain state, IP, SSH reachability,
+cloud-init completion) so partial-progress diagnostics survive any
+failed stage.
+
+**Reset to baseline.** A successive `clean` then provision returns a
+node to fresh OS state in roughly one minute per VM. The base cloud
+image is preserved as a read-only backing file; only the layered qcow2
+delta and seed ISO are discarded, then rebuilt from scratch with a
+fresh cloud-init run. Downstream provisioners can rely on this
+guarantee — software-side residue is not the responsibility of this
+layer.
+
+---
+
+## 4. Storage Architecture
 
 ```
 ${IMAGE_DIR}/
@@ -51,7 +87,7 @@ from the base image.
 
 ---
 
-## 4. VM Naming Convention
+## 5. VM Naming Convention
 
 ```
 ${VM_PREFIX}-${OS_TYPE}-${NODE_ID}
@@ -67,7 +103,7 @@ Example: `testbed-rocky8-server`, `testbed-debian13-node1`
 
 ---
 
-## 5. Cloud-Init Data Flow
+## 6. Cloud-Init Data Flow
 
 ```
 templates/user-data.${OS_TYPE}
@@ -93,7 +129,7 @@ ${VM_NAME}-seed.iso  →  attached as CDROM (bus=sata)
 
 ---
 
-## 6. OS Support
+## 7. OS Support
 
 | OS Type   | Variant  | Base Image Source                              | Package Manager |
 |-----------|----------|------------------------------------------------|-----------------|
@@ -111,7 +147,7 @@ OS-specific differences are isolated to `templates/user-data.*` and `bin/create_
 
 ---
 
-## 7. Network
+## 8. Network
 
 All VMs use the libvirt `default` network with static IP assignment via
 DHCP reservation. MAC addresses and IPs are derived deterministically
@@ -154,7 +190,7 @@ MAC addresses are generated deterministically from a fixed prefix
 
 ---
 
-## 8. Test Environment Matrix
+## 9. Test Environment Matrix
 
 | Role   | Debian 13                              | Rocky 8.10                              |
 |--------|----------------------------------------|-----------------------------------------|
@@ -164,7 +200,7 @@ MAC addresses are generated deterministically from a fixed prefix
 
 ---
 
-## 9. VM Resources
+## 10. VM Resources
 
 | Resource | Value           |
 |----------|-----------------|
@@ -173,3 +209,20 @@ MAC addresses are generated deterministically from a fixed prefix
 | Disk     | 20 GB (qcow2)   |
 | Graphics | none (headless)  |
 | Network  | virtio           |
+
+---
+
+## 11. Hand-off
+
+A node is ready for downstream use once it reports `Domain running` /
+`SSH ready` / `cloud-init done`. The static IP allocation defined in
+section 8 is the contract between this layer and downstream tools.
+
+| Layer | Tool | Source |
+|---|---|---|
+| OS baseline (this repo) | `cloud-provision` | this repository |
+| Software deployment | `ansible-provision` | https://github.com/jeonghanlee/ansible-provision |
+
+`ansible-provision` reads the same IPs from `inventory/testbed.ini`
+without dynamic discovery, so any change to the IP scheme requires
+coordinated updates in both repositories.

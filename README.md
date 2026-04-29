@@ -6,6 +6,7 @@ Provisions reproducible multi-node test environments from official cloud images.
 * Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 * CLI Reference: [docs/VIRSH_CLI.md](docs/VIRSH_CLI.md)
 * Host setup: `bin/setup_host.bash`
+* Software deployment: [ansible-provision](https://github.com/jeonghanlee/ansible-provision) (next stage on top of these VMs)
 
 ## Prerequisites
 
@@ -64,6 +65,22 @@ make clean                # all VMs
 make rocky8.clean         # all rocky8 nodes
 make rocky8.server.clean
 ```
+
+### Reset to Baseline
+
+Restore a node to a fresh OS state without residue. Use this when a
+downstream provisioner (e.g. ansible-provision) leaves partial state
+and the cleanest path is to rebuild the baseline before re-running.
+
+```bash
+make rocky8.server.clean rocky8.server      # one VM
+make rocky8.clean rocky8                    # one OS group
+make clean all                              # all 6 VMs
+```
+
+`clean` removes the VM domain, layered qcow2 disk, and seed ISO. The
+follow-up provision rebuilds from the cached base image and re-runs
+cloud-init from scratch. Per-VM time is roughly one minute.
 
 ### Configuration
 
