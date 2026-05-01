@@ -36,21 +36,21 @@ help.vm: ## Show dynamically generated VM targets
 	$(QUIET) printf "  make rocky8.server\n"
 	$(QUIET) printf "  make debian13.node1.clean\n"
 
-## Provision all VMs across all OS types
-all: $(OS_TYPES)
+## Provision the default OS types (excludes pre-baked variants)
+all: $(DEFAULT_OS_TYPES)
 
-## Remove all VM domains, disks, and seed ISOs
+## Remove all VM domains, disks, and seed ISOs (including baked variants)
 clean: $(addsuffix .clean, $(OS_TYPES))
 
-## Check readiness of all VMs (continues on per-OS failure, aggregates exit code)
+## Check readiness of default VMs (continues on per-OS failure, aggregates exit code)
 status:
-	$(QUIET) rc=0; for os in $(OS_TYPES); do \
+	$(QUIET) rc=0; for os in $(DEFAULT_OS_TYPES); do \
 	  $(MAKE) --no-print-directory $$os.status || rc=$$?; \
 	done; exit $$rc
 
-## Stop all VMs across all OS types (continues on per-OS failure, aggregates exit code)
+## Stop default VMs (continues on per-OS failure, aggregates exit code)
 stop:
-	$(QUIET) rc=0; for os in $(OS_TYPES); do \
+	$(QUIET) rc=0; for os in $(DEFAULT_OS_TYPES); do \
 	  $(MAKE) --no-print-directory $$os.stop || rc=$$?; \
 	done; exit $$rc
 

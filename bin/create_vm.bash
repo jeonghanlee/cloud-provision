@@ -33,6 +33,8 @@ declare -g NETWORK_SUBNET="192.168.122"
 declare -g MAC_PREFIX="52:54:00:00"
 declare -g DEBIAN13_IP_BASE=10
 declare -g ROCKY8_IP_BASE=100
+declare -g DEBIAN13_IOCRUNNER_IP_BASE=50
+declare -g ROCKY8_IOCRUNNER_IP_BASE=150
 declare -g VM_IP=""
 declare -g VM_MAC=""
 
@@ -105,6 +107,15 @@ elif [[ "${OS_TYPE}" == "debian13" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "rocky8-iocrunner" ]]; then
+    OS_VARIANT="rocky8"
+    BASE_IMAGE_NAME="iocrunner-rocky8.qcow2"
+    BASE_URL=""
+elif [[ "${OS_TYPE}" == "debian13-iocrunner" ]]; then
+    OS_VARIANT="debian13"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="iocrunner-debian13.qcow2"
+    BASE_URL=""
 else
     printf "Error: Unsupported OS type: %s\n" "${OS_TYPE}"
     exit 1
@@ -131,8 +142,10 @@ function resolve_network {
     local node_offset=0
 
     case "${OS_TYPE}" in
-        rocky8)   os_base=${ROCKY8_IP_BASE} ;;
-        debian13) os_base=${DEBIAN13_IP_BASE} ;;
+        rocky8)             os_base=${ROCKY8_IP_BASE} ;;
+        debian13)           os_base=${DEBIAN13_IP_BASE} ;;
+        rocky8-iocrunner)   os_base=${ROCKY8_IOCRUNNER_IP_BASE} ;;
+        debian13-iocrunner) os_base=${DEBIAN13_IOCRUNNER_IP_BASE} ;;
     esac
 
     case "${NODE_ID}" in
@@ -276,6 +289,13 @@ function verify_base_image {
         fi
     fi
 
+    if [[ -z "${BASE_URL}" ]]; then
+        printf "Error: Base image %s not found and no download URL.\n" \
+            "${BASE_IMAGE_FULL_PATH}" >&2
+        printf "Hint: run bin/bake_iocrunner_image.bash to build it first.\n" >&2
+        exit 1
+    fi
+
     printf "Base image: downloading from mirror...\n"
     curl -f -L --retry 3 -o "${BASE_IMAGE_FULL_PATH}" "${BASE_URL}"
     printf "Base image: download complete.\n"
@@ -298,7 +318,8 @@ function generate_seed {
     local pub_key_path=""
     local pub_key_data=""
     local seed_dir="${SC_TOP}/.seed_staging"
-    local user_data_template="${SC_TOP}/templates/user-data.${OS_TYPE}"
+    # Variants share the base OS cloud-init template (e.g. rocky8-iocrunner uses user-data.rocky8).
+    local user_data_template="${SC_TOP}/templates/user-data.${OS_VARIANT}"
 
     # SSH key discovery
     for key_file in "id_ed25519.pub" "id_rsa.pub"; do
