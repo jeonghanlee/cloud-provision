@@ -9,9 +9,17 @@ endef
 
 VARS_EXCLUDES += bake_targets
 
-.PHONY: bake
+.PHONY: bake help.bake
 
 ## Bake golden iocrunner images for all bakeable OS types
 bake: $(addprefix bake., $(BAKE_OS_TYPES))
+
+help.bake: ## Show dynamically generated bake targets
+	$(QUIET) printf "\nPer-OS bake targets (OS in: %s):\n" "$(BAKE_OS_TYPES)"
+	$(QUIET) printf "  make bake               Bake all bakeable OS types sequentially\n"
+	$(QUIET) printf "  make bake.<os>          Bake golden iocrunner image for one OS\n"
+	$(QUIET) printf "\nExamples:\n"
+	$(QUIET) printf "  make bake.rocky8\n"
+	$(QUIET) printf "  make bake.debian13\n"
 
 $(foreach os, $(BAKE_OS_TYPES), $(eval $(call bake_targets,$(os))))
