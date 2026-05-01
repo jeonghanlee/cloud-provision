@@ -1,0 +1,4 @@
+.PHONY: setup
+
+setup: ## Verify and install host virtualization prerequisites
+	$(QUIET) $(SETUP_HOST)

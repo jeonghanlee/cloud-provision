@@ -1,3 +1,4 @@
-CREATE_VM := $(TOP)/bin/create_vm.bash
+CREATE_VM  := $(TOP)/bin/create_vm.bash
+SETUP_HOST := $(TOP)/bin/setup_host.bash
 
-VARS_EXCLUDES += CREATE_VM
+VARS_EXCLUDES += CREATE_VM SETUP_HOST

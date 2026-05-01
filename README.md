@@ -11,7 +11,7 @@ Provisions reproducible multi-node test environments from official cloud images.
 ## Prerequisites
 
 ```bash
-bin/setup_host.bash
+make setup
 ```
 
 ## Makefile Workflow
