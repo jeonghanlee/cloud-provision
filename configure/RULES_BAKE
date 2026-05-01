@@ -1,0 +1,17 @@
+# Generates a bake target for a single base OS.
+# Usage: $(call bake_targets, os_type)
+define bake_targets
+.PHONY: bake.$(1)
+
+bake.$(1): ## Bake golden iocrunner image for $(1)
+	$(QUIET) $(BAKE_IMAGE) -o $(1) -d $(IMAGE_DIR) -a $(ANSIBLE_DIR)
+endef
+
+VARS_EXCLUDES += bake_targets
+
+.PHONY: bake
+
+## Bake golden iocrunner images for all bakeable OS types
+bake: $(addprefix bake., $(BAKE_OS_TYPES))
+
+$(foreach os, $(BAKE_OS_TYPES), $(eval $(call bake_targets,$(os))))

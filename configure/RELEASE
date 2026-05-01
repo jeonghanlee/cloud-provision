@@ -6,5 +6,8 @@ NODE_IDS  := server node1 node2
 # excluded so they only build when their bake image is present.
 DEFAULT_OS_TYPES := rocky8 debian13
 
+# Base OS types that the iocrunner bake script accepts.
+BAKE_OS_TYPES := rocky8 debian13
+
 -include $(TOP)/../RELEASE.local
 -include $(TOP)/configure/RELEASE.local

@@ -90,8 +90,9 @@ pre-baked golden images that already contain the full software stack
 provision repeatedly without re-running ansible at first boot.
 
 ```bash
-bin/bake_iocrunner_image.bash -o rocky8
-bin/bake_iocrunner_image.bash -o debian13
+make bake.rocky8
+make bake.debian13
+make bake                              # both base OS types
 ```
 
 Once baked, the variants are usable through the standard Makefile:

@@ -1,6 +1,7 @@
 IMAGE_DIR       := $(HOME)/libvirt/images
 LIBVIRT_URI     := qemu:///system
 LIBVIRT_NETWORK := default
+ANSIBLE_DIR     := $(TOP)/../ansible-provision
 
 -include $(TOP)/../CONFIG_SITE.local
 -include $(TOP)/configure/CONFIG_SITE.local
