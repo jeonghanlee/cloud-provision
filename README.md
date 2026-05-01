@@ -82,6 +82,38 @@ make clean all                              # all 6 VMs
 follow-up provision rebuilds from the cached base image and re-runs
 cloud-init from scratch. Per-VM time is roughly one minute.
 
+### Bake iocrunner-test Variants
+
+The `rocky8-iocrunner` / `debian13-iocrunner` OS variants boot from
+pre-baked golden images that already contain the full software stack
+(ansible-provision `site.yml` plus `04_nfs_sim.yml`). Bake once, then
+provision repeatedly without re-running ansible at first boot.
+
+```bash
+bin/bake_iocrunner_image.bash -o rocky8
+bin/bake_iocrunner_image.bash -o debian13
+```
+
+Once baked, the variants are usable through the standard Makefile:
+
+```bash
+make rocky8-iocrunner.server
+make debian13-iocrunner
+```
+
+`make all` excludes the pre-baked variants until their golden image
+exists; `make clean` covers them. See [docs/ARCHITECTURE.md section
+12](docs/ARCHITECTURE.md) for the full pipeline.
+
+Bake script options:
+
+| Flag | Description                              | Default                |
+|------|------------------------------------------|------------------------|
+| `-o` | OS type: `rocky8`, `debian13` (required) |                        |
+| `-d` | Image storage directory                  | `~/libvirt/images`     |
+| `-a` | ansible-provision directory              | `../ansible-provision` |
+| `-k` | Keep build VM after bake                 | destroy                |
+
 ### Configuration
 
 ```bash
@@ -109,7 +141,7 @@ Options:
 
 | Flag | Description                              | Default            |
 |------|------------------------------------------|--------------------|
-| `-o` | OS type: `rocky8`, `debian13`            | `rocky8`           |
+| `-o` | OS type: `rocky8`, `debian13`, `rocky8-iocrunner`, `debian13-iocrunner` | `rocky8` |
 | `-n` | Node ID: `server`, `node1`, `node2`, ... | `test` (DHCP)      |
 | `-d` | Image storage directory                  | `~/libvirt/images` |
 | `-p` | VM name prefix                           | `testbed`          |
