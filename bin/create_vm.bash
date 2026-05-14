@@ -219,7 +219,7 @@ function do_cleanup {
         && printf "[OK]\n" || printf "[not running]\n"
 
     printf "  Undefining VM... "
-    virsh --connect "${LIBVIRT_URI}" undefine "${VM_NAME}" 2>/dev/null \
+    virsh --connect "${LIBVIRT_URI}" undefine "${VM_NAME}" --nvram 2>/dev/null \
         && printf "[OK]\n" || printf "[not defined]\n"
 
     printf "  Removing disk... "
