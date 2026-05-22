@@ -11,7 +11,8 @@ Provisions reproducible multi-node test environments from official cloud images.
 ## Prerequisites
 
 ```bash
-make setup
+make setup          # install the host virtualization stack
+make check-tools    # verify required host commands are present
 ```
 
 ## Makefile Workflow
