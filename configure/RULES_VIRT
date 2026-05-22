@@ -1,3 +1,5 @@
+##@ Inspection
+
 .PHONY: list leases net console.% domstate.% dumpxml.%
 
 list: ## List all VM domains with state

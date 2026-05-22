@@ -1,6 +1,4 @@
-RULES_VARS += $(foreach v, $(filter %_RULES, $(.VARIABLES)), $(v))
-
-VARS_EXCLUDES += .SHELLSTATUS FILTER LEVEL LSOPTS UNAME_% RULES_VARS
+VARS_EXCLUDES += .SHELLSTATUS FILTER LEVEL LSOPTS UNAME_%
 VARS_EXCLUDES += $(filter -%, $(.VARIABLES))
 VARS_EXCLUDES += $(filter "%,  $(.VARIABLES))
 VARS_EXCLUDES += $(filter @%,  $(.VARIABLES))
@@ -15,12 +13,13 @@ else
 SRC_VARIABLES := $(filter $(FILTER)%, $(sort $(filter-out $(VARS_EXCLUDES) VARS_EXCLUDES, $(.VARIABLES))))
 endif
 
+##@ Environment
+
 .PHONY: env vars _header
 
-env: vars
+env: vars ## Alias for vars
 
-## Print all active configuration variables
-vars: _header
+vars: _header ## Print all active configuration variables
 	$(foreach v, $(SRC_VARIABLES), $(info $(v) = $($(v)))) @#noop
 
 _header:

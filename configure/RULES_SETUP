@@ -1,4 +1,22 @@
-.PHONY: setup
+CHECK_TOOLS := virsh qemu-img genisoimage virt-install uuidgen
+
+VARS_EXCLUDES += CHECK_TOOLS
+
+##@ Host Setup
+
+.PHONY: setup check-tools
 
 setup: ## Verify and install host virtualization prerequisites
 	$(QUIET) $(SETUP_HOST)
+
+check-tools: ## Verify required host tools are present (hints make setup on failure)
+	$(QUIET) missing=""; \
+	for tool in $(CHECK_TOOLS); do \
+	    command -v "$$tool" >/dev/null 2>&1 || missing="$$missing $$tool"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+	    printf "%s\n" "error: missing required tools:$$missing"; \
+	    printf "%s\n" "install the virtualization stack with: make setup"; \
+	    exit 1; \
+	fi; \
+	printf "%s\n" "all required host tools present: $(CHECK_TOOLS)"

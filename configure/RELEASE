@@ -1,13 +1,6 @@
-VM_PREFIX := testbed
-OS_TYPES  := rocky8 debian13 rocky8-iocrunner debian13-iocrunner
-NODE_IDS  := server node1 node2
-
-# Subset of OS_TYPES included in `make all`. Pre-baked variants are
-# excluded so they only build when their bake image is present.
-DEFAULT_OS_TYPES := rocky8 debian13
-
-# Base OS types that the iocrunner bake script accepts.
-BAKE_OS_TYPES := rocky8 debian13
+APPNAME  := cloud-provision
+SRC_URL  := https://github.com/jeonghanlee
+SRC_NAME := $(APPNAME)
 
 -include $(TOP)/../RELEASE.local
 -include $(TOP)/configure/RELEASE.local

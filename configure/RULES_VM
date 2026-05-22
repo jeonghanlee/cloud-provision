@@ -1,24 +1,42 @@
 .DEFAULT_GOAL := help
 
-.PHONY: help all clean status stop
+##@ Help
 
-help:
-	$(info -----------------------------------------)
-	$(info Make Targets)
-	$(info -----------------------------------------)
-	$(QUIET) awk '/^[a-zA-Z._0-9-]+:/ {             \
-	  nb = sub( /^## /, "", helpMsg );               \
-	  if(nb == 0) {                                  \
-	    helpMsg = $$0;                               \
-	    nb = sub( /^[^:]*:.* ## /, "", helpMsg );    \
-	  }                                              \
-	  if (nb)                                        \
-	    print  $$1 "\t" helpMsg;                     \
-	}                                                \
-	{ helpMsg = $$0 }'                               \
-	$(MAKEFILE_LIST) | column -ts:
+.PHONY: help help.detail help.vm
 
-.PHONY: help.vm
+help: ## Show the operator workflow overview
+	$(QUIET) printf "%s\n" "Usage: make <target> [VAR=value]"
+	$(QUIET) printf "\n"
+	$(QUIET) printf "%s\n" "Workflows"
+	$(QUIET) printf "  %-13s %-10s %s\n" "Stage" "Where" "Action"
+	$(QUIET) printf "  %-13s %-10s %s\n" "-----------" "--------" "----------------------------------"
+	$(QUIET) printf "  %-13s %-10s %s\n" "Host setup"  "Terminal" "make setup"
+	$(QUIET) printf "  %-13s %-10s %s\n" "Verify host" "Terminal" "make check-tools"
+	$(QUIET) printf "  %-13s %-10s %s\n" "Bake images" "Terminal" "make bake (optional golden images)"
+	$(QUIET) printf "  %-13s %-10s %s\n" "Provision"   "Terminal" "make all (or make <os>[.<node>])"
+	$(QUIET) printf "  %-13s %-10s %s\n" "Inspect"     "Terminal" "make list / make status"
+	$(QUIET) printf "  %-13s %-10s %s\n" "Teardown"    "Terminal" "make clean"
+	$(QUIET) printf "\n"
+	$(QUIET) printf "%s\n" "Details:  make help.detail   make help.vm   make help.bake"
+	$(QUIET) :
+
+help.detail: ## List every target grouped by section
+	$(QUIET) awk ' \
+	    BEGIN { section = "" } \
+	    /^##@/ { \
+	        section = substr($$0, 5); \
+	        if (seen++) { printf "\n" } \
+	        printf "%s\n", section; \
+	        next; \
+	    } \
+	    /^[a-zA-Z._0-9%-]+:/ { \
+	        msg = $$0; \
+	        if (sub(/^[^:]*:.* ## /, "", msg)) { \
+	            split($$0, t, ":"); \
+	            printf "  %-24s %s\n", t[1], msg; \
+	        } \
+	    }' $(MAKEFILE_LIST)
+	$(QUIET) :
 
 help.vm: ## Show dynamically generated VM targets
 	$(QUIET) printf "\nPer-VM targets (OS in: %s | NODE in: %s):\n" \
@@ -36,20 +54,20 @@ help.vm: ## Show dynamically generated VM targets
 	$(QUIET) printf "  make rocky8.server\n"
 	$(QUIET) printf "  make debian13.node1.clean\n"
 
-## Provision the default OS types (excludes pre-baked variants)
-all: $(DEFAULT_OS_TYPES)
+##@ VM Lifecycle
 
-## Remove all VM domains, disks, and seed ISOs (including baked variants)
-clean: $(addsuffix .clean, $(OS_TYPES))
+.PHONY: all clean status stop
 
-## Check readiness of default VMs (continues on per-OS failure, aggregates exit code)
-status:
+all: $(DEFAULT_OS_TYPES) ## Provision the default OS types (excludes pre-baked variants)
+
+clean: $(addsuffix .clean, $(OS_TYPES)) ## Remove all VM domains, disks, and seed ISOs (incl. baked)
+
+status: ## Check readiness of default VMs (continues on per-OS failure, aggregates exit code)
 	$(QUIET) rc=0; for os in $(DEFAULT_OS_TYPES); do \
 	  $(MAKE) --no-print-directory $$os.status || rc=$$?; \
 	done; exit $$rc
 
-## Stop default VMs (continues on per-OS failure, aggregates exit code)
-stop:
+stop: ## Stop default VMs (continues on per-OS failure, aggregates exit code)
 	$(QUIET) rc=0; for os in $(DEFAULT_OS_TYPES); do \
 	  $(MAKE) --no-print-directory $$os.stop || rc=$$?; \
 	done; exit $$rc

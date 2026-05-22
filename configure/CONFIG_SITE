@@ -3,5 +3,16 @@ LIBVIRT_URI     := qemu:///system
 LIBVIRT_NETWORK := default
 ANSIBLE_DIR     := $(TOP)/../ansible-provision
 
+VM_PREFIX := testbed
+OS_TYPES  := rocky8 debian13 rocky8-iocrunner debian13-iocrunner
+NODE_IDS  := server node1 node2
+
+# Subset of OS_TYPES included in `make all`. Pre-baked variants are
+# excluded so they only build when their bake image is present.
+DEFAULT_OS_TYPES := rocky8 debian13
+
+# Base OS types that the iocrunner bake script accepts.
+BAKE_OS_TYPES := rocky8 debian13
+
 -include $(TOP)/../CONFIG_SITE.local
 -include $(TOP)/configure/CONFIG_SITE.local
