@@ -4,7 +4,7 @@ LIBVIRT_NETWORK := default
 ANSIBLE_DIR     := $(TOP)/../ansible-provision
 
 VM_PREFIX := testbed
-OS_TYPES  := rocky8 debian13 rocky8-iocrunner debian13-iocrunner debian13-ethercat
+OS_TYPES  := rocky8 debian13 rocky8-iocrunner debian13-iocrunner debian13-ethercat debian13-rtbase
 NODE_IDS  := server node1 node2
 
 # Subset of OS_TYPES included in `make all`. Pre-baked variants are

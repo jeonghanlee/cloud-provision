@@ -68,7 +68,12 @@ case "${OS_TYPE}" in
     *) printf "Error: -o must be debian13 (EtherCAT is Debian 13 only; got: %s)\n" "${OS_TYPE}" >&2; exit 1 ;;
 esac
 
-declare -g VM_NAME="${VM_PREFIX}-${OS_TYPE}-${NODE_ID}"
+# The build VM is created from a PINNED Debian release base (create_vm.bash
+# debian13-rtbase), not the moving shared "debian13" daily image, so kernel
+# headers resolve at build time. The flattened OUTPUT keeps the variant-facing
+# ethercat-<os> name that create_vm.bash debian13-ethercat reads.
+declare -g BUILD_OS_TYPE="${OS_TYPE}-rtbase"
+declare -g VM_NAME="${VM_PREFIX}-${BUILD_OS_TYPE}-${NODE_ID}"
 declare -g SOURCE_DISK="${IMAGE_DIR}/${VM_NAME}.qcow2"
 declare -g OUTPUT_IMAGE="${IMAGE_DIR}/ethercat-${OS_TYPE}.qcow2"
 declare -g CREATE_VM="${SC_TOP}/bin/create_vm.bash"
@@ -95,6 +100,7 @@ fi
 printf "%s\n" "------------------------------------------------------------"
 printf "Bake: ethercat base image\n"
 printf "  OS Type    : %s\n" "${OS_TYPE}"
+printf "  Build base : %s (pinned release)\n" "${BUILD_OS_TYPE}"
 printf "  Build VM   : %s\n" "${VM_NAME}"
 printf "  Source disk: %s\n" "${SOURCE_DISK}"
 printf "  Output     : %s\n" "${OUTPUT_IMAGE}"
@@ -105,11 +111,11 @@ printf "%s\n" "------------------------------------------------------------"
 # Step 1: create_vm.bash is idempotent — handles not-defined / shut off /
 # running and polls until SSH + cloud-init are ready before returning.
 printf "\nStep 1/5: Boot %s\n" "${VM_NAME}"
-"${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
+"${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
 
 printf "\nStep 2/5: Refresh known_hosts for VM IP\n"
 declare -g VM_IP
-VM_IP="$("${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
+VM_IP="$("${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
     | awk -F': *' '/^IP Address/ {print $2; exit}')"
 if [[ -z "${VM_IP}" ]]; then
     printf "Error: failed to resolve VM IP\n" >&2
@@ -156,9 +162,9 @@ printf "  Output: %s (%s)\n" "${OUTPUT_IMAGE}" "$(du -h "${OUTPUT_IMAGE}" | awk 
 printf "\nStep 5/5: Cleanup build VM\n"
 if [[ "${KEEP_VM}" == true ]]; then
     printf "  Keeping build VM (use 'bin/create_vm.bash -o %s -n %s -c' to remove later)\n" \
-        "${OS_TYPE}" "${NODE_ID}"
+        "${BUILD_OS_TYPE}" "${NODE_ID}"
 else
-    "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -c
+    "${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -c
 fi
 
 printf "%s\n" "------------------------------------------------------------"
