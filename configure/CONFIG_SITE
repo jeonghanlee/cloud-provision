@@ -4,7 +4,7 @@ LIBVIRT_NETWORK := default
 ANSIBLE_DIR     := $(TOP)/../ansible-provision
 
 VM_PREFIX := testbed
-OS_TYPES  := rocky8 debian13 rocky8-iocrunner debian13-iocrunner
+OS_TYPES  := rocky8 debian13 rocky8-iocrunner debian13-iocrunner debian13-ethercat
 NODE_IDS  := server node1 node2
 
 # Subset of OS_TYPES included in `make all`. Pre-baked variants are
@@ -13,6 +13,10 @@ DEFAULT_OS_TYPES := rocky8 debian13
 
 # Base OS types that the iocrunner bake script accepts.
 BAKE_OS_TYPES := rocky8 debian13
+
+# Base OS types that the ethercat bake script accepts. EtherCAT is Debian 13
+# only, so the ethercat golden image is baked from the debian13 base alone.
+ETHERCAT_BAKE_OS_TYPES := debian13
 
 -include $(TOP)/../CONFIG_SITE.local
 -include $(TOP)/configure/CONFIG_SITE.local
