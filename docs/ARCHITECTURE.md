@@ -258,6 +258,9 @@ section 8 is the contract between this layer and downstream tools.
 | OS baseline (this repo) | `cloud-provision` | this repository |
 | Software deployment | `ansible-provision` | https://github.com/jeonghanlee/ansible-provision |
 
+The canonical seam contract — responsibility boundary, cross-repo naming
+contract, and consumer register — is `ansible-provision/docs/SEAM.md`.
+
 `ansible-provision` reads the same IPs from `inventory/testbed.ini`
 without dynamic discovery, so any change to the IP scheme requires
 coordinated updates in both repositories.
