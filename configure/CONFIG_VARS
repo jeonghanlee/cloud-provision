@@ -1,5 +1,6 @@
-CREATE_VM  := $(TOP)/bin/create_vm.bash
-SETUP_HOST := $(TOP)/bin/setup_host.bash
-BAKE_IMAGE := $(TOP)/bin/bake_iocrunner_image.bash
+CREATE_VM           := $(TOP)/bin/create_vm.bash
+SETUP_HOST          := $(TOP)/bin/setup_host.bash
+BAKE_IMAGE          := $(TOP)/bin/bake_iocrunner_image.bash
+BAKE_ETHERCAT_IMAGE := $(TOP)/bin/bake_ethercat_image.bash
 
-VARS_EXCLUDES += CREATE_VM SETUP_HOST BAKE_IMAGE
+VARS_EXCLUDES += CREATE_VM SETUP_HOST BAKE_IMAGE BAKE_ETHERCAT_IMAGE

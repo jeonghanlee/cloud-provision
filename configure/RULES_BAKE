@@ -9,18 +9,35 @@ endef
 
 VARS_EXCLUDES += bake_targets
 
+# Generates an ethercat bake target for a single base OS.
+# Usage: $(call ethercat_bake_targets, os_type)
+define ethercat_bake_targets
+.PHONY: bake.ethercat.$(1)
+
+bake.ethercat.$(1): ## Bake golden ethercat image for $(1)
+	$(QUIET) $(BAKE_ETHERCAT_IMAGE) -o $(1) -d $(IMAGE_DIR) -a $(ANSIBLE_DIR)
+endef
+
+VARS_EXCLUDES += ethercat_bake_targets
+
 ##@ Image Baking
 
-.PHONY: bake help.bake
+.PHONY: bake bake.ethercat help.bake
 
 bake: $(addprefix bake., $(BAKE_OS_TYPES)) ## Bake golden iocrunner images for all bakeable OS types
 
+bake.ethercat: $(addprefix bake.ethercat., $(ETHERCAT_BAKE_OS_TYPES)) ## Bake golden ethercat images for all ethercat-bakeable OS types
+
 help.bake: ## Show dynamically generated bake targets
-	$(QUIET) printf "\nPer-OS bake targets (OS in: %s):\n" "$(BAKE_OS_TYPES)"
-	$(QUIET) printf "  make bake               Bake all bakeable OS types sequentially\n"
+	$(QUIET) printf "\nPer-OS iocrunner bake targets (OS in: %s):\n" "$(BAKE_OS_TYPES)"
+	$(QUIET) printf "  make bake               Bake all iocrunner OS types sequentially\n"
 	$(QUIET) printf "  make bake.<os>          Bake golden iocrunner image for one OS\n"
+	$(QUIET) printf "\nPer-OS ethercat bake targets (OS in: %s):\n" "$(ETHERCAT_BAKE_OS_TYPES)"
+	$(QUIET) printf "  make bake.ethercat      Bake all ethercat OS types sequentially\n"
+	$(QUIET) printf "  make bake.ethercat.<os> Bake golden ethercat image for one OS\n"
 	$(QUIET) printf "\nExamples:\n"
-	$(QUIET) printf "  make bake.rocky8\n"
 	$(QUIET) printf "  make bake.debian13\n"
+	$(QUIET) printf "  make bake.ethercat.debian13\n"
 
 $(foreach os, $(BAKE_OS_TYPES), $(eval $(call bake_targets,$(os))))
+$(foreach os, $(ETHERCAT_BAKE_OS_TYPES), $(eval $(call ethercat_bake_targets,$(os))))

@@ -35,6 +35,8 @@ declare -g DEBIAN13_IP_BASE=10
 declare -g ROCKY8_IP_BASE=100
 declare -g DEBIAN13_IOCRUNNER_IP_BASE=50
 declare -g ROCKY8_IOCRUNNER_IP_BASE=150
+declare -g DEBIAN13_ETHERCAT_IP_BASE=70
+declare -g DEBIAN13_RTBASE_IP_BASE=80
 declare -g VM_IP=""
 declare -g VM_MAC=""
 
@@ -116,6 +118,21 @@ elif [[ "${OS_TYPE}" == "debian13-iocrunner" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="iocrunner-debian13.qcow2"
     BASE_URL=""
+elif [[ "${OS_TYPE}" == "debian13-ethercat" ]]; then
+    OS_VARIANT="debian13"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="ethercat-debian13.qcow2"
+    BASE_URL=""
+elif [[ "${OS_TYPE}" == "debian13-rtbase" ]]; then
+    # Pinned Debian 13 genericcloud RELEASE image used as the EtherCAT/RT bake
+    # base. Unlike the moving "-daily" image, a dated release has published
+    # kernel headers, so module builds resolve. Bump this pin at least quarterly
+    # (consciously, like ethercat-env SRC_HASH) from
+    # https://cloud.debian.org/images/cloud/trixie/<DATE-BUILD>/.
+    OS_VARIANT="debian13"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="debian-13-genericcloud-amd64-20260601-2496.qcow2"
+    BASE_URL="https://cloud.debian.org/images/cloud/trixie/20260601-2496/debian-13-genericcloud-amd64-20260601-2496.qcow2"
 else
     printf "Error: Unsupported OS type: %s\n" "${OS_TYPE}"
     exit 1
@@ -146,6 +163,8 @@ function resolve_network {
         debian13)           os_base=${DEBIAN13_IP_BASE} ;;
         rocky8-iocrunner)   os_base=${ROCKY8_IOCRUNNER_IP_BASE} ;;
         debian13-iocrunner) os_base=${DEBIAN13_IOCRUNNER_IP_BASE} ;;
+        debian13-ethercat)  os_base=${DEBIAN13_ETHERCAT_IP_BASE} ;;
+        debian13-rtbase)    os_base=${DEBIAN13_RTBASE_IP_BASE} ;;
     esac
 
     case "${NODE_ID}" in
@@ -292,7 +311,7 @@ function verify_base_image {
     if [[ -z "${BASE_URL}" ]]; then
         printf "Error: Base image %s not found and no download URL.\n" \
             "${BASE_IMAGE_FULL_PATH}" >&2
-        printf "Hint: run bin/bake_iocrunner_image.bash to build it first.\n" >&2
+        printf "Hint: run the matching bin/bake_*_image.bash to build it first.\n" >&2
         exit 1
     fi
 
