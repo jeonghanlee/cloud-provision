@@ -169,15 +169,18 @@ from the OS type and node identifier.
 | OS Type              | Range                       |
 |----------------------|-----------------------------|
 | Debian 13            | 192.168.122.10  — .49       |
-| Debian 13 iocrunner  | 192.168.122.50  — .99       |
+| Debian 13 iocrunner  | 192.168.122.50  — .69       |
+| Debian 13 ethercat   | 192.168.122.70  — .79       |
+| Debian 13 rtbase (ethercat bake) | 192.168.122.80 — .99 |
 | Rocky 8.10           | 192.168.122.100 — .149      |
 | Rocky 8.10 iocrunner | 192.168.122.150 — .199      |
 | Other                | 192.168.122.200 — .254      |
 
-The four `*_IP_BASE` constants (`DEBIAN13_IP_BASE=10`,
-`DEBIAN13_IOCRUNNER_IP_BASE=50`, `ROCKY8_IP_BASE=100`,
+The six `*_IP_BASE` constants (`DEBIAN13_IP_BASE=10`,
+`DEBIAN13_IOCRUNNER_IP_BASE=50`, `DEBIAN13_ETHERCAT_IP_BASE=70`,
+`DEBIAN13_RTBASE_IP_BASE=80`, `ROCKY8_IP_BASE=100`,
 `ROCKY8_IOCRUNNER_IP_BASE=150`) live in `bin/create_vm.bash` and
-partition the subnet so iocrunner builds never collide with their
+partition the subnet so variant builds never collide with their
 base OS counterparts.
 
 Custom NODE_IDs (not `server`, `nodeN`, or `test`) are mapped to the
