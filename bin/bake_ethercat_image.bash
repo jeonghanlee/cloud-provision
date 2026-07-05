@@ -26,9 +26,11 @@ declare -g OS_TYPE=""
 declare -g IMAGE_DIR="${IMAGE_DIR:-${HOME}/libvirt/images}"
 declare -g ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${SC_TOP}/../ansible-provision}"
 declare -g KEEP_VM=false
-declare -g VM_PREFIX="testbed"
+declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
 declare -g NODE_ID="server"
 declare -g LIBVIRT_URI="qemu:///system"
+# Ansible inventory for the playbook call; env-overridable per site.
+declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
 
 function print_usage {
     printf "Usage: %s -o <os_type> [options]\n" "$(basename "$0")"
@@ -110,10 +112,10 @@ printf "%s\n" "------------------------------------------------------------"
 
 # Step 1: create_vm.bash is idempotent — handles not-defined / shut off /
 # running and polls until SSH + cloud-init are ready before returning.
-printf "\nStep 1/5: Boot %s\n" "${VM_NAME}"
+printf "\nStep 1/7: Boot %s\n" "${VM_NAME}"
 "${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
 
-printf "\nStep 2/5: Refresh known_hosts for VM IP\n"
+printf "\nStep 2/7: Refresh known_hosts for VM IP\n"
 declare -g VM_IP
 VM_IP="$("${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
     | awk -F': *' '/^IP Address/ {print $2; exit}')"
@@ -125,11 +127,56 @@ ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "${VM_IP}" 2>/dev/null || true
 ssh-keyscan -H "${VM_IP}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null
 printf "  VM_IP=%s [OK]\n" "${VM_IP}"
 
-printf "\nStep 3/5: Apply ansible %s on %s\n" "${ETHERCAT_BASE_PLAYBOOK}" "${VM_NAME}"
-( cd "${ANSIBLE_DIR}" && "${ANSIBLE_PLAYBOOK_BIN}" \
-    -i inventory/testbed.ini --limit "${VM_NAME}" "${ETHERCAT_BASE_PLAYBOOK}" )
+printf "\nStep 3/7: Stamp the bake manifest header\n"
+declare -g CLOUD_HEAD ANSIBLE_HEAD
+CLOUD_HEAD="$(git -C "${SC_TOP}" rev-parse HEAD 2>/dev/null || printf unknown)"
+[[ -n "$(git -C "${SC_TOP}" status --porcelain 2>/dev/null)" ]] && CLOUD_HEAD="${CLOUD_HEAD}-dirty"
+ANSIBLE_HEAD="$(git -C "${ANSIBLE_DIR}" rev-parse HEAD 2>/dev/null || printf unknown)"
+[[ -n "$(git -C "${ANSIBLE_DIR}" status --porcelain 2>/dev/null)" ]] && ANSIBLE_HEAD="${ANSIBLE_HEAD}-dirty"
+ssh "vmadmin@${VM_IP}" "sudo tee /etc/ethercat-bake.manifest >/dev/null" <<MANIFEST
+# ethercat golden bake manifest
+bake_date $(date -u +%FT%TZ)
+cloud-provision ${CLOUD_HEAD}
+ansible-provision ${ANSIBLE_HEAD}
+MANIFEST
+printf "  manifest header stamped [OK]\n"
 
-printf "\nStep 4/5: Shutdown and flatten qcow2\n"
+printf "\nStep 4/7: Apply ansible %s on %s\n" "${ETHERCAT_BASE_PLAYBOOK}" "${VM_NAME}"
+( cd "${ANSIBLE_DIR}" && "${ANSIBLE_PLAYBOOK_BIN}" \
+    -i "${INVENTORY}" --limit "${VM_NAME}" "${ETHERCAT_BASE_PLAYBOOK}" )
+
+printf "\nStep 5/7: De-proxy, verify, copy manifest sidecar\n"
+ssh "vmadmin@${VM_IP}" 'sudo sh -s' <<'DEPROXY'
+set -e
+[ -f /etc/dnf/dnf.conf ] && sed -i '/^proxy=/d' /etc/dnf/dnf.conf
+rm -f /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy \
+      /etc/ssh/sshd_config.d/99proxy.conf /etc/pip.conf
+sed -i '/[Pp][Rr][Oo][Xx][Yy]/d' /etc/environment
+git config --system --unset-all http.proxy 2>/dev/null || true
+git config --system --unset-all https.proxy 2>/dev/null || true
+rm -f /root/.ssh/environment /home/*/.ssh/environment
+DEPROXY
+if ssh "vmadmin@${VM_IP}" 'sudo sh -s' <<'REMNANT'
+set -e
+hits=0
+[ -f /etc/dnf/dnf.conf ] && grep -qsi proxy /etc/dnf/dnf.conf && hits=1
+ls /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy \
+   /etc/ssh/sshd_config.d/99proxy.conf /etc/pip.conf \
+   /root/.ssh/environment /home/*/.ssh/environment 2>/dev/null | grep -q . && hits=1
+grep -qsi proxy /etc/environment && hits=1
+git config --system --get-regexp proxy >/dev/null 2>&1 && hits=1
+exit ${hits}
+REMNANT
+then
+    printf "  de-proxy verified: no remnants [OK]\n"
+else
+    printf "Error: proxy remnants survived the de-proxy step\n" >&2
+    exit 1
+fi
+ssh "vmadmin@${VM_IP}" 'sudo cat /etc/ethercat-bake.manifest' > "${OUTPUT_IMAGE}.manifest.tmp"
+printf "  manifest copied to sidecar [OK]\n"
+
+printf "\nStep 6/7: Shutdown and flatten qcow2\n"
 virsh --connect "${LIBVIRT_URI}" shutdown "${VM_NAME}" >/dev/null
 
 declare -g attempt=0
@@ -157,9 +204,11 @@ fi
 printf "  qemu-img convert (flatten layered qcow2)...\n"
 qemu-img convert -p -O qcow2 "${SOURCE_DISK}" "${OUTPUT_IMAGE}.tmp"
 mv "${OUTPUT_IMAGE}.tmp" "${OUTPUT_IMAGE}"
+mv "${OUTPUT_IMAGE}.manifest.tmp" "${OUTPUT_IMAGE}.manifest"
 printf "  Output: %s (%s)\n" "${OUTPUT_IMAGE}" "$(du -h "${OUTPUT_IMAGE}" | awk '{print $1}')"
+printf "  Manifest sidecar: %s\n" "${OUTPUT_IMAGE}.manifest"
 
-printf "\nStep 5/5: Cleanup build VM\n"
+printf "\nStep 7/7: Cleanup build VM\n"
 if [[ "${KEEP_VM}" == true ]]; then
     printf "  Keeping build VM (use 'bin/create_vm.bash -o %s -n %s -c' to remove later)\n" \
         "${BUILD_OS_TYPE}" "${NODE_ID}"

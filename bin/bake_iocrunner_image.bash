@@ -19,8 +19,12 @@ declare -g OS_TYPE=""
 declare -g IMAGE_DIR="${IMAGE_DIR:-${HOME}/libvirt/images}"
 declare -g ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${SC_TOP}/../ansible-provision}"
 declare -g KEEP_VM=false
-declare -g VM_PREFIX="testbed"
+declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
 declare -g NODE_ID="server"
+# Ansible inventory used for every playbook call below; override via the
+# environment for sites with a custom inventory (kept relative to
+# ANSIBLE_DIR unless absolute).
+declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
 declare -g LIBVIRT_URI="qemu:///system"
 
 function print_usage {
@@ -90,10 +94,10 @@ printf "%s\n" "------------------------------------------------------------"
 
 # Step 1: create_vm.bash is idempotent — handles not-defined / shut off /
 # running and polls until SSH + cloud-init are ready before returning.
-printf "\nStep 1/6: Boot %s\n" "${VM_NAME}"
+printf "\nStep 1/9: Boot %s\n" "${VM_NAME}"
 "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
 
-printf "\nStep 2/6: Refresh known_hosts for VM IP\n"
+printf "\nStep 2/9: Refresh known_hosts for VM IP\n"
 declare -g VM_IP
 VM_IP="$("${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
     | awk -F': *' '/^IP Address/ {print $2; exit}')"
@@ -105,15 +109,77 @@ ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "${VM_IP}" 2>/dev/null || true
 ssh-keyscan -H "${VM_IP}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null
 printf "  VM_IP=%s [OK]\n" "${VM_IP}"
 
-printf "\nStep 3/6: Apply ansible site.yml on %s\n" "${VM_NAME}"
-( cd "${ANSIBLE_DIR}" && "${ANSIBLE_PLAYBOOK_BIN}" \
-    -i inventory/testbed.ini --limit "${VM_NAME}" site.yml )
+# Provenance manifest header (recipe identity). Roles append their own
+# per-clone lines during the plays; Step 7 finalizes and extracts a
+# sidecar copy next to the output image.
+printf "\nStep 3/9: Stamp the bake manifest header\n"
+declare -g CLOUD_HEAD ANSIBLE_HEAD EPICS_ENV_VER EPICS_BASE_VER
+CLOUD_HEAD="$(git -C "${SC_TOP}" rev-parse HEAD 2>/dev/null || printf unknown)"
+[[ -n "$(git -C "${SC_TOP}" status --porcelain 2>/dev/null)" ]] && CLOUD_HEAD="${CLOUD_HEAD}-dirty"
+ANSIBLE_HEAD="$(git -C "${ANSIBLE_DIR}" rev-parse HEAD 2>/dev/null || printf unknown)"
+[[ -n "$(git -C "${ANSIBLE_DIR}" status --porcelain 2>/dev/null)" ]] && ANSIBLE_HEAD="${ANSIBLE_HEAD}-dirty"
+EPICS_ENV_VER="$(grep -E '^epics_env_version:' "${ANSIBLE_DIR}/inventory/group_vars/all.yml" | awk '{print $2}' | tr -d '"')"
+EPICS_BASE_VER="$(grep -E '^epics_base_version:' "${ANSIBLE_DIR}/inventory/group_vars/all.yml" | awk '{print $2}' | tr -d '"')"
+ssh "vmadmin@${VM_IP}" "sudo tee /etc/iocrunner-bake.manifest >/dev/null" <<MANIFEST
+# iocrunner golden bake manifest
+bake_date $(date -u +%FT%TZ)
+os_type ${OS_TYPE}
+cloud-provision ${CLOUD_HEAD}
+ansible-provision ${ANSIBLE_HEAD}
+epics_env_version ${EPICS_ENV_VER:-unknown}
+epics_base_version ${EPICS_BASE_VER:-unknown}
+MANIFEST
+printf "  manifest header stamped [OK]\n"
 
-printf "\nStep 4/6: Apply 04_nfs_sim.yml on %s\n" "${VM_NAME}"
+printf "\nStep 4/9: Apply ansible site.yml on %s\n" "${VM_NAME}"
 ( cd "${ANSIBLE_DIR}" && "${ANSIBLE_PLAYBOOK_BIN}" \
-    -i inventory/testbed.ini --limit "${VM_NAME}" playbooks/04_nfs_sim.yml )
+    -i "${INVENTORY}" --limit "${VM_NAME}" site.yml )
 
-printf "\nStep 5/6: Shutdown and flatten qcow2\n"
+printf "\nStep 5/9: Apply 04_nfs_sim.yml on %s\n" "${VM_NAME}"
+( cd "${ANSIBLE_DIR}" && "${ANSIBLE_PLAYBOOK_BIN}" \
+    -i "${INVENTORY}" --limit "${VM_NAME}" playbooks/04_nfs_sim.yml )
+
+printf "\nStep 6/9: Apply 07_test_users.yml on %s\n" "${VM_NAME}"
+( cd "${ANSIBLE_DIR}" && "${ANSIBLE_PLAYBOOK_BIN}" \
+    -i "${INVENTORY}" --limit "${VM_NAME}" playbooks/07_test_users.yml )
+
+# Finalize the manifest (python state), strip every site-proxy layer the
+# operator may have injected into the build VM (RUNBOOK_BAKE.md), and
+# verify no remnant survives — a golden must never carry site network
+# identity.
+printf "\nStep 7/9: Finalize manifest, de-proxy, verify\n"
+ssh "vmadmin@${VM_IP}" 'sudo sh -c "pip3 freeze 2>/dev/null | sed s/^/pip3\ / >> /etc/iocrunner-bake.manifest || true"'
+ssh "vmadmin@${VM_IP}" 'sudo sh -s' <<'DEPROXY'
+set -e
+[ -f /etc/dnf/dnf.conf ] && sed -i '/^proxy=/d' /etc/dnf/dnf.conf
+rm -f /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy \
+      /etc/ssh/sshd_config.d/99proxy.conf /etc/pip.conf
+sed -i '/[Pp][Rr][Oo][Xx][Yy]/d' /etc/environment
+git config --system --unset-all http.proxy 2>/dev/null || true
+git config --system --unset-all https.proxy 2>/dev/null || true
+rm -f /root/.ssh/environment /home/*/.ssh/environment
+DEPROXY
+if ssh "vmadmin@${VM_IP}" 'sudo sh -s' <<'REMNANT'
+set -e
+hits=0
+grep -qsi proxy /etc/dnf/dnf.conf && hits=1
+ls /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy \
+   /etc/ssh/sshd_config.d/99proxy.conf /etc/pip.conf \
+   /root/.ssh/environment /home/*/.ssh/environment 2>/dev/null | grep -q . && hits=1
+grep -qsi proxy /etc/environment && hits=1
+git config --system --get-regexp proxy >/dev/null 2>&1 && hits=1
+exit ${hits}
+REMNANT
+then
+    printf "  de-proxy verified: no remnants [OK]\n"
+else
+    printf "Error: proxy remnants survived the de-proxy step\n" >&2
+    exit 1
+fi
+ssh "vmadmin@${VM_IP}" 'sudo cat /etc/iocrunner-bake.manifest' > "${OUTPUT_IMAGE}.manifest.tmp"
+printf "  manifest copied to sidecar [OK]\n"
+
+printf "\nStep 8/9: Shutdown and flatten qcow2\n"
 virsh --connect "${LIBVIRT_URI}" shutdown "${VM_NAME}" >/dev/null
 
 declare -g attempt=0
@@ -141,9 +207,11 @@ fi
 printf "  qemu-img convert (flatten layered qcow2)...\n"
 qemu-img convert -p -O qcow2 "${SOURCE_DISK}" "${OUTPUT_IMAGE}.tmp"
 mv "${OUTPUT_IMAGE}.tmp" "${OUTPUT_IMAGE}"
+mv "${OUTPUT_IMAGE}.manifest.tmp" "${OUTPUT_IMAGE}.manifest"
 printf "  Output: %s (%s)\n" "${OUTPUT_IMAGE}" "$(du -h "${OUTPUT_IMAGE}" | awk '{print $1}')"
+printf "  Manifest sidecar: %s\n" "${OUTPUT_IMAGE}.manifest"
 
-printf "\nStep 6/6: Cleanup build VM\n"
+printf "\nStep 9/9: Cleanup build VM\n"
 if [[ "${KEEP_VM}" == true ]]; then
     printf "  Keeping build VM (use 'bin/create_vm.bash -o %s -n %s -c' to remove later)\n" \
         "${OS_TYPE}" "${NODE_ID}"
