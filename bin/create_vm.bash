@@ -676,7 +676,7 @@ if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
         "shut off")
             printf "VM '%s' is shut off. Starting...\n" "${VM_NAME}"
             virsh --connect "${LIBVIRT_URI}" start "${VM_NAME}"
-            wait_for_vm
+            wait_for_vm "retry"
             printf "%s\n" "------------------------------------------------------------"
             printf "READY\n"
             printf "%s\n" "------------------------------------------------------------"
@@ -709,7 +709,7 @@ prepare_disk
 generate_seed
 register_dhcp
 provision_vm
-wait_for_vm
+wait_for_vm "retry"
 
 printf "%s\n" "------------------------------------------------------------"
 printf "READY\n"
