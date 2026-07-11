@@ -141,11 +141,18 @@ so `rocky8-iocrunner` reuses `templates/user-data.rocky8` and
 | debian13             | debian13 | cloud.debian.org/images/cloud/trixie/daily     | apt             |
 | rocky8-iocrunner     | rocky8   | local: `${IMAGE_DIR}/iocrunner-rocky8.qcow2`   | dnf             |
 | debian13-iocrunner   | debian13 | local: `${IMAGE_DIR}/iocrunner-debian13.qcow2` | apt             |
+| epics-env-rocky8     | rocky8   | download.rockylinux.org                        | dnf             |
+| epics-env-debian13   | debian13 | cloud.debian.org/images/cloud/trixie/daily     | apt             |
 
 The `*-iocrunner` variants boot from images produced by section 12
 and are gated out of `make all` via `DEFAULT_OS_TYPES` until their
 golden image is present. They share the base OS variant's cloud-init
 template and boot firmware.
+
+The `epics-env-*` variants boot the plain base cloud image (no golden
+bake) and exist to give the EPICS-env from-source build hosts a dedicated
+IP block distinct from the `testbed` base VMs. `ansible-provision` builds
+EPICS-env from source on top. They are excluded from `make all`.
 
 OS-specific differences are isolated to `templates/user-data.*` and `bin/create_vm.bash`:
 
@@ -176,10 +183,17 @@ from the OS type and node identifier.
 | Rocky 8.10 iocrunner | 192.168.122.150 — .199      |
 | Other                | 192.168.122.200 — .254      |
 
-The six `*_IP_BASE` constants (`DEBIAN13_IP_BASE=10`,
+The EPICS-env from-source build hosts reserve free addresses inside the base
+OS ranges rather than a separate block: `epics-env-debian13` at .20 — .22 and
+`epics-env-rocky8` at .120 — .122. They boot the plain base cloud image (no
+golden bake), so they share the base OS partition but never collide with the
+base VMs, which only occupy the .10 — .12 and .100 — .102 server/node slots.
+
+The eight `*_IP_BASE` constants (`DEBIAN13_IP_BASE=10`,
 `DEBIAN13_IOCRUNNER_IP_BASE=50`, `DEBIAN13_ETHERCAT_IP_BASE=70`,
 `DEBIAN13_RTBASE_IP_BASE=80`, `ROCKY8_IP_BASE=100`,
-`ROCKY8_IOCRUNNER_IP_BASE=150`) live in `bin/create_vm.bash` and
+`ROCKY8_IOCRUNNER_IP_BASE=150`, `EPICSENV_DEBIAN13_IP_BASE=20`,
+`EPICSENV_ROCKY8_IP_BASE=120`) live in `bin/create_vm.bash` and
 partition the subnet so variant builds never collide with their
 base OS counterparts.
 

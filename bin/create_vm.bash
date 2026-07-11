@@ -37,6 +37,8 @@ declare -g DEBIAN13_IOCRUNNER_IP_BASE=50
 declare -g ROCKY8_IOCRUNNER_IP_BASE=150
 declare -g DEBIAN13_ETHERCAT_IP_BASE=70
 declare -g DEBIAN13_RTBASE_IP_BASE=80
+declare -g EPICSENV_DEBIAN13_IP_BASE=20
+declare -g EPICSENV_ROCKY8_IP_BASE=120
 declare -g VM_IP=""
 declare -g VM_MAC=""
 
@@ -141,6 +143,18 @@ elif [[ "${OS_TYPE}" == "debian13-rtbase" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="debian-13-genericcloud-amd64-20260601-2496.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/20260601-2496/debian-13-genericcloud-amd64-20260601-2496.qcow2"
+elif [[ "${OS_TYPE}" == "epics-env-rocky8" ]]; then
+    # EPICS-env from-source build host. Boots the plain Rocky 8 base image
+    # (no golden bake); ansible-provision builds EPICS-env from source on top.
+    OS_VARIANT="rocky8"
+    BASE_IMAGE_NAME="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+    BASE_URL="https://download.rockylinux.org/pub/rocky/8/images/x86_64/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "epics-env-debian13" ]]; then
+    # EPICS-env from-source build host on the plain Debian 13 base image.
+    OS_VARIANT="debian13"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
+    BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
 else
     printf "Error: Unsupported OS type: %s\n" "${OS_TYPE}"
     exit 1
@@ -173,6 +187,8 @@ function resolve_network {
         debian13-iocrunner) os_base=${DEBIAN13_IOCRUNNER_IP_BASE} ;;
         debian13-ethercat)  os_base=${DEBIAN13_ETHERCAT_IP_BASE} ;;
         debian13-rtbase)    os_base=${DEBIAN13_RTBASE_IP_BASE} ;;
+        epics-env-rocky8)   os_base=${EPICSENV_ROCKY8_IP_BASE} ;;
+        epics-env-debian13) os_base=${EPICSENV_DEBIAN13_IP_BASE} ;;
     esac
 
     case "${NODE_ID}" in
