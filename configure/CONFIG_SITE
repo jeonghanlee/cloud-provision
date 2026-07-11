@@ -18,5 +18,12 @@ BAKE_OS_TYPES := rocky8 debian13
 # only, so the ethercat golden image is baked from the debian13 base alone.
 ETHERCAT_BAKE_OS_TYPES := debian13
 
+# EPICS-env from-source build hosts. RAM is higher than the 2048 default
+# because the source build is memory-heavy; inventory and playbook are relative
+# to ANSIBLE_DIR.
+EPICS_ENV_RAM       := 4096
+EPICS_ENV_INVENTORY := inventory/testbed.ini
+EPICS_ENV_PLAYBOOK  := playbooks/08_epics_env_build.yml
+
 -include $(TOP)/../CONFIG_SITE.local
 -include $(TOP)/configure/CONFIG_SITE.local

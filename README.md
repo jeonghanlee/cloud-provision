@@ -37,6 +37,18 @@ make rocky8.node1
 make rocky8.node2
 ```
 
+### EPICS-env from-source build
+
+Provision the two dedicated epics-env VMs (.120 / .20, `EPICS_ENV_RAM` MB each)
+and build EPICS-env from source on each via ansible-provision, in one command.
+Both the VMs and the ansible role are idempotent.
+
+```bash
+make epics-env             # provision both VMs and build EPICS-env from source
+make epics-env.provision   # provision the two VMs only
+make help.epics-env        # show this workflow
+```
+
 ### Status
 
 ```bash
