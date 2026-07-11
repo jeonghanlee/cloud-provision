@@ -60,6 +60,7 @@ function print_usage {
     printf "  -n <node_id>   Node identifier: server, node1, node2, ... (default: test)\n"
     printf "  -d <image_dir> Image storage directory (default: ~/libvirt/images)\n"
     printf "  -p <prefix>    VM name prefix (default: testbed)\n"
+    printf "  -m <mb>        VM memory in MB (default: 2048)\n"
     printf "  -c             Remove VM domain, target disk, and seed ISO\n"
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
     printf "  -S             Graceful shutdown of running VM (ACPI, polls until shut off)\n"
@@ -68,6 +69,7 @@ function print_usage {
     printf "Examples:\n"
     printf "  %s -o rocky8 -n server\n" "$(basename "$0")"
     printf "  %s -o debian13 -n node1\n" "$(basename "$0")"
+    printf "  %s -o rocky8 -n server -m 4096\n" "$(basename "$0")"
     printf "  %s -o rocky8 -n server -s\n" "$(basename "$0")"
     printf "  %s -o rocky8 -n server -c\n" "$(basename "$0")"
 }
@@ -80,12 +82,13 @@ if ! groups "$USER" | grep -q "\b${REQUIRED_GROUP}\b"; then
 fi
 
 # --- Argument Processing ---
-while getopts ":o:n:d:p:csSh" opt; do
+while getopts ":o:n:d:p:m:csSh" opt; do
     case "$opt" in
         o) OS_TYPE="$OPTARG" ;;
         n) NODE_ID="$OPTARG" ;;
         d) IMAGE_DIR="$OPTARG" ;;
         p) VM_PREFIX="$OPTARG" ;;
+        m) VM_RAM="$OPTARG" ;;
         c) DO_CLEANUP=true ;;
         s) DO_STATUS=true ;;
         S) DO_STOP=true ;;
@@ -98,6 +101,11 @@ done
 : "${OS_TYPE:=rocky8}"
 : "${NODE_ID:=test}"
 : "${IMAGE_DIR:=${HOME}/libvirt/images}"
+
+if [[ ! "${VM_RAM}" =~ ^[1-9][0-9]*$ ]]; then
+    printf "Error: -m memory must be a positive integer in MB, got: %s\n" "${VM_RAM}"
+    exit 1
+fi
 
 # --- OS-Specific Configuration ---
 if [[ "${OS_TYPE}" == "rocky8" ]]; then

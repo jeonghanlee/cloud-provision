@@ -147,6 +147,7 @@ Options:
 | `-n` | Node ID: `server`, `node1`, `node2`, ... | `test` (DHCP)      |
 | `-d` | Image storage directory                  | `~/libvirt/images` |
 | `-p` | VM name prefix                           | `testbed`          |
+| `-m` | VM memory in MB                          | `2048`             |
 | `-s` | Check domain, IP, SSH, and cloud-init readiness |             |
 | `-S` | Graceful shutdown (ACPI, polls until shut off) |              |
 | `-c` | Remove VM domain, disk, and seed ISO     |                    |
