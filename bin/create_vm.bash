@@ -21,6 +21,10 @@ declare -g VM_DISK_SIZE="20G"
 declare -g IMAGE_DIR
 declare -g OS_TYPE
 declare -g OS_VARIANT
+# libosinfo id for virt-install when it differs from OS_VARIANT: OS_VARIANT
+# names the cloud-init template, and for an OS newer than the host's osinfo
+# database the nearest known id stands in for device-default selection.
+declare -g OSINFO_VARIANT=""
 declare -g NODE_ID
 declare -g BACKING_FORMAT="qcow2"
 declare -g LIBVIRT_URI="qemu:///system"
@@ -39,6 +43,8 @@ declare -g DEBIAN13_ETHERCAT_IP_BASE=70
 declare -g DEBIAN13_RTBASE_IP_BASE=80
 declare -g EPICSENV_DEBIAN13_IP_BASE=20
 declare -g EPICSENV_ROCKY8_IP_BASE=120
+declare -g EPICSENV_ROCKY10_IP_BASE=130
+declare -g EPICSENV_UBUNTU26_IP_BASE=30
 declare -g VM_IP=""
 declare -g VM_MAC=""
 
@@ -155,6 +161,25 @@ elif [[ "${OS_TYPE}" == "epics-env-debian13" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "epics-env-rocky10" ]]; then
+    # EPICS-env from-source build host on the plain Rocky 10 base image.
+    # RHEL 10 family dropped legacy BIOS boot on x86_64, so UEFI is required;
+    # the host osinfo database tops out at rocky9, which stands in for
+    # device-default selection.
+    OS_VARIANT="rocky10"
+    OSINFO_VARIANT="rocky9"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="Rocky-10-GenericCloud-Base.latest.x86_64.qcow2"
+    BASE_URL="https://download.rockylinux.org/pub/rocky/10/images/x86_64/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "epics-env-ubuntu26" ]]; then
+    # EPICS-env from-source build host on the plain Ubuntu 26.04 LTS base
+    # image (codename resolute). The host osinfo database tops out at
+    # ubuntu25.10, which stands in for device-default selection.
+    OS_VARIANT="ubuntu26"
+    OSINFO_VARIANT="ubuntu25.10"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="resolute-server-cloudimg-amd64.img"
+    BASE_URL="https://cloud-images.ubuntu.com/resolute/current/${BASE_IMAGE_NAME}"
 else
     printf "Error: Unsupported OS type: %s\n" "${OS_TYPE}"
     exit 1
@@ -189,6 +214,8 @@ function resolve_network {
         debian13-rtbase)    os_base=${DEBIAN13_RTBASE_IP_BASE} ;;
         epics-env-rocky8)   os_base=${EPICSENV_ROCKY8_IP_BASE} ;;
         epics-env-debian13) os_base=${EPICSENV_DEBIAN13_IP_BASE} ;;
+        epics-env-rocky10)  os_base=${EPICSENV_ROCKY10_IP_BASE} ;;
+        epics-env-ubuntu26) os_base=${EPICSENV_UBUNTU26_IP_BASE} ;;
     esac
 
     case "${NODE_ID}" in
@@ -436,7 +463,7 @@ function provision_vm {
         --disk path="${CLOUD_INIT_ISO}",device=cdrom,bus=sata \
         --import \
         --network "${net_args}" \
-        --os-variant "${OS_VARIANT}" \
+        --os-variant "${OSINFO_VARIANT:-${OS_VARIANT}}" \
         --graphics none \
         "${boot_args[@]+"${boot_args[@]}"}" \
         --noautoconsole

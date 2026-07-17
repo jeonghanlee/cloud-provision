@@ -1,0 +1,28 @@
+#cloud-config
+
+ssh_pwauth: false
+
+users:
+  - name: vmadmin
+    gecos: System Administrator
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+
+packages:
+  - git
+  - vim
+  - tmux
+  - net-tools
+  - autoconf
+  - automake
+  - gcc
+  - make
+  - libssl-dev
+
+timezone: America/Los_Angeles
+
+final_message: "Ubuntu 26.04 ready after $UPTIME seconds"

@@ -1,18 +1,26 @@
 ##@ EPICS-env source build
 
-.PHONY: epics-env epics-env.provision help.epics-env
+.PHONY: epics-env epics-env.provision epics-env.provision.matrix help.epics-env
 
-# Provision both epics-env VMs (dedicated .120 / .20 block, EPICS_ENV_RAM MB
-# each) and build EPICS-env from source on each via ansible-provision. Both the
-# VM provisioning and the ansible role are idempotent, so re-running is safe.
-epics-env: epics-env.provision ## Provision both epics-env VMs and build EPICS-env from source
-	$(QUIET) cd $(ANSIBLE_DIR) && ansible-playbook -i $(EPICS_ENV_INVENTORY) $(EPICS_ENV_PLAYBOOK) --limit epics_env_build
+# Provision the two core epics-env VMs (dedicated .120 / .20 block,
+# EPICS_ENV_RAM MB each) and build EPICS-env from source on each via
+# ansible-provision. Both the VM provisioning and the ansible role are
+# idempotent, so re-running is safe. The core group carries the internal
+# distribution targets; the matrix VMs below extend the OS coverage for the
+# public distribution and are driven with their own ansible invocations.
+epics-env: epics-env.provision ## Provision both core epics-env VMs and build EPICS-env from source
+	$(QUIET) cd $(ANSIBLE_DIR) && ansible-playbook -i $(EPICS_ENV_INVENTORY) $(EPICS_ENV_PLAYBOOK) --limit epics_env_core
 
-epics-env.provision: ## Provision the two epics-env VMs without building
+epics-env.provision: ## Provision the two core epics-env VMs without building
 	$(QUIET) $(CREATE_VM) -o epics-env-rocky8   -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 	$(QUIET) $(CREATE_VM) -o epics-env-debian13 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 
+epics-env.provision.matrix: ## Provision the rocky10 and ubuntu26 matrix VMs without building
+	$(QUIET) $(CREATE_VM) -o epics-env-rocky10  -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+	$(QUIET) $(CREATE_VM) -o epics-env-ubuntu26 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+
 help.epics-env: ## Show the epics-env source-build workflow
 	$(QUIET) printf "\nEPICS-env from-source build (%s MB RAM per VM):\n" "$(EPICS_ENV_RAM)"
-	$(QUIET) printf "  make epics-env            Provision both VMs and build EPICS-env from source\n"
-	$(QUIET) printf "  make epics-env.provision  Provision the two VMs only\n"
+	$(QUIET) printf "  make epics-env                   Provision both core VMs and build EPICS-env from source\n"
+	$(QUIET) printf "  make epics-env.provision         Provision the two core VMs only\n"
+	$(QUIET) printf "  make epics-env.provision.matrix  Provision the rocky10/ubuntu26 matrix VMs only\n"
