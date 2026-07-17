@@ -536,7 +536,7 @@ function wait_for_vm {
     # Static IP: skip polling, go straight to readiness check
     if [[ -n "${ip_addr}" ]]; then
         wait_for_ssh "${ip_addr}" "${mode}" || return 1
-        wait_for_cloud_init "${ip_addr}" "${mode}"
+        wait_for_cloud_init "${ip_addr}" "${mode}" || return 1
 
         printf "%s\n" "------------------------------------------------------------"
         printf "VM Name    : %s\n" "${VM_NAME}"
@@ -559,7 +559,7 @@ function wait_for_vm {
 
         if [[ -n "${ip_addr}" ]]; then
             wait_for_ssh "${ip_addr}" "${mode}" || return 1
-            wait_for_cloud_init "${ip_addr}" "${mode}"
+            wait_for_cloud_init "${ip_addr}" "${mode}" || return 1
 
             printf "%s\n" "------------------------------------------------------------"
             printf "VM Name    : %s\n" "${VM_NAME}"
@@ -618,7 +618,9 @@ function wait_for_ssh {
 function wait_for_cloud_init {
     local ip_addr="$1"
     local mode="${2:-retry}"
-    local max_retry=6
+    # Budget covers a package-installing cloud-init: Rocky 8 spends its final
+    # stage on dnf (gcc, make, openssl-devel) and has been measured at ~490s.
+    local max_retry=20
     local interval=30
     local attempt=0
     local status
@@ -645,6 +647,7 @@ function wait_for_cloud_init {
     done
 
     printf "cloud-init: not complete after %s attempts.\n" "${max_retry}"
+    return 1
 }
 
 # --- Main ---
@@ -692,7 +695,7 @@ if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
         "shut off")
             printf "VM '%s' is shut off. Starting...\n" "${VM_NAME}"
             virsh --connect "${LIBVIRT_URI}" start "${VM_NAME}"
-            wait_for_vm "retry"
+            wait_for_vm "retry" || exit 1
             printf "%s\n" "------------------------------------------------------------"
             printf "READY\n"
             printf "%s\n" "------------------------------------------------------------"
@@ -725,7 +728,7 @@ prepare_disk
 generate_seed
 register_dhcp
 provision_vm
-wait_for_vm "retry"
+wait_for_vm "retry" || exit 1
 
 printf "%s\n" "------------------------------------------------------------"
 printf "READY\n"
