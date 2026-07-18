@@ -45,6 +45,7 @@ declare -g EPICSENV_DEBIAN13_IP_BASE=20
 declare -g EPICSENV_ROCKY8_IP_BASE=120
 declare -g EPICSENV_ROCKY10_IP_BASE=130
 declare -g EPICSENV_UBUNTU26_IP_BASE=30
+declare -g EPICSENV_UBUNTU24_IP_BASE=40
 declare -g VM_IP=""
 declare -g VM_MAC=""
 
@@ -171,6 +172,14 @@ elif [[ "${OS_TYPE}" == "epics-env-rocky10" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="Rocky-10-GenericCloud-Base.latest.x86_64.qcow2"
     BASE_URL="https://download.rockylinux.org/pub/rocky/10/images/x86_64/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "epics-env-ubuntu24" ]]; then
+    # EPICS-env from-source build host on the plain Ubuntu 24.04 LTS base
+    # image (codename noble); carried for full-coverage distribution builds.
+    OS_VARIANT="ubuntu24"
+    OSINFO_VARIANT="ubuntu24.04"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="noble-server-cloudimg-amd64.img"
+    BASE_URL="https://cloud-images.ubuntu.com/noble/current/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "epics-env-ubuntu26" ]]; then
     # EPICS-env from-source build host on the plain Ubuntu 26.04 LTS base
     # image (codename resolute). The host osinfo database tops out at
@@ -216,6 +225,7 @@ function resolve_network {
         epics-env-debian13) os_base=${EPICSENV_DEBIAN13_IP_BASE} ;;
         epics-env-rocky10)  os_base=${EPICSENV_ROCKY10_IP_BASE} ;;
         epics-env-ubuntu26) os_base=${EPICSENV_UBUNTU26_IP_BASE} ;;
+        epics-env-ubuntu24) os_base=${EPICSENV_UBUNTU24_IP_BASE} ;;
     esac
 
     case "${NODE_ID}" in
