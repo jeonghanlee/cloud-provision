@@ -15,7 +15,7 @@ SC_TOP="$(realpath "${SC_TOP}")"
 # --- Global Configuration ---
 declare -g VM_PREFIX="testbed"
 declare -g VM_NAME
-declare -g VM_RAM=2048
+declare -g VM_RAM=4096  # source builds are memory-heavy; per-VM recreate targets rely on this default
 declare -g VM_VCPUS=2
 declare -g VM_DISK_SIZE="20G"
 declare -g IMAGE_DIR
@@ -69,7 +69,7 @@ function print_usage {
     printf "  -n <node_id>   Node identifier: server, node1, node2, ... (default: test)\n"
     printf "  -d <image_dir> Image storage directory (default: ~/libvirt/images)\n"
     printf "  -p <prefix>    VM name prefix (default: testbed)\n"
-    printf "  -m <mb>        VM memory in MB (default: 2048)\n"
+    printf "  -m <mb>        VM memory in MB (default: 4096)\n"
     printf "  -c             Remove VM domain, target disk, and seed ISO\n"
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
     printf "  -S             Graceful shutdown of running VM (ACPI, polls until shut off)\n"
