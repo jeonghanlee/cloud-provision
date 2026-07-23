@@ -155,7 +155,7 @@ Options:
 
 | Flag | Description                              | Default            |
 |------|------------------------------------------|--------------------|
-| `-o` | OS type: `rocky8`, `debian13`, `rocky8-iocrunner`, `debian13-iocrunner` | `rocky8` |
+| `-o` | OS type: `rocky8`, `debian13`, `rocky8-iocrunner`, `debian13-iocrunner`, `debian13-ethercat`, `debian13-rtbase`, `epics-env-rocky8`, `epics-env-debian13`, `epics-env-rocky10`, `epics-env-ubuntu26`, `epics-env-ubuntu24` | `rocky8` |
 | `-n` | Node ID: `server`, `node1`, `node2`, ... | `test` (DHCP)      |
 | `-d` | Image storage directory                  | `~/libvirt/images` |
 | `-p` | VM name prefix                           | `testbed`          |

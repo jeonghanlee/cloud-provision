@@ -2,7 +2,7 @@
 
 ##@ Help
 
-.PHONY: help help.detail help.vm
+.PHONY: help help.detail help.vm check-vm-help
 
 help: ## Show the operator workflow overview
 	$(QUIET) printf "%s\n" "Usage: make <target> [VAR=value]"
@@ -53,6 +53,20 @@ help.vm: ## Show dynamically generated VM targets
 	$(QUIET) printf "  make rocky8\n"
 	$(QUIET) printf "  make rocky8.server\n"
 	$(QUIET) printf "  make debian13.node1.clean\n"
+
+check-vm-help: ## Verify documented VM OS type lists
+	$(QUIET) output="$$($(CREATE_VM) -h)"; \
+	for os in $(OS_TYPES); do \
+	    printf "%s\n" "$$output" | grep -F "$$os" >/dev/null || { \
+	        printf "error: %s missing from %s -h\n" "$$os" "$(CREATE_VM)"; \
+	        exit 1; \
+	    }; \
+	    grep -F "$$os" README.md >/dev/null || { \
+	        printf "error: %s missing from README.md\n" "$$os"; \
+	        exit 1; \
+	    }; \
+	done; \
+	printf "%s\n" "VM help lists all OS_TYPES: $(OS_TYPES)"
 
 ##@ VM Lifecycle
 
