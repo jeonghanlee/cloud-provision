@@ -22,7 +22,7 @@ if [[ "${OS_ID}" == "rocky" ]]; then
     PKG_LIST="libvirt virt-install qemu-kvm genisoimage util-linux"
 elif [[ "${OS_ID}" == "debian" ]]; then
     PKG_CMD="apt"
-    PKG_LIST="libvirt-daemon-system virt-install qemu-system-x86 genisoimage uuid-runtime"
+    PKG_LIST="libvirt-daemon-system virt-install qemu-system-x86 qemu-utils genisoimage uuid-runtime"
 else
     printf "Error: Unsupported host OS: %s\n" "${OS_ID:-unknown}"
     exit 1
