@@ -43,7 +43,7 @@ External wait:  M1.5 ← G1 · M3.3 ← G2
 Operator action: run the Rocky 8 downstream validation recorded by G1
 Backlog forwarding: none.
 
-Next session entry point: start M2.2 from issue #13 in README.md and bin/create_vm.bash; preserve the completed 2048 MB behavior.
+Next session entry point: start M2.2 from issue #13 in README.md and bin/create_vm.bash; align the default VM memory behavior to 4096 MB.
 ```
 
 Tally: 13 tasks - ✅ 5 · 🔄 0 · ⬜ 6 · 🔒 2 / ready(▶) 6 · external gates 2 (G1 · G2)
@@ -67,8 +67,8 @@ The `Group` cell is written once per group; continuation rows are blank.
 | | M1.3 | Retire the 2026-05-13 Rocky 8 sudoers defect | ✅ | | | Superseded by M1.1, whose bake applied the `ansible-provision` sudoers `includedir` ordering change. |
 | | M1.4 | [Preserve pinned golden images across rebakes (#2)](https://github.com/jeonghanlee/cloud-provision/issues/2) | ⬜ | ▶ | | Rebakes use new filenames, pinned images remain until downstream pins advance, and the retention rule is documented. |
 | | M1.5 | [Validate the Rocky 8 golden after the sudoers fix (#4)](https://github.com/jeonghanlee/cloud-provision/issues/4) | 🔒 | | ← G1 | The real `rocky8-iocrunner.server` path passes the downstream system-infrastructure and system-lifecycle checks, with commands and results recorded. |
-| M2 VM provisioning configuration | M2.1 | [Pass `EPICS_ENV_RAM` to per-VM recreate targets (#3)](https://github.com/jeonghanlee/cloud-provision/issues/3) | ✅ | | | Commit `7286a6b` passes `EPICS_ENV_RAM` explicitly to generated EPICS-env per-VM targets, restores `VM_RAM` and executable help to 2048 MB, passed V001 V002 V003 V004, and has accepted implementation review with final handoff `hand20260723_135020`. |
-| | M2.2 | [Synchronize the documented default VM memory (#13)](https://github.com/jeonghanlee/cloud-provision/issues/13) | ⬜ | ▶ | ← M2.1 | `README.md`, executable help, and the default passed to `virt-install` agree after M2.1 establishes the final value. |
+| M2 VM provisioning configuration | M2.1 | [Pass `EPICS_ENV_RAM` to per-VM recreate targets (#3)](https://github.com/jeonghanlee/cloud-provision/issues/3) | ✅ | | | Commit `7286a6b` passes `EPICS_ENV_RAM` explicitly to generated EPICS-env per-VM targets, passed V001 V002 V003 V004, and has accepted implementation review with final handoff `hand20260723_135020`. |
+| | M2.2 | [Synchronize the documented default VM memory (#13)](https://github.com/jeonghanlee/cloud-provision/issues/13) | ⬜ | ▶ | ← M2.1 | `README.md`, executable help, and the default passed to `virt-install` agree on 4096 MB. |
 | | M2.3 | [Install `qemu-utils` explicitly on Debian hosts (#5)](https://github.com/jeonghanlee/cloud-provision/issues/5) | ✅ | | | Commit `3da8726` adds `qemu-utils` to the Debian package list. On 2026-07-23, disposable Debian 13 VM `m2qemu-debian13-m23qemu` verified `APT::Install-Recommends "false";`, `qemu-img` absent before setup, `make setup` exit 0, `qemu-img` present afterward, and `make check-tools` exit 0. |
 | | M2.4 | [List every supported OS type in `create_vm.bash` help (#8)](https://github.com/jeonghanlee/cloud-provision/issues/8) | ⬜ | ▶ | | Executable help and README list every accepted `OS_TYPE`; a repository check detects future omissions. |
 | | M2.5 | [Centralize the required `libvirt` group (#9)](https://github.com/jeonghanlee/cloud-provision/issues/9) | ⬜ | ▶ | | Host setup and VM provisioning resolve membership checks and operator guidance from one maintained value; the default remains `libvirt`. |
