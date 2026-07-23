@@ -1,45 +1,99 @@
-# Milestone Register
+# Work Register
 
-Next session entry point: boot `rocky8-iocrunner.server` from `${HOME}/libvirt/images/iocrunner-rocky8.qcow2` and rerun the downstream ioc-runner validation that previously reported the Rocky 8 sudoers `includedir` failure.
+Repository-local canonical tracker for `Nimbus - Cloud Provisioning
+Reliability` in `cloud-provision`. This register is agent-independent: every
+agent and contributor reads this file instead of chat history or per-agent
+memory.
 
-This register tracks repository work status and handoff state. Golden qcow2
-artifacts live under `IMAGE_DIR` and are not committed to this repository.
+Mode: GitHub-authoritative for issue membership and issue state; register-authoritative for grouping, dependencies, decisions, and handoff.
 
-## Work Register
+## Format
 
-| Topic | Work unit | Type | Status | Evidence or next action |
-| --- | --- | --- | --- | --- |
-| iocrunner golden images | Rocky 8 golden refresh | Milestone | Complete | `make bake.rocky8` completed on 2026-06-03. Output `${HOME}/libvirt/images/iocrunner-rocky8.qcow2` is qcow2, 20 GiB virtual, 4.43 GiB disk, and `corrupt: false`; `base_os` sudoers `includedir` ordering reported `changed` during bake. |
-| iocrunner golden images | Rocky 8 post-bake validation | Carry-forward | Open | Boot with `make rocky8-iocrunner.server` and rerun the system-infra and system-lifecycle checks that previously saw one sudoers ordering failure on the 2026-05-13 Rocky 8 golden. |
-| iocrunner golden images | Debian 13 current golden check | Milestone | Complete | Current Debian 13 golden was observed clean for setup 8/8 and system-infra 41/41; prior `acl` and `logrotate` omissions are not observed on this golden. |
-| iocrunner golden images | 2026-05-13 Rocky 8 sudoers defect | Carry-forward | Complete | Superseded by the 2026-06-03 Rocky 8 bake that includes ansible-provision sudoers `includedir` ordering. |
-| Conceptual integrity 2026-06-04 | C1 setup install vs verify mismatch | Coherence finding | Open | `setup_host.bash:25` Debian branch installs `qemu-system-x86`, but `qemu-img` (required by `create_vm.bash:283,311`) ships in `qemu-utils`, which `qemu-system-x86` only `Recommends` — verified via `apt-cache depends` on this Debian 13 host. With `--no-install-recommends`, setup completes yet `make check-tools` reports qemu-img MISSING. **Fate: Replace** — add `qemu-utils` to the Debian `PKG_LIST`. |
-| Conceptual integrity 2026-06-04 | C2 cloud-init "done" decided twice | Coherence finding | Open | `create_vm.bash` decides "cloud-init done" two ways: `print_status_report:466-469` parses the `status:` field and compares `== "done"`; `wait_for_cloud_init:587` substring-matches `*"done"*` on raw output. Equivalent today, divergent logic for one concept. **Fate: Generalize** (single helper) or Keep with a note. |
-| Conceptual integrity 2026-06-04 | C3 VM_NAME formula duplicated | Coherence finding | Open | `VM_NAME` formula plus `VM_PREFIX`/`IMAGE_DIR`/`LIBVIRT_URI` defaults are recomputed independently in `create_vm.bash:16,27,98,131` and `bake_iocrunner_image.bash:19,23,24,64`. All agree now; `bake` derives `SOURCE_DISK:65` from its own copy, so a naming change in `create_vm` would silently break the bake disk path. **Fate: Keep** (small tool) or Generalize — owner decision. |
-| Conceptual integrity 2026-06-04 | C4 -h usage lists 2 of 4 OS types | Coherence finding | Open | `create_vm.bash` `print_usage:57,67-70` advertises only `rocky8`/`debian13`, but the script accepts four (`101-122,144-149`) and `README.md:146` documents all four — the script's own help disagrees with its behavior and the README. **Fate: Replace** — update the usage text. |
-| Conceptual integrity 2026-06-04 | C5 required-group decided twice | Coherence finding | Open | The libvirt group a user must belong to is decided in two places: `create_vm.bash:29,74` via `REQUIRED_GROUP="libvirt"`, and `setup_host.bash:85,88` as the hardcoded literal `\blibvirt\b` plus the `usermod -aG libvirt` hint. They agree now; a change in one would not reach the other. **Fate: Keep** or Generalize. |
-| Conceptual integrity 2026-06-04 | C6 shutdown-poll implemented twice | Coherence finding | Open | "Graceful shutdown then poll `domstate` until `shut off`" is implemented twice: `create_vm.bash:240-277` (`do_stop`, 12×5s = 60s, exposed via `-S`) and `bake_iocrunner_image.bash:117-134` (24×5s = 120s, open-coded). bake bypasses the `-S` action create_vm already exposes. Premise: bake likely wants a longer margin after applying ansible, so not a defect. **Fate: Generalize/Replace** (bake calls `create_vm -S`) or Keep (120s margin intentional). |
+- Two levels: `M<group>` (workstream) / `M<group>.<task>` (work unit).
+  Verification and evidence live in the task's Done-when column.
+- Tracking IDs: **M** (work) · **G** (external gate) · **D** (decision).
+- Dependencies are typed arrows: `← M..` (prior task) · `← G..` (external gate)
+  · `← D..` (decision).
+- Status (✅ done · 🔄 in progress · ⬜ not started · 🔒 blocked) and Next
+  (▶ ready - startable now) are kept separate. A group's status and the ready
+  set derive from its tasks and dependency arrows.
 
-## Conceptual integrity review — 2026-06-04
+### Migration map
 
-Run via the `conceptual-integrity` skill ("The Flash of Remembering" lens). The
-findings above (C1-C4) are the open seams. Seams verified **coherent** the same
-day, recorded so they are not re-reviewed from scratch:
+| Previous ID | Current ID | GitHub issue |
+| :-- | :-- | :-- |
+| C1 | M2.3 | [#5](https://github.com/jeonghanlee/cloud-provision/issues/5) |
+| C2 | M3.1 | [#6](https://github.com/jeonghanlee/cloud-provision/issues/6) |
+| C3 | M3.2 | [#7](https://github.com/jeonghanlee/cloud-provision/issues/7) |
+| C4 | M2.4 | [#8](https://github.com/jeonghanlee/cloud-provision/issues/8) |
+| C5 | M2.5 | [#9](https://github.com/jeonghanlee/cloud-provision/issues/9) |
+| C6 | M3.3 | [#11](https://github.com/jeonghanlee/cloud-provision/issues/11) |
 
-- bake output name `iocrunner-${OS_TYPE}.qcow2` (`bake_iocrunner_image.bash:66`)
-  equals the `*-iocrunner` `BASE_IMAGE_NAME` (`create_vm.bash:112,117`) for both
-  rocky8 and debian13 — the critical cross-script seam holds.
-- `CHECK_TOOLS` (`RULES_SETUP`) equals `setup_host.bash:32` `BINARIES`.
-- `ARCHITECTURE.md` IP / VM-name / template tables match `create_vm.bash`.
+## Now / Next (2026-07-23)
 
-Second pass (same day) added C5-C6 and verified two more seams coherent:
+```
+In progress (🔄):  none
+Done before Nimbus: M1.1 · M1.2 · M1.3
 
-- `OS_VARIANT` values `rocky8`/`debian13` (`create_vm.bash:102,106,111,116`) are
-  valid osinfo IDs for `virt-install --os-variant` and double as the cloud-init
-  template suffix `templates/user-data.${OS_VARIANT}` — both roles hold (checked
-  with `virt-install --osinfo list`).
-- `ARCHITECTURE.md` non-iocrunner IPs (.10/.11/.12, .100/.101/.102) match the
-  code IP bases `DEBIAN13_IP_BASE=10` / `ROCKY8_IP_BASE=100`.
+Next entry points:
+  ▶ ready now:   M2.3 · M1.4 · M2.1 · M2.4 · M2.5 · M3.1 · M3.2
+  planned order: M2.1 → M2.2
 
-Ranking: C1 is latent-but-reachable; C2-C6 are latent or cosmetic and agree in
-current output.
+External wait:  M1.5 ← G1 · M3.3 ← G2
+Operator action: run the Rocky 8 downstream validation recorded by G1
+
+Next session entry point: redefine M2.3 in issue #5 from `bin/setup_host.bash` and `configure/RULES_SETUP`, deciding whether post-install verification belongs in the same task before implementation planning.
+```
+
+Tally: 13 tasks - ✅ 3 · 🔄 0 · ⬜ 7 · 🔒 3 / ready(▶) 7 · external gates 2 (G1 · G2)
+
+## Groups (L1)
+
+| Group | Name | Progress | Status | Next |
+| :-- | :-- | :-- | :-- | :-- |
+| M1 | Golden image lifecycle | 3/5 | ⬜ | ▶ M1.4 |
+| M2 | VM provisioning configuration | 0/5 | ⬜ | ▶ M2.3 |
+| M3 | Shared behavior consistency | 0/3 | ⬜ | ▶ M3.1 |
+
+## Tasks (L2)
+
+The `Group` cell is written once per group; continuation rows are blank.
+
+| Group | ID | Task | Status | Next | Deps | Done when / Evidence |
+| :-- | :-- | :-- | :-- | :-: | :-- | :-- |
+| M1 Golden image lifecycle | M1.1 | Refresh the Rocky 8 golden image | ✅ | | | `make bake.rocky8` completed on 2026-06-03. The resulting 20 GiB qcow2 reported 4.43 GiB disk use and `corrupt: false`. |
+| | M1.2 | Check the current Debian 13 golden image | ✅ | | | The shipped setup path reported 8/8 and system-infrastructure validation reported 41/41; the prior `acl` and `logrotate` omissions were not observed. |
+| | M1.3 | Retire the 2026-05-13 Rocky 8 sudoers defect | ✅ | | | Superseded by M1.1, whose bake applied the `ansible-provision` sudoers `includedir` ordering change. |
+| | M1.4 | [Preserve pinned golden images across rebakes (#2)](https://github.com/jeonghanlee/cloud-provision/issues/2) | ⬜ | ▶ | | Rebakes use new filenames, pinned images remain until downstream pins advance, and the retention rule is documented. |
+| | M1.5 | [Validate the Rocky 8 golden after the sudoers fix (#4)](https://github.com/jeonghanlee/cloud-provision/issues/4) | 🔒 | | ← G1 | The real `rocky8-iocrunner.server` path passes the downstream system-infrastructure and system-lifecycle checks, with commands and results recorded. |
+| M2 VM provisioning configuration | M2.1 | [Pass `EPICS_ENV_RAM` to per-VM recreate targets (#3)](https://github.com/jeonghanlee/cloud-provision/issues/3) | ⬜ | ▶ | | Per-VM recreate targets pass `EPICS_ENV_RAM` explicitly; the global VM default returns to 2048 MB after the generated and real recreate paths are verified. |
+| | M2.2 | [Synchronize the documented default VM memory (#13)](https://github.com/jeonghanlee/cloud-provision/issues/13) | 🔒 | | ← M2.1 | `README.md`, executable help, and the default passed to `virt-install` agree after M2.1 establishes the final value. |
+| | M2.3 | [Install `qemu-utils` explicitly on Debian hosts (#5)](https://github.com/jeonghanlee/cloud-provision/issues/5) | ⬜ | ▶ | | The real Debian host setup path installs `qemu-img` with recommended packages disabled, and `make check-tools` passes afterward. |
+| | M2.4 | [List every supported OS type in `create_vm.bash` help (#8)](https://github.com/jeonghanlee/cloud-provision/issues/8) | ⬜ | ▶ | | Executable help and README list every accepted `OS_TYPE`; a repository check detects future omissions. |
+| | M2.5 | [Centralize the required `libvirt` group (#9)](https://github.com/jeonghanlee/cloud-provision/issues/9) | ⬜ | ▶ | | Host setup and VM provisioning resolve membership checks and operator guidance from one maintained value; the default remains `libvirt`. |
+| M3 Shared behavior consistency | M3.1 | [Centralize cloud-init completion parsing (#6)](https://github.com/jeonghanlee/cloud-provision/issues/6) | ⬜ | ▶ | | Both public script actions use one parser and agree on complete, incomplete, and malformed real command output. |
+| | M3.2 | [Keep VM naming defaults consistent across provision and bake paths (#7)](https://github.com/jeonghanlee/cloud-provision/issues/7) | ⬜ | ▶ | | Both paths derive the same VM name and source disk from one maintained definition while `VM_PREFIX` and `IMAGE_DIR` overrides continue to work. |
+| | M3.3 | [Reuse VM stop behavior in the iocrunner bake (#11)](https://github.com/jeonghanlee/cloud-provision/issues/11) | 🔒 | | ← G2 | The required bake timeout is decided; the shared or explicitly separate paths cover successful shutdown, timeout, and unexpected state. |
+
+## External gates (G)
+
+| G | What | Blocks | Status | Evidence |
+| :-- | :-- | :-- | :-- | :-- |
+| G1 | Run downstream validation on the 2026-06-03 Rocky 8 golden image | M1.5 | Open | Requires the real golden image, `rocky8-iocrunner.server`, and the downstream ioc-runner validation environment. |
+| G2 | Confirm whether the iocrunner bake requires its 120-second shutdown allowance | M3.3 | Open | Owner decision required before the bake can share the provisioner's 60-second stop behavior. |
+
+## Decisions (D)
+
+| D | Content | Decided in |
+| :-- | :-- | :-- |
+| D1 | Use `Nimbus - Cloud Provisioning Reliability` as the current non-versioned reliability milestone. | [GitHub milestone 1](https://github.com/jeonghanlee/cloud-provision/milestone/1), 2026-07-23 |
+| D2 | Organize the register as three workstream groups with `M<group>.<task>` identifiers and retain completed golden-image history in M1. | Work Register consolidation, 2026-07-23 |
+
+## Conventions
+
+- The register is written in English; status markers use the emoji set above.
+- One task row is one deliverable plus its verification.
+- `Progress` is done/total tasks in the group. Group status and the ready set
+  derive from task status and dependency arrows.
+- GitHub controls issue membership and open/closed state. This register controls
+  workstream grouping, dependency edges, decisions, and the next-session handoff.
