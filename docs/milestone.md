@@ -33,26 +33,26 @@ Mode: GitHub-authoritative for issue membership and issue state; register-author
 
 ```
 In progress (🔄):  none
-Done before Nimbus: M1.1 · M1.2 · M1.3
+Done before Nimbus: M1.1 · M1.2 · M1.3 · M2.3
 
 Next entry points:
-  ▶ ready now:   M2.3 · M1.4 · M2.1 · M2.4 · M2.5 · M3.1 · M3.2
+  ▶ ready now:   M1.4 · M2.1 · M2.4 · M2.5 · M3.1 · M3.2
   planned order: M2.1 → M2.2
 
 External wait:  M1.5 ← G1 · M3.3 ← G2
 Operator action: run the Rocky 8 downstream validation recorded by G1
 
-Next session entry point: redefine M2.3 in issue #5 from `bin/setup_host.bash` and `configure/RULES_SETUP`, deciding whether post-install verification belongs in the same task before implementation planning.
+Next session entry point: start M2.1 from issue #3, then use its final VM memory behavior to unblock M2.2.
 ```
 
-Tally: 13 tasks - ✅ 3 · 🔄 0 · ⬜ 7 · 🔒 3 / ready(▶) 7 · external gates 2 (G1 · G2)
+Tally: 13 tasks - ✅ 4 · 🔄 0 · ⬜ 6 · 🔒 3 / ready(▶) 6 · external gates 2 (G1 · G2)
 
 ## Groups (L1)
 
 | Group | Name | Progress | Status | Next |
 | :-- | :-- | :-- | :-- | :-- |
 | M1 | Golden image lifecycle | 3/5 | ⬜ | ▶ M1.4 |
-| M2 | VM provisioning configuration | 0/5 | ⬜ | ▶ M2.3 |
+| M2 | VM provisioning configuration | 1/5 | ⬜ | ▶ M2.1 |
 | M3 | Shared behavior consistency | 0/3 | ⬜ | ▶ M3.1 |
 
 ## Tasks (L2)
@@ -68,7 +68,7 @@ The `Group` cell is written once per group; continuation rows are blank.
 | | M1.5 | [Validate the Rocky 8 golden after the sudoers fix (#4)](https://github.com/jeonghanlee/cloud-provision/issues/4) | 🔒 | | ← G1 | The real `rocky8-iocrunner.server` path passes the downstream system-infrastructure and system-lifecycle checks, with commands and results recorded. |
 | M2 VM provisioning configuration | M2.1 | [Pass `EPICS_ENV_RAM` to per-VM recreate targets (#3)](https://github.com/jeonghanlee/cloud-provision/issues/3) | ⬜ | ▶ | | Per-VM recreate targets pass `EPICS_ENV_RAM` explicitly; the global VM default returns to 2048 MB after the generated and real recreate paths are verified. |
 | | M2.2 | [Synchronize the documented default VM memory (#13)](https://github.com/jeonghanlee/cloud-provision/issues/13) | 🔒 | | ← M2.1 | `README.md`, executable help, and the default passed to `virt-install` agree after M2.1 establishes the final value. |
-| | M2.3 | [Install `qemu-utils` explicitly on Debian hosts (#5)](https://github.com/jeonghanlee/cloud-provision/issues/5) | ⬜ | ▶ | | The real Debian host setup path installs `qemu-img` with recommended packages disabled, and `make check-tools` passes afterward. |
+| | M2.3 | [Install `qemu-utils` explicitly on Debian hosts (#5)](https://github.com/jeonghanlee/cloud-provision/issues/5) | ✅ | | | Commit `3da8726` adds `qemu-utils` to the Debian package list. On 2026-07-23, disposable Debian 13 VM `m2qemu-debian13-m23qemu` verified `APT::Install-Recommends "false";`, `qemu-img` absent before setup, `make setup` exit 0, `qemu-img` present afterward, and `make check-tools` exit 0. |
 | | M2.4 | [List every supported OS type in `create_vm.bash` help (#8)](https://github.com/jeonghanlee/cloud-provision/issues/8) | ⬜ | ▶ | | Executable help and README list every accepted `OS_TYPE`; a repository check detects future omissions. |
 | | M2.5 | [Centralize the required `libvirt` group (#9)](https://github.com/jeonghanlee/cloud-provision/issues/9) | ⬜ | ▶ | | Host setup and VM provisioning resolve membership checks and operator guidance from one maintained value; the default remains `libvirt`. |
 | M3 Shared behavior consistency | M3.1 | [Centralize cloud-init completion parsing (#6)](https://github.com/jeonghanlee/cloud-provision/issues/6) | ⬜ | ▶ | | Both public script actions use one parser and agree on complete, incomplete, and malformed real command output. |
