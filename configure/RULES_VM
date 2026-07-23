@@ -74,6 +74,7 @@ stop: ## Stop default VMs (continues on per-OS failure, aggregates exit code)
 
 $(foreach os,  $(OS_TYPES), $(eval $(call os_group_targets,$(os))))
 $(foreach os,  $(OS_TYPES), \
-  $(foreach node, $(NODE_IDS), $(eval $(call vm_targets,$(os),$(node)))))
+  $(foreach node, $(NODE_IDS), \
+    $(eval $(call vm_targets,$(os),$(node),$(if $(filter epics-env-%,$(os)),$(EPICS_ENV_RAM),)))))
 
 FORCE:
