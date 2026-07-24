@@ -74,6 +74,8 @@ policy, out of scope here.
   call (default `inventory/testbed.ini`; relative to ansible-provision).
 - `VM_PREFIX` — build-VM name prefix (default `testbed`), now a single
   source shared with the make targets when exported.
+- `REQUIRED_GROUP` — host group required by `create_vm.bash` before
+  provisioning or cleanup (default `libvirt`).
 - `IMAGE_DIR`, `ANSIBLE_PROVISION_DIR` — as before.
 
 ## Bake provenance
