@@ -4,7 +4,7 @@ define bake_targets
 .PHONY: bake.$(1)
 
 bake.$(1): ## Bake golden iocrunner image for $(1)
-	$(QUIET) $(BAKE_IMAGE) -o $(1) -d $(IMAGE_DIR) -a $(ANSIBLE_DIR)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(BAKE_IMAGE) -o $(1) -d $(IMAGE_DIR) -a $(ANSIBLE_DIR)
 endef
 
 VARS_EXCLUDES += bake_targets
@@ -15,7 +15,7 @@ define ethercat_bake_targets
 .PHONY: bake.ethercat.$(1)
 
 bake.ethercat.$(1): ## Bake golden ethercat image for $(1)
-	$(QUIET) $(BAKE_ETHERCAT_IMAGE) -o $(1) -d $(IMAGE_DIR) -a $(ANSIBLE_DIR)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(BAKE_ETHERCAT_IMAGE) -o $(1) -d $(IMAGE_DIR) -a $(ANSIBLE_DIR)
 endef
 
 VARS_EXCLUDES += ethercat_bake_targets

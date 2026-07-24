@@ -12,12 +12,12 @@ epics-env: epics-env.provision ## Provision both core epics-env VMs and build EP
 	$(QUIET) cd $(ANSIBLE_DIR) && ansible-playbook -i $(EPICS_ENV_INVENTORY) $(EPICS_ENV_PLAYBOOK) --limit epics_env_core
 
 epics-env.provision: ## Provision the two core epics-env VMs without building
-	$(QUIET) $(CREATE_VM) -o epics-env-rocky8   -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
-	$(QUIET) $(CREATE_VM) -o epics-env-debian13 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-rocky8   -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-debian13 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 
 epics-env.provision.matrix: ## Provision the rocky10 and ubuntu26 matrix VMs without building
-	$(QUIET) $(CREATE_VM) -o epics-env-rocky10  -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
-	$(QUIET) $(CREATE_VM) -o epics-env-ubuntu26 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-rocky10  -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-ubuntu26 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 
 help.epics-env: ## Show the epics-env source-build workflow
 	$(QUIET) printf "\nEPICS-env from-source build (%s MB RAM per VM):\n" "$(EPICS_ENV_RAM)"

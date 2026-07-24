@@ -30,7 +30,7 @@ declare -g BACKING_FORMAT="qcow2"
 declare -g LIBVIRT_URI="qemu:///system"
 declare -g LIBVIRT_NETWORK="default"
 declare -g VM_BOOT_FIRMWARE=""
-declare -g REQUIRED_GROUP="libvirt"
+declare -g REQUIRED_GROUP="${REQUIRED_GROUP:-libvirt}"
 
 # Network configuration: static IP via libvirt DHCP reservation
 declare -g NETWORK_SUBNET="192.168.122"

@@ -23,6 +23,8 @@ Override image storage path via:
 echo "IMAGE_DIR=/data/libvirt/images" > configure/CONFIG_SITE.local
 ```
 
+The required host group defaults to `libvirt` through `REQUIRED_GROUP`.
+
 ### Provision
 
 ```bash

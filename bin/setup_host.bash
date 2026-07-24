@@ -6,6 +6,7 @@
 set -e
 
 declare -g OS_ID
+declare -g REQUIRED_GROUP="${REQUIRED_GROUP:-libvirt}"
 
 if [[ -f /etc/os-release ]]; then
     . /etc/os-release
@@ -82,10 +83,11 @@ fi
 printf "  %s network [ACTIVE]\n" "${NET_NAME}"
 
 # Group membership
-if groups "$USER" | grep -q "\blibvirt\b"; then
-    printf "  libvirt group   [OK]\n"
+if groups "$USER" | grep -q "\b${REQUIRED_GROUP}\b"; then
+    printf "  %-15s [OK]\n" "${REQUIRED_GROUP} group"
 else
-    printf "  libvirt group   [MISSING] Run: sudo usermod -aG libvirt %s\n" "$USER"
+    printf "  %-15s [MISSING] Run: sudo usermod -aG %s %s\n" \
+        "${REQUIRED_GROUP} group" "${REQUIRED_GROUP}" "$USER"
 fi
 
 printf "%s\n" "------------------------------------------------------------"
