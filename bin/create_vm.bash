@@ -506,13 +506,34 @@ function resolve_runtime_ip {
         | awk '/ipv4/ {print $4; exit}' | cut -d'/' -f1
 }
 
+# Parses cloud-init status output from the command-line tool. The printed value
+# is the operator-facing status field; the return code is success only for done.
+function parse_cloud_init_status {
+    local output="$1"
+    local line
+    local status="unknown"
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" == status:* ]]; then
+            status="${line#status:}"
+            status="${status#"${status%%[![:space:]]*}"}"
+            status="${status%"${status##*[![:space:]]}"}"
+            [[ -n "${status}" ]] || status="unknown"
+            break
+        fi
+    done <<< "${output}"
+
+    printf "%s\n" "${status}"
+    [[ "${status}" == "done" ]]
+}
+
 # --- Status Report ---
 # Single-pass diagnostic used by `-s` and the `<os>.<node>.status` make target.
 # Always prints Domain / IP / SSH / cloud-init lines plus a summary block so
 # operators see partial progress regardless of which stage is failing.
 # Exit code is 0 only when domain is running, SSH succeeds, and cloud-init is done.
 function print_status_report {
-    local domain_state ip_addr ci_status
+    local domain_state ip_addr ci_output ci_status
     local rc=0
 
     domain_state=$(get_domain_state)
@@ -545,12 +566,10 @@ function print_status_report {
         if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
                "vmadmin@${ip_addr}" "exit" 2>/dev/null; then
             printf "SSH        : ready\n"
-            ci_status=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-                            "vmadmin@${ip_addr}" "cloud-init status" 2>/dev/null \
-                        | awk -F': +' '/^status:/ {print $2; exit}')
-            : "${ci_status:=unknown}"
+            ci_output=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
+                            "vmadmin@${ip_addr}" "cloud-init status" 2>/dev/null || true)
+            ci_status=$(parse_cloud_init_status "${ci_output}") || rc=1
             printf "cloud-init : %s\n" "${ci_status}"
-            [[ "${ci_status}" == "done" ]] || rc=1
         else
             printf "SSH        : not available\n"
             printf "cloud-init : (n/a)\n"
@@ -665,12 +684,13 @@ function wait_for_cloud_init {
     local interval=30
     local attempt=0
     local status
+    local ci_status
 
     while [[ ${attempt} -lt ${max_retry} ]]; do
         status=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
                      "vmadmin@${ip_addr}" "cloud-init status" 2>/dev/null || true)
 
-        if [[ "${status}" == *"done"* ]]; then
+        if ci_status=$(parse_cloud_init_status "${status}"); then
             printf "cloud-init: complete [OK]\n"
             return 0
         fi

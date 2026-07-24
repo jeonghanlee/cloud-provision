@@ -2,7 +2,7 @@
 
 ##@ Help
 
-.PHONY: help help.detail help.vm check-vm-help
+.PHONY: help help.detail help.vm check-vm-help check-cloud-init-status
 
 help: ## Show the operator workflow overview
 	$(QUIET) printf "%s\n" "Usage: make <target> [VAR=value]"
@@ -67,6 +67,9 @@ check-vm-help: ## Verify documented VM OS type lists
 	    }; \
 	done; \
 	printf "%s\n" "VM help lists all OS_TYPES: $(OS_TYPES)"
+
+check-cloud-init-status: ## Verify shared cloud-init status parsing
+	$(QUIET) bash $(TOP)/tests/check-cloud-init-status.bash
 
 ##@ VM Lifecycle
 
