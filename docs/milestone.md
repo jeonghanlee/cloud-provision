@@ -36,7 +36,7 @@ In progress (🔄):  none
 Done before Nimbus: M1.1 · M1.2 · M1.3 · M2.1 · M2.2 · M2.3 · M2.4 · M2.5 · M3.1
 
 Next entry points:
-  ▶ ready now:   M1.4 · M3.2 · M4.1 · M4.2 · M4.3 · M4.4 · M4.5
+  ▶ ready now:   M1.4 · M3.2 · M3.4 · M4.1 · M4.2 · M4.3 · M4.4 · M4.5
   planned order: M3.2 on a dedicated branch
 
 External wait:  M1.5 ← G1 · M3.3 ← G2
@@ -47,7 +47,7 @@ Review session archive: host `Neutron`, `/data/gitsrc/cloud-provision/work/revie
 Next session entry point: create a dedicated branch for M3.2 from `master`, then implement `plan20260723_234700` for issue #7.
 ```
 
-Tally: 18 tasks - ✅ 9 · 🔄 0 · ⬜ 7 · 🔒 2 / ready(▶) 7 · external gates 2 (G1 · G2)
+Tally: 19 tasks - ✅ 9 · 🔄 0 · ⬜ 8 · 🔒 2 / ready(▶) 8 · external gates 2 (G1 · G2)
 
 ## Groups (L1)
 
@@ -55,7 +55,7 @@ Tally: 18 tasks - ✅ 9 · 🔄 0 · ⬜ 7 · 🔒 2 / ready(▶) 7 · external 
 | :-- | :-- | :-- | :-- | :-- |
 | M1 | Golden image lifecycle | 3/5 | ⬜ | ▶ M1.4 |
 | M2 | VM provisioning configuration | 5/5 | ✅ | |
-| M3 | Shared behavior consistency | 1/3 | ⬜ | ▶ M3.2 |
+| M3 | Shared behavior consistency | 1/4 | ⬜ | ▶ M3.2 · M3.4 |
 | M4 | Explicit policy follow-ups | 0/5 | ⬜ | ▶ M4.1 · M4.2 · M4.3 · M4.4 · M4.5 |
 
 ## Tasks (L2)
@@ -77,6 +77,7 @@ The `Group` cell is written once per group; continuation rows are blank.
 | M3 Shared behavior consistency | M3.1 | [Centralize cloud-init completion parsing (#6)](https://github.com/jeonghanlee/cloud-provision/issues/6) | ✅ | | | Commit `2e7a512` makes both public script paths use `parse_cloud_init_status`. Local verification passed `make check-cloud-init-status` 8/8, `shellcheck bin/create_vm.bash tests/check-cloud-init-status.bash`, `git diff --check`, and `REQUIRED_GROUP=$(id -gn) make check-vm-help`; three-lane implementation re-review accepted. Fast rejection coverage for the normal readiness path moved to M4.5. |
 | | M3.2 | [Keep VM naming defaults consistent across provision and bake paths (#7)](https://github.com/jeonghanlee/cloud-provision/issues/7) | ⬜ | ▶ | | `plan20260723_234700` is approved for a shared resolver command, but implementation is intentionally deferred off `master`; create a dedicated branch before editing. Local review-session archive is on host `Neutron`. |
 | | M3.3 | [Reuse VM stop behavior in the iocrunner bake (#11)](https://github.com/jeonghanlee/cloud-provision/issues/11) | 🔒 | | ← G2 | The required bake timeout is decided; the shared or explicitly separate paths cover successful shutdown, timeout, and unexpected state. |
+| | M3.4 | [Make concurrent `create_vm.bash` runs seed-safe (#22)](https://github.com/jeonghanlee/cloud-provision/issues/22) | ⬜ | ▶ | | Two concurrent runs for different OS types both reach `READY` with working `vmadmin` SSH; each seed ISO carries exactly one `local-hostname` equal to its own VM name; a failed `genisoimage` step exits non-zero instead of reporting `[OK]`; serial behavior and timings unchanged. |
 | M4 Explicit policy follow-ups | M4.1 | [Define the SSH readiness policy for VM lifecycle checks (#17)](https://github.com/jeonghanlee/cloud-provision/issues/17) | ⬜ | ▶ | | The repository defines what SSH readiness means and verifies accepted and rejected cases through the public script path. |
 | | M4.2 | [Review VM readiness retry durations (#19)](https://github.com/jeonghanlee/cloud-provision/issues/19) | ⬜ | ▶ | | IP discovery, SSH readiness, and `cloud-init` completion retry budgets are documented and verified against the selected policy. |
 | | M4.3 | [Clarify libvirt lifecycle behavior across VM actions (#20)](https://github.com/jeonghanlee/cloud-provision/issues/20) | ⬜ | ▶ | | Status, provision, stop, and cleanup behavior is defined for running, shut off, undefined, and unexpected domain states. |
