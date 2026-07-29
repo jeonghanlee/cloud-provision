@@ -60,6 +60,7 @@ declare -g CLOUD_INIT_ISO
 declare -g DO_CLEANUP=false
 declare -g DO_STATUS=false
 declare -g DO_STOP=false
+declare -g DO_FRESH=false
 
 function print_usage {
     printf "Usage: %s [options]\n" "$(basename "$0")"
@@ -77,6 +78,7 @@ function print_usage {
     printf "  -c             Remove VM domain, target disk, and seed ISO\n"
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
     printf "  -S             Graceful shutdown of running VM (ACPI, polls until shut off)\n"
+    printf "  -F             Require a new domain and disk (provisioning only)\n"
     printf "  -h             Show this help message\n"
     printf "\n"
     printf "Examples:\n"
@@ -95,7 +97,7 @@ if ! groups "$USER" | grep -q "\b${REQUIRED_GROUP}\b"; then
 fi
 
 # --- Argument Processing ---
-while getopts ":o:n:d:p:m:csSh" opt; do
+while getopts ":o:n:d:p:m:csSFh" opt; do
     case "$opt" in
         o) OS_TYPE="$OPTARG" ;;
         n) NODE_ID="$OPTARG" ;;
@@ -105,6 +107,7 @@ while getopts ":o:n:d:p:m:csSh" opt; do
         c) DO_CLEANUP=true ;;
         s) DO_STATUS=true ;;
         S) DO_STOP=true ;;
+        F) DO_FRESH=true ;;
         h) print_usage; exit 0 ;;
         :) printf "Error: Option -%s requires an argument.\n" "$OPTARG"; exit 1 ;;
         ?) printf "Error: Unknown option -%s\n" "$OPTARG"; exit 1 ;;
@@ -114,6 +117,12 @@ done
 : "${OS_TYPE:=rocky8}"
 : "${NODE_ID:=test}"
 : "${IMAGE_DIR:=${HOME}/libvirt/images}"
+
+if [[ "${DO_FRESH}" == true ]] && \
+   { [[ "${DO_CLEANUP}" == true ]] || [[ "${DO_STATUS}" == true ]] || [[ "${DO_STOP}" == true ]]; }; then
+    printf "Error: -F is valid only for provisioning.\n" >&2
+    exit 1
+fi
 
 if [[ ! "${VM_RAM}" =~ ^[1-9][0-9]*$ ]]; then
     printf "Error: -m memory must be a positive integer in MB, got: %s\n" "${VM_RAM}"
@@ -360,6 +369,29 @@ function do_stop {
     esac
 }
 
+# Requires a new provisioning input while preserving any existing domain or
+# source disk. The printed cleanup command is the sole recovery action.
+function require_fresh_input {
+    local cleanup_command
+
+    printf -v cleanup_command '%q -o %q -n %q -d %q -p %q -c' \
+        "${SC_RPATH}" "${OS_TYPE}" "${NODE_ID}" "${IMAGE_DIR}" "${VM_PREFIX}"
+
+    if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
+        printf "Error: fresh provisioning requires an undefined domain: %s\n" \
+            "${VM_NAME}" >&2
+        printf "Cleanup: %s\n" "${cleanup_command}" >&2
+        return 1
+    fi
+
+    if [[ -e "${TARGET_DISK}" || -L "${TARGET_DISK}" ]]; then
+        printf "Error: fresh provisioning requires an absent source disk: %s\n" \
+            "${TARGET_DISK}" >&2
+        printf "Cleanup: %s\n" "${cleanup_command}" >&2
+        return 1
+    fi
+}
+
 # --- Base Image Acquisition ---
 function verify_base_image {
     if [[ -f "${BASE_IMAGE_FULL_PATH}" ]]; then
@@ -401,7 +433,7 @@ function prepare_disk {
 function generate_seed {
     local pub_key_path=""
     local pub_key_data=""
-    local seed_dir="${SC_TOP}/.seed_staging"
+    local seed_dir="${IMAGE_DIR}/${VM_NAME}.seed_staging"
     # Variants share the base OS cloud-init template (e.g. rocky8-iocrunner uses user-data.rocky8).
     local user_data_template="${SC_TOP}/templates/user-data.${OS_VARIANT}"
 
@@ -731,6 +763,10 @@ if [[ "${DO_STOP}" == true ]]; then
     else
         exit 1
     fi
+fi
+
+if [[ "${DO_FRESH}" == true ]]; then
+    require_fresh_input || exit 1
 fi
 
 printf "%s\n" "------------------------------------------------------------"

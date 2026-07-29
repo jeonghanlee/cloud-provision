@@ -302,31 +302,39 @@ ready-to-use environment.
 ```
 [ bin/bake_iocrunner_image.bash -o <os> ]
      |
-     | 1. create_vm.bash -o <os> -n server  (idempotent, see section 3)
+     | 1. reject any existing build domain or source disk
      |
-     | 2. ssh-keyscan refresh of ~/.ssh/known_hosts for VM IP
+     | 2. create_vm.bash -F -o <os> -n server
      |
-     | 3. ansible-playbook -i inventory/testbed.ini --limit testbed-<os>-server site.yml
+     | 3. resolve the source disk backing image and write the manifest header
      |
-     | 4. ansible-playbook -i inventory/testbed.ini --limit testbed-<os>-server playbooks/04_nfs_sim.yml
+     | 4. ansible-playbook site.yml
      |
-     | 5. virsh shutdown + poll until shut off (max 120 s)
+     | 5. ansible-playbook playbooks/04_nfs_sim.yml
      |
-     | 6. qemu-img convert -O qcow2  (flatten layered delta into a flat image)
+     | 6. ansible-playbook playbooks/07_test_users.yml
      |
-     | 7. clean build VM  (or keep with -k)
+     | 7. append pip provenance and strip proxy configuration
+     |
+     | 8. validate /etc/iocrunner-bake.manifest inside the VM
+     |
+     | 9. shutdown, flatten, and rename image and sidecar from .tmp siblings
+     |
+     | 10. clean build VM  (or keep with -k)
      |
      V
 ${IMAGE_DIR}/iocrunner-<os>.qcow2  →  base image of <os>-iocrunner variant
 ```
 
-| Step | Tool                 | Purpose                                                     |
-|------|----------------------|-------------------------------------------------------------|
-| 1    | `create_vm.bash`     | Bring up a fresh `testbed-<os>-server` from cached base     |
-| 3    | `ansible-playbook`   | Apply full `site.yml` (EPICS toolchain, system deps)        |
-| 4    | `ansible-playbook`   | Apply `04_nfs_sim.yml` (NFS simulator for IOC runtime)      |
-| 5-6  | `virsh` + `qemu-img` | Quiesce and flatten the layered qcow2 into a portable image |
-| 7    | `create_vm.bash -c`  | Tear down the build VM (skipped under `-k`)                 |
+| Step | Tool | Purpose |
+|------|------|---------|
+| 1-2 | `create_vm.bash -F` | Require a fresh build domain and source disk, then boot the build VM |
+| 3 | `qemu-img`, `jq`, `sha256sum` | Record the observed backing-image filename and digest |
+| 4-6 | `ansible-playbook` | Apply the software stack, NFS simulator, and test users |
+| 7 | remote privileged Bash | Append `pip3 freeze` and remove site proxy configuration |
+| 8 | `validate_iocrunner_bake.bash` | Validate the manifest before any sidecar extraction or image publication |
+| 9 | `virsh`, `qemu-img`, `mv` | Quiesce, flatten, and publish only after validation and conversion succeed |
+| 10 | `create_vm.bash -c` | Tear down the build VM unless `-k` keeps it for explicit follow-up checks |
 
 **Inputs.**
 
@@ -336,10 +344,51 @@ ${IMAGE_DIR}/iocrunner-<os>.qcow2  →  base image of <os>-iocrunner variant
 | `ANSIBLE_PROVISION_DIR`   | `${SC_TOP}/../ansible-provision` | `-a` flag or env var      |
 | `OS_TYPE`                 | (required)               | `-o rocky8` / `-o debian13`       |
 
-The bake script never mutates the upstream cloud base image; the
-flattened output is independent and self-contained. Re-running the
-bake replaces `${IMAGE_DIR}/iocrunner-<os>.qcow2` atomically via
-`mv` of a `.tmp` sibling.
+The bake script never mutates the upstream cloud base image. It also
+refuses to start when a defined domain or qcow2 file in the selected
+`IMAGE_DIR` resolves through the target output image as a backing file.
+The flattened output is independent and self-contained. Re-running the
+bake replaces `${IMAGE_DIR}/iocrunner-<os>.qcow2` and its sidecar only
+after non-empty `.tmp` siblings have passed validation and conversion.
+
+**Provenance manifest.** Each IOC runner bake writes
+`/etc/iocrunner-bake.manifest` inside the build VM and copies it to
+`${IMAGE_DIR}/iocrunner-<os>.qcow2.manifest` after validation. The
+manifest contains exactly one header, schema, bake date, OS selector,
+repository identity for `cloud-provision` and `ansible-provision`, EPICS
+selectors, observed base image identity, five application records, and
+one or more `pip3` records. Application records use:
+
+```
+app_name schema=1 repo=<url> commit=<40-hex> state=<state> tag=<tag> recorded_at=<UTC>
+```
+
+Allowed application states are `clean-tagged`, `clean-untagged`, and
+`dirty`. Final release acceptance requires clean 40-hex repository
+identities; dirty suffixes are permitted only for preliminary bakes.
+
+**Validation boundary.** `bin/validate_iocrunner_bake.bash` is the single
+validator for IOC runner bake outputs. It rejects malformed, duplicate,
+missing, unknown, `(live)`, commit-mismatch, dirty-state-mismatch, and
+installed-runner-mismatch records. Direct manifest mutations are parser
+coverage only; promotion evidence comes from the public bake script
+calling the real validator before publication.
+
+**Runtime comparison matrix.**
+
+| Manifest record | Runtime comparison | Acceptance rule |
+|---|---|---|
+| `base_image` | Source disk `full-backing-filename` and backing-file SHA-256 | Filename and digest are observed, not inferred from OS selector |
+| `app_con` | Build-time source record | Exactly one valid record is required |
+| `app_procserv` | Build-time source record | Exactly one valid record is required |
+| `app_conserver` | Build-time source record | Exactly one valid record is required |
+| `app_epics` | Retained `/opt/epics` Git checkout | Repository URL, commit, dirty state, and tag match the record |
+| `app_ioc_runner` | Retained runner checkout and installed `ioc-runner -V` | Repository identity matches the checkout and installed short hash |
+| `pip3` | In-image `pip3 freeze` output | One or more non-empty package lines are required |
+
+The build-time records cover tools whose source trees are removed after
+installation. Retained-source records are checked against the live checkout
+that remains in the image.
 
 **Consumption.** The flat image is referenced by the
 `<os>-iocrunner` branch of `bin/create_vm.bash`, which sets

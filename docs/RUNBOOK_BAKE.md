@@ -16,8 +16,8 @@ below stands for `http://<your-proxy-host>:<port>/`.
 Symptoms without this procedure, in the order you will meet them:
 `dnf`/`apt` metadata stalls at 0 B/s (Step 4), then `pip` retries with
 `NewConnectionError`, then in-VM `wget`/`git` of build sources times
-out. Note the fix is per BUILD VM and per bake — the de-proxy step
-(Step 7/9 iocrunner, 5/7 ethercat) strips every layer again before
+out. Note the fix is per BUILD VM and per bake: the de-proxy step
+(Step 7/10 iocrunner, 5/7 ethercat) strips every layer again before
 flatten, so goldens never carry the values.
 
 Inject all layers into the booted build VM (as vmadmin):
@@ -56,10 +56,13 @@ policy, out of scope here.
 `set -e` aborts the script; know what state remains:
 
 - The build VM SURVIVES, running and half-provisioned. Re-running the
-  same `make bake.<os>` resumes against it: `create_vm.bash` is
-  idempotent, and the role guards skip completed work.
-- A previously published golden is NEVER at risk: the flatten writes
-  `<image>.tmp` and renames only on success.
+  same `make bake.<os>` now fails early because IOC runner bakes require
+  fresh build inputs. Inspect the VM, then run the printed cleanup command
+  when a clean retry is intended.
+- A previously published golden is NEVER at risk: validation runs before
+  sidecar extraction and flattening, and the image plus manifest are
+  published from non-empty `.tmp` siblings only after validation and
+  conversion succeed.
 - `-k` keeps the build VM after a successful bake for debugging.
 - To restart truly clean:
   `bin/create_vm.bash -o <os> -n server -d <IMAGE_DIR> -p testbed -c`
@@ -78,11 +81,106 @@ policy, out of scope here.
   provisioning or cleanup (default `libvirt`).
 - `IMAGE_DIR`, `ANSIBLE_PROVISION_DIR` — as before.
 
-## Bake provenance
+## IOC runner bake contract
 
-Each bake stamps `/etc/iocrunner-bake.manifest` (or
-`/etc/ethercat-bake.manifest`) inside the image — bake date, both
-repositories' HEADs, EPICS versions, per-clone `rev-parse` lines from
-the build roles, `pip3 freeze` — and copies it to a sidecar
-`<image>.qcow2.manifest` next to the output. When two goldens behave
-differently, diff the sidecars first.
+IOC runner bakes are fresh-input only. The build domain
+`testbed-<os>-server` and its source disk must not exist before the bake.
+If either exists, `bin/bake_iocrunner_image.bash` stops through
+`create_vm.bash -F` and prints the cleanup command instead of removing
+anything automatically.
+
+Before mutating output paths, the bake scans defined libvirt domains and
+qcow2 files in the selected `IMAGE_DIR`. If any disk resolves through the
+target golden image as a backing file, the bake stops before publication.
+This protects existing consumers from a golden-image replacement while
+they still depend on the old image.
+
+The IOC runner bake publishes only this pair:
+
+- `${IMAGE_DIR}/iocrunner-rocky8.qcow2` with `${IMAGE_DIR}/iocrunner-rocky8.qcow2.manifest`
+- `${IMAGE_DIR}/iocrunner-debian13.qcow2` with `${IMAGE_DIR}/iocrunner-debian13.qcow2.manifest`
+
+The image and sidecar are first created as `.tmp` siblings. Empty or failed
+outputs are removed by the script trap; prior published files remain in
+place.
+
+## Temporary preliminary bake path
+
+Preliminary review bakes use a dedicated temporary image directory under
+the production image parent:
+
+```
+PRELIM_IMAGE_DIR=/home/jeonglee/libvirt/images/m7-preliminary.XXXXXX
+```
+
+Create it with mode 0755 and add only these two symlinks:
+
+- `Rocky-8-GenericCloud-Base.latest.x86_64.qcow2`
+- `debian-13-genericcloud-amd64-daily.qcow2`
+
+Both symlinks point to the existing production base images in
+`/home/jeonglee/libvirt/images`. Preliminary outputs, source disks, seed
+files, image `.tmp` files, and manifest `.tmp` files remain inside
+`PRELIM_IMAGE_DIR`. Production goldens and IOC runner consumers are out of
+scope for preliminary cleanup.
+
+Operator-directed cleanup is limited to:
+
+- `testbed-rocky8-server` and `testbed-debian13-server`;
+- their source disks and seed files inside `PRELIM_IMAGE_DIR`;
+- `iocrunner-rocky8.qcow2`, `iocrunner-debian13.qcow2`, their manifests, and their `.tmp` siblings inside `PRELIM_IMAGE_DIR`;
+- the two base-image symlinks inside `PRELIM_IMAGE_DIR`;
+- `rmdir "${PRELIM_IMAGE_DIR}"` after the directory is empty.
+
+If any unexpected file remains in `PRELIM_IMAGE_DIR`, stop and inspect it
+instead of widening the cleanup command.
+
+## IOC runner bake provenance
+
+Each IOC runner bake stamps `/etc/iocrunner-bake.manifest` inside the
+image and copies it to a sidecar `<image>.qcow2.manifest` next to the
+output. The manifest records:
+
+- bake date, OS selector, both repository identities, and EPICS selectors;
+- actual base-image filename and SHA-256 digest from the source disk backing file;
+- one record for each fixed application: `app_con`, `app_procserv`, `app_conserver`, `app_epics`, and `app_ioc_runner`;
+- one or more `pip3` lines from a successful non-empty `pip3 freeze`.
+
+Application records use:
+
+```
+app_name schema=1 repo=<url> commit=<40-hex> state=<state> tag=<tag> recorded_at=<UTC>
+```
+
+`state` is `clean-tagged`, `clean-untagged`, or `dirty`. Dirty repository
+suffixes are acceptable for preliminary bakes only; final acceptance
+requires exact clean 40-hex repository identities.
+
+## Provenance comparison matrix
+
+| Manifest record | Compared with | Result required |
+|---|---|---|
+| `base_image` | Source disk backing file | Filename and SHA-256 match the observed backing image |
+| `app_con` | Build-time checkout record | Exactly one valid source record |
+| `app_procserv` | Build-time checkout record | Exactly one valid source record |
+| `app_conserver` | Build-time checkout record | Exactly one valid source record |
+| `app_epics` | Retained `/opt/epics` checkout | URL, commit, state, and tag match |
+| `app_ioc_runner` | Retained checkout plus `ioc-runner -V` | URL, commit, state, tag, and installed short hash match |
+| `pip3` | Successful `pip3 freeze` | One or more non-empty package lines |
+
+## Offline bake checks
+
+Run these checks after editing the bake scripts, validator, or bake tests:
+
+```
+make check-bake
+```
+
+The target expands to:
+
+- `make check-bake-fresh-inputs`
+- `make check-bake-provenance`
+
+These checks replace only the host boundary commands. The public bake
+script and the shipped validator still run through their normal entry
+points.
