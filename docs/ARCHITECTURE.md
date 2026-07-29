@@ -135,24 +135,41 @@ so `rocky8-iocrunner` reuses `templates/user-data.rocky8` and
 
 ## 7. OS Support
 
-| OS Type              | Variant  | Base Image Source                              | Package Manager |
-|----------------------|----------|------------------------------------------------|-----------------|
-| rocky8               | rocky8   | download.rockylinux.org                        | dnf             |
-| debian13             | debian13 | cloud.debian.org/images/cloud/trixie/daily     | apt             |
-| rocky8-iocrunner     | rocky8   | local: `${IMAGE_DIR}/iocrunner-rocky8.qcow2`   | dnf             |
-| debian13-iocrunner   | debian13 | local: `${IMAGE_DIR}/iocrunner-debian13.qcow2` | apt             |
-| epics-env-rocky8     | rocky8   | download.rockylinux.org                        | dnf             |
-| epics-env-debian13   | debian13 | cloud.debian.org/images/cloud/trixie/daily     | apt             |
+Selector sets are intentionally different:
+
+| Selector set | Values | Entry point | Meaning |
+|---|---|---|---|
+| `DEFAULT_OS_TYPES` | `rocky8`, `debian13` | `make all`, `make status`, `make stop` | Plain base test VMs. |
+| `OS_TYPES` | every row in the OS table below | `make <os>[.<node>]`, `make clean` | Every provisionable VM type. |
+| `BAKE_OS_TYPES` | `rocky8`, `debian13` | `make bake`, `make bake.<os>` | Base OS inputs for IOC runner golden images. |
+| `ETHERCAT_BAKE_OS_TYPES` | `debian13` | `make bake.ethercat`, `make bake.ethercat.<os>` | Base OS input for the EtherCAT golden image. |
+
+| OS Type | Variant | Base Image Source | Package Manager | Role |
+|---|---|---|---|---|
+| rocky8 | rocky8 | download.rockylinux.org | dnf | Plain base test VM |
+| debian13 | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | Plain base test VM |
+| rocky8-iocrunner | rocky8 | local: `${IMAGE_DIR}/iocrunner-rocky8.qcow2` | dnf | IOC runner runtime VM |
+| debian13-iocrunner | debian13 | local: `${IMAGE_DIR}/iocrunner-debian13.qcow2` | apt | IOC runner runtime VM |
+| debian13-ethercat | debian13 | local: `${IMAGE_DIR}/ethercat-debian13.qcow2` | apt | EtherCAT runtime VM |
+| debian13-rtbase | debian13 | pinned Debian 13 release cloud image | apt | EtherCAT bake source VM |
+| epics-env-rocky8 | rocky8 | download.rockylinux.org | dnf | EPICS-env source-build host |
+| epics-env-debian13 | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | EPICS-env source-build host |
+| epics-env-rocky10 | rocky10 | download.rockylinux.org | dnf | EPICS-env source-build host |
+| epics-env-ubuntu24 | ubuntu24 | cloud-images.ubuntu.com/noble/current | apt | EPICS-env source-build host |
+| epics-env-ubuntu26 | ubuntu26 | cloud-images.ubuntu.com/resolute/current | apt | EPICS-env source-build host |
 
 The `*-iocrunner` variants boot from images produced by section 12
 and are gated out of `make all` via `DEFAULT_OS_TYPES` until their
 golden image is present. They share the base OS variant's cloud-init
 template and boot firmware.
 
-The `epics-env-*` variants boot the plain base cloud image (no golden
-bake) and exist to give the EPICS-env from-source build hosts a dedicated
-IP block distinct from the `testbed` base VMs. `ansible-provision` builds
-EPICS-env from source on top. They are excluded from `make all`.
+The `debian13-ethercat` variant boots from the EtherCAT golden image.
+The `debian13-rtbase` selector is a bake input, not the final EtherCAT
+runtime host.
+
+The `epics-env-*` variants boot plain cloud images (no golden bake) and
+exist to give EPICS-env from-source builds dedicated hosts. They are
+excluded from `make all`.
 
 OS-specific differences are isolated to `templates/user-data.*` and `bin/create_vm.bash`:
 
@@ -176,26 +193,24 @@ from the OS type and node identifier.
 | OS Type              | Range                       |
 |----------------------|-----------------------------|
 | Debian 13            | 192.168.122.10  — .49       |
+| EPICS-env Ubuntu 26  | 192.168.122.30  — .32       |
+| EPICS-env Ubuntu 24  | 192.168.122.40  — .42       |
 | Debian 13 iocrunner  | 192.168.122.50  — .69       |
 | Debian 13 ethercat   | 192.168.122.70  — .79       |
 | Debian 13 rtbase (ethercat bake) | 192.168.122.80 — .99 |
 | Rocky 8.10           | 192.168.122.100 — .149      |
+| EPICS-env Rocky 10   | 192.168.122.130 — .132      |
 | Rocky 8.10 iocrunner | 192.168.122.150 — .199      |
 | Other                | 192.168.122.200 — .254      |
 
-The EPICS-env from-source build hosts reserve free addresses inside the base
-OS ranges rather than a separate block: `epics-env-debian13` at .20 — .22 and
-`epics-env-rocky8` at .120 — .122. They boot the plain base cloud image (no
-golden bake), so they share the base OS partition but never collide with the
-base VMs, which only occupy the .10 — .12 and .100 — .102 server/node slots.
+The EPICS-env from-source build hosts reserve dedicated slots:
+`epics-env-debian13` at .20-.22, `epics-env-ubuntu26` at .30-.32,
+`epics-env-ubuntu24` at .40-.42, `epics-env-rocky8` at .120-.122, and
+`epics-env-rocky10` at .130-.132. They never collide with the base VMs,
+which only occupy the .10-.12 and .100-.102 server/node slots.
 
-The eight `*_IP_BASE` constants (`DEBIAN13_IP_BASE=10`,
-`DEBIAN13_IOCRUNNER_IP_BASE=50`, `DEBIAN13_ETHERCAT_IP_BASE=70`,
-`DEBIAN13_RTBASE_IP_BASE=80`, `ROCKY8_IP_BASE=100`,
-`ROCKY8_IOCRUNNER_IP_BASE=150`, `EPICSENV_DEBIAN13_IP_BASE=20`,
-`EPICSENV_ROCKY8_IP_BASE=120`) live in `bin/create_vm.bash` and
-partition the subnet so variant builds never collide with their
-base OS counterparts.
+The `*_IP_BASE` constants live in `bin/create_vm.bash` and partition the
+subnet so variant builds never collide with their base OS counterparts.
 
 Custom NODE_IDs (not `server`, `nodeN`, or `test`) are mapped to the
 200-254 range via a deterministic hash. `NODE_ID=test` bypasses static
@@ -242,7 +257,7 @@ Default OS types (built by `make all`):
 | Node 1 | `testbed-debian13-node1`   .11         | `testbed-rocky8-node1`    .101          |
 | Node 2 | `testbed-debian13-node2`   .12         | `testbed-rocky8-node2`    .102          |
 
-Pre-baked iocrunner-test variants (require section 12 bake first):
+Pre-baked IOC runner variants (require section 12 bake first):
 
 | Role   | Debian 13 iocrunner                              | Rocky 8.10 iocrunner                              |
 |--------|--------------------------------------------------|---------------------------------------------------|
@@ -291,7 +306,7 @@ software-ready VMs for `epics-ioc-runner` integration tests.
 
 ---
 
-## 12. iocrunner-test Bake Pipeline
+## 12. IOC Runner Bake Pipeline
 
 The `epics-ioc-runner` project consumes this repository as its test
 substrate. To shorten the feedback loop, `bin/bake_iocrunner_image.bash`

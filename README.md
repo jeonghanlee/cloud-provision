@@ -25,12 +25,25 @@ echo "IMAGE_DIR=/data/libvirt/images" > configure/CONFIG_SITE.local
 
 The required host group defaults to `libvirt` through `REQUIRED_GROUP`.
 
+### Target families
+
+The repository has several selectors that look similar but operate at different layers:
+
+| Selector set | Values | Used by | Meaning |
+|---|---|---|---|
+| `DEFAULT_OS_TYPES` | `rocky8`, `debian13` | `make all`, `make status`, `make stop` | Plain base test VMs. |
+| `OS_TYPES` | all values accepted by `create_vm.bash -o` | per-OS targets, `make clean` | Every provisionable VM type, including baked variants and EPICS-env build hosts. |
+| `BAKE_OS_TYPES` | `rocky8`, `debian13` | `make bake`, `make bake.<os>` | Base OS inputs used to produce IOC runner golden images. |
+| `ETHERCAT_BAKE_OS_TYPES` | `debian13` | `make bake.ethercat`, `make bake.ethercat.<os>` | Base OS input used to produce the EtherCAT golden image. |
+
+Operational rule: bake commands create golden images; provision commands boot VMs from either a public cloud image or a local golden image.
+
 ### Provision
 
 ```bash
 make rocky8               # server + node1 + node2
 make debian13             # server + node1 + node2
-make all                  # all OS types
+make all                  # base OS types only
 ```
 
 ```bash
@@ -97,12 +110,13 @@ make clean all                              # all 6 VMs
 follow-up provision rebuilds from the cached base image and re-runs
 cloud-init from scratch. Per-VM time is roughly one minute.
 
-### Bake iocrunner-test Variants
+### Bake IOC runner variants
 
 The `rocky8-iocrunner` / `debian13-iocrunner` OS variants boot from
 pre-baked golden images that already contain the full software stack
-(ansible-provision `site.yml` plus `04_nfs_sim.yml`). Bake once, then
-provision repeatedly without re-running ansible at first boot.
+(`site.yml`, `04_nfs_sim.yml`, and `07_test_users.yml` from
+ansible-provision). Bake once, then provision repeatedly without
+re-running ansible at first boot.
 
 ```bash
 make bake.rocky8
@@ -129,6 +143,16 @@ Bake script options:
 | `-d` | Image storage directory                  | `~/libvirt/images`     |
 | `-a` | ansible-provision directory              | `../ansible-provision` |
 | `-k` | Keep build VM after bake                 | destroy                |
+
+### Bake EtherCAT variant
+
+The EtherCAT path is separate from IOC runner. It bakes from the Debian 13 RT base selector and produces the local image consumed by `debian13-ethercat`.
+
+```bash
+make bake.ethercat.debian13
+make bake.ethercat
+make debian13-ethercat.server
+```
 
 ### Configuration
 

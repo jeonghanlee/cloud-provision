@@ -3,7 +3,21 @@
 Operational procedures for the golden-image bakes
 (`bin/bake_iocrunner_image.bash`, `bin/bake_ethercat_image.bash`).
 Architecture lives in `docs/ARCHITECTURE.md` section 12; this page
-covers the two situations the scripts cannot handle alone.
+covers bake entry points, failure handling, proxy handling, and acceptance
+checks.
+
+## Which bake entry point to use
+
+Use the selector by the image you need to produce, not by the VM you will boot later:
+
+| Need | Command | Output image | Later runtime selector |
+|---|---|---|---|
+| Rocky 8 IOC runner golden | `make bake.rocky8` | `iocrunner-rocky8.qcow2` | `rocky8-iocrunner` |
+| Debian 13 IOC runner golden | `make bake.debian13` | `iocrunner-debian13.qcow2` | `debian13-iocrunner` |
+| Both IOC runner goldens | `make bake` | both IOC runner images | both `*-iocrunner` selectors |
+| Debian 13 EtherCAT golden | `make bake.ethercat.debian13` | `ethercat-debian13.qcow2` | `debian13-ethercat` |
+
+For M.7 final acceptance after the P008 commits, the next entry point is the production IOC runner bake path: run the Rocky 8 and Debian 13 IOC runner bakes from clean `master`, then boot fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers and compare the manifests against the running systems.
 
 ## Baking behind a site proxy
 
