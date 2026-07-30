@@ -17,7 +17,58 @@ Use the selector by the image you need to produce, not by the VM you will boot l
 | Both IOC runner goldens | `make bake` | both IOC runner images | both `*-iocrunner` selectors |
 | Debian 13 EtherCAT golden | `make bake.ethercat.debian13` | `ethercat-debian13.qcow2` | `debian13-ethercat` |
 
-For M.7 final acceptance after the P008 commits, the next entry point is the production IOC runner bake path: run the Rocky 8 and Debian 13 IOC runner bakes from clean `master`, then boot fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers and compare the manifests against the running systems.
+For M.7 final acceptance after the P008 commits, the next entry point is the production IOC runner bake path: run the Rocky 8 and Debian 13 IOC runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers and compare the manifests against the running systems.
+
+## Fresh consumer SSH host keys
+
+Fresh consumer VMs reuse deterministic testbed IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.
+
+For the default IOC runner consumers:
+
+```bash
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.122.150
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.122.50
+```
+
+Then connect normally:
+
+```bash
+ssh vmadmin@192.168.122.150
+ssh vmadmin@192.168.122.50
+```
+
+Do not disable host-key checking for final acceptance. The expected workflow is to remove the stale deterministic-IP entry, accept the new key for the freshly provisioned VM, and then read `/etc/iocrunner-bake.manifest` or run the provenance validator.
+
+Use this SSH command contract for post-bake final acceptance. Run the command
+on the remote VM and let the result print to the terminal. Do not wrap these
+SSH checks in local output redirection.
+
+Rocky 8 consumer:
+
+```bash
+ssh vmadmin@192.168.122.150 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
+ssh vmadmin@192.168.122.150 "sudo sha256sum /etc/iocrunner-bake.manifest"
+ssh vmadmin@192.168.122.150 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
+scp bin/validate_iocrunner_bake.bash vmadmin@192.168.122.150:/tmp/validate_iocrunner_bake.bash
+ssh vmadmin@192.168.122.150 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
+```
+
+Debian 13 consumer:
+
+```bash
+ssh vmadmin@192.168.122.50 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
+ssh vmadmin@192.168.122.50 "sudo sha256sum /etc/iocrunner-bake.manifest"
+ssh vmadmin@192.168.122.50 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
+scp bin/validate_iocrunner_bake.bash vmadmin@192.168.122.50:/tmp/validate_iocrunner_bake.bash
+ssh vmadmin@192.168.122.50 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
+```
+
+Compare the remote manifest hash against the sidecar hash on the control host:
+
+```bash
+sha256sum /home/jeonglee/libvirt/images/iocrunner-rocky8.qcow2.manifest
+sha256sum /home/jeonglee/libvirt/images/iocrunner-debian13.qcow2.manifest
+```
 
 ## Baking behind a site proxy
 
@@ -64,6 +115,61 @@ layer 4).
 The control host itself also needs its own proxy environment for the
 base-image download and any galaxy-free ansible fetches — that is host
 policy, out of scope here.
+
+## Slow boot and package-manager diagnosis
+
+Long waits are not automatically bake failures. Use the following read-only
+checks to decide whether the VM is still making progress or has stopped.
+
+During Step 1, repeated `cloud-init: retrying` lines mean the VM is reachable
+over SSH but cloud-init has not reported completion. Check the live cloud-init
+state from the control host:
+
+```bash
+ssh vmadmin@<vm-ip> cloud-init status --long
+ssh vmadmin@<vm-ip> systemctl --no-pager --failed
+```
+
+If cloud-init reports `status: running`, `Running in stage: modules-final`, no
+errors, and no failed systemd units, continue waiting until the bake script's
+own retry limit is reached. Treat it as a failure only when cloud-init reports
+an error, SSH becomes unavailable, the VM has failed systemd units relevant to
+boot or networking, or the bake script exits non-zero.
+
+During Rocky 8 package installation, Ansible can be quiet while `dnf` downloads
+or runs the RPM transaction. Check the package manager process and logs:
+
+```bash
+ssh vmadmin@<vm-ip> pgrep -af dnf
+ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.log
+ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.librepo.log
+ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.rpm.log
+```
+
+Mirror timeouts in `dnf makecache --timer` do not by themselves prove the
+Ansible task failed. If the `dnf install` process is still present, downloads
+are progressing, or `dnf.log` has reached `Running transaction`, continue
+watching the bake output. A final Ansible failure or a vanished package-manager
+process with no task progress requires normal failure handling.
+
+During Debian 13 base package installation, Ansible can be quiet while `apt`
+downloads and `dpkg` unpacks a large package set. Check the live processes and
+available disk space:
+
+```bash
+ssh vmadmin@<vm-ip> pgrep -af apt
+ssh vmadmin@<vm-ip> pgrep -af dpkg
+ssh vmadmin@<vm-ip> df -h / /var
+```
+
+If `apt` or `dpkg` is active and disk space is sufficient, continue waiting.
+If both package-manager processes are gone and the Ansible task does not resume,
+inspect the apt logs before retrying:
+
+```bash
+ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/apt/term.log
+ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/apt/history.log
+```
 
 ## Failed bake mid-way
 
