@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 #
 # Verifies cloud-init status handling through public create_vm.bash actions.
+#
+# Replaced command boundary: virsh, ssh, sleep. No production line changes.
+# virsh and ssh are the external boundaries the script talks to. sleep is the
+# clock boundary, replaced so the readiness retry budget runs in near-zero wall
+# time; the retry loop, the shared parser, and the branch logic all execute for
+# real.
+#
+# Readiness entry point: the readiness cases enter through the shut-off restart
+# branch at bin/create_vm.bash:795, not the fresh-provision branch at :828,
+# which needs a base image, a disk, a seed, and virt-install. Both call sites
+# pass "retry" to the same wait_for_vm, so the covered code is the same.
+#
+# What the rejection cases pin: in retry mode wait_for_cloud_init never prints
+# the parsed status, so "status: running" and a malformed status produce
+# identical output. The two cases pin that neither input is accepted as done.
+# The running-versus-unknown distinction stays with the -s status cases below.
 
 set -e
 
@@ -8,6 +24,7 @@ declare -g SCRIPT_DIR
 declare -g TOP
 declare -g WORKSPACE
 declare -g FAKEBIN
+declare -g SLEEP_LOG
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
 declare -g TEST_FAILED=0
@@ -67,6 +84,30 @@ function expect_contains {
     fi
 }
 
+function expect_not_contains {
+    local name="$1"
+    local haystack="$2"
+    local needle="$3"
+
+    if [[ "${haystack}" != *"${needle}"* ]]; then
+        record_pass "${name}"
+    else
+        record_fail "${name}" "unexpected output: ${needle}"
+    fi
+}
+
+function expect_equal {
+    local name="$1"
+    local want="$2"
+    local got="$3"
+
+    if [[ "${got}" == "${want}" ]]; then
+        record_pass "${name}"
+    else
+        record_fail "${name}" "expected ${want}, got ${got}"
+    fi
+}
+
 function write_fake_commands {
     cat > "${FAKEBIN}/virsh" <<'EOF'
 #!/usr/bin/env bash
@@ -117,7 +158,18 @@ case "${remote_cmd}" in
         ;;
 esac
 EOF
-    chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh"
+    cat > "${FAKEBIN}/sleep" <<'EOF'
+#!/usr/bin/env bash
+# Clock boundary: records the requested interval and returns immediately so the
+# readiness retry budget runs without wall-clock cost.
+set -e
+if [[ -n "${FAKE_SLEEP_LOG:-}" ]]; then
+    printf "%s\n" "$1" >> "${FAKE_SLEEP_LOG}"
+fi
+exit 0
+EOF
+
+    chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh" "${FAKEBIN}/sleep"
 }
 
 function run_create_vm {
@@ -139,6 +191,7 @@ function run_create_vm {
     FAKE_CLOUD_INIT_STATUS_OUTPUT="${status_output}" \
     FAKE_DOMAIN_STATE="${domain_state}" \
     FAKE_DOMINFO_RC="${dominfo_rc}" \
+    FAKE_SLEEP_LOG="${SLEEP_LOG}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
     REQUIRED_GROUP="$(id -gn)" \
@@ -146,6 +199,44 @@ function run_create_vm {
 
     printf "%s\n" "${rc}"
     cat "${output_file}"
+}
+
+function reset_sleep_log {
+    SLEEP_LOG="${WORKSPACE}/sleep.log"
+    : > "${SLEEP_LOG}"
+}
+
+# Drives the readiness path with an output the shared parser must reject, then
+# checks the retry contract without hard-coding the budget: the loop reports the
+# attempt count it actually made, sleeps once between consecutive attempts, and
+# uses one interval throughout. Reading the count from the run keeps this test
+# valid when the retry budget itself is revisited.
+function run_rejection_case {
+    local name="$1"
+    local status_output="$2"
+    local result rc output attempts sleeps intervals
+
+    reset_sleep_log
+    result=$(run_create_vm "${status_output}" "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    expect_exit "${name} exit" "1" "${rc}"
+    expect_contains "${name} rejected" "${output}" "cloud-init: not complete after"
+    expect_not_contains "${name} not accepted" "${output}" "complete [OK]"
+
+    attempts=$(printf "%s\n" "${output}" \
+        | sed -n 's/^cloud-init: not complete after \([0-9][0-9]*\) attempts\.$/\1/p')
+    if [[ -z "${attempts}" ]]; then
+        record_fail "${name} attempt count" "no attempt count in output"
+        return 0
+    fi
+
+    sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+    intervals=$(sort -u "${SLEEP_LOG}" | wc -l | tr -d '[:space:]')
+
+    expect_equal "${name} sleeps between attempts" "$(( attempts - 1 ))" "${sleeps}"
+    expect_equal "${name} single retry interval" "1" "${intervals}"
 }
 
 function run_case {
@@ -158,6 +249,7 @@ function run_case {
     local rc
     local output
 
+    reset_sleep_log
     result=$(run_create_vm "${status_output}" "${action}")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
@@ -185,5 +277,7 @@ run_case "status done" $'status: done\n' "status" 0 "cloud-init : done"
 run_case "status running" $'status: running\n' "status" 1 "cloud-init : running"
 run_case "status malformed" $'done but no status field\n' "status" 1 "cloud-init : unknown"
 run_case "provision done" $'status: done\n' "provision" 0 "cloud-init: complete [OK]"
+run_rejection_case "provision not complete" $'status: running\n'
+run_rejection_case "provision malformed" $'done but no status field\n'
 
 print_summary

@@ -68,7 +68,7 @@ check-vm-help: ## Verify documented VM OS type lists
 	done; \
 	printf "%s\n" "VM help lists all OS_TYPES: $(OS_TYPES)"
 
-check-cloud-init-status: ## Verify shared cloud-init status parsing
+check-cloud-init-status: ## Verify shared cloud-init status parsing and readiness rejection
 	$(QUIET) bash $(TOP)/tests/check-cloud-init-status.bash
 
 ##@ VM Lifecycle
