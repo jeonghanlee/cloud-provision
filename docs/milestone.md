@@ -47,7 +47,7 @@ In progress (🔄):  none
 Done (✅):  M1.1 · M1.2 · M1.3 · M2.1 · M2.2 · M2.3 · M2.4 · M2.5 · M3.1 · M4.5 · M5.1 · M5.2 · M5.3 · M6.2
 
 Next entry points:
-  ▶ ready now:   M1.4 · M3.2 · M3.4 · M4.1 · M4.2 · M4.3 · M4.4 · M6.1
+  ▶ ready now:   M1.4 · M1.6 · M3.2 · M3.4 · M4.1 · M4.2 · M4.3 · M4.4 · M6.1
   planned order: M3.2 on a dedicated branch
 
 External wait:  M1.5 ← G1 · M3.3 ← G2 · M5.4 ← G3
@@ -58,13 +58,13 @@ Review session archive: host `Neutron`, `/data/gitsrc/cloud-provision/work/revie
 Next session entry point: create a dedicated branch for M3.2 from `master`, then implement `plan20260723_234700` for issue #7.
 ```
 
-Tally: 25 tasks - ✅ 14 · 🔄 0 · ⬜ 8 · 🔒 3 / ready(▶) 8 · external gates 3 (G1 · G2 · G3)
+Tally: 26 tasks - ✅ 14 · 🔄 0 · ⬜ 9 · 🔒 3 / ready(▶) 9 · external gates 3 (G1 · G2 · G3)
 
 ## Groups (L1)
 
 | Group | Name | Progress | Status | Next |
 | :-- | :-- | :-- | :-- | :-- |
-| M1 | Golden image lifecycle | 3/5 | ⬜ | ▶ M1.4 |
+| M1 | Golden image lifecycle | 3/6 | ⬜ | ▶ M1.4 · M1.6 |
 | M2 | VM provisioning configuration | 5/5 | ✅ | |
 | M3 | Shared behavior consistency | 1/4 | ⬜ | ▶ M3.2 · M3.4 |
 | M4 | Explicit policy follow-ups | 1/5 | ⬜ | ▶ M4.1 · M4.2 · M4.3 · M4.4 |
@@ -82,6 +82,7 @@ The `Group` cell is written once per group; continuation rows are blank.
 | | M1.3 | Retire the 2026-05-13 Rocky 8 sudoers defect | ✅ | | | Superseded by M1.1, whose bake applied the `ansible-provision` sudoers `includedir` ordering change. |
 | | M1.4 | [Preserve pinned golden images across rebakes (#2)](https://github.com/jeonghanlee/cloud-provision/issues/2) | ⬜ | ▶ | | Rebakes use new filenames, pinned images remain until downstream pins advance, and the retention rule is documented. |
 | | M1.5 | [Validate the Rocky 8 golden after the sudoers fix (#4)](https://github.com/jeonghanlee/cloud-provision/issues/4) | 🔒 | | ← G1 | The real `rocky8-iocrunner.server` path passes the downstream system-infrastructure and system-lifecycle checks, with commands and results recorded. Resume as ⬜ when G1 completes. |
+| | M1.6 | [Separate the bake archive from the VM working images (#25)](https://github.com/jeonghanlee/cloud-provision/issues/25) | ⬜ | ▶ | | A bake run after a full consumer create-and-destroy cycle publishes without a manual `chown`, without an overwrite prompt, and without touching a file the baking account does not own; the published golden never appears in any domain's backing chain. One directory currently serves two roles: the bake writes the golden there and every consumer backs onto it there, so libvirt `dynamic_ownership` claims it on consumer start and never restores it after a `.clean` teardown. Carries three deferred items recorded on #25 — the EtherCAT publish step at `bin/bake_ethercat_image.bash:206-207`, which still uses plain `mv`; the backing-chain scan in `protect_output_consumers` at `bin/bake_iocrunner_image.bash:95`, which must follow the working copy; and the upstream base images, which migrate the same way even though nothing republishes them. |
 | M2 VM provisioning configuration | M2.1 | [Pass `EPICS_ENV_RAM` to per-VM recreate targets (#3)](https://github.com/jeonghanlee/cloud-provision/issues/3) | ✅ | | | Commit `7286a6b` passes `EPICS_ENV_RAM` explicitly to generated EPICS-env per-VM targets, passed V001 V002 V003 V004, and has accepted implementation review with final handoff `hand20260723_135020`. |
 | | M2.2 | [Synchronize the documented default VM memory (#13)](https://github.com/jeonghanlee/cloud-provision/issues/13) | ✅ | | ← M2.1 | Commit `47c7162` makes `README.md`, executable help, and the default passed to `virt-install` agree on 4096 MB; GitHub #13 is closed. |
 | | M2.3 | [Install `qemu-utils` explicitly on Debian hosts (#5)](https://github.com/jeonghanlee/cloud-provision/issues/5) | ✅ | | | Commit `3da8726` adds `qemu-utils` to the Debian package list. On 2026-07-23, disposable Debian 13 VM `m2qemu-debian13-m23qemu` verified `APT::Install-Recommends "false";`, `qemu-img` absent before setup, `make setup` exit 0, `qemu-img` present afterward, and `make check-tools` exit 0. |
