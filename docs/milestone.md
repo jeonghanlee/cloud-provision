@@ -47,7 +47,7 @@ In progress (🔄):  none
 Done (✅):  M1.1 · M1.2 · M1.3 · M2.1 · M2.2 · M2.3 · M2.4 · M2.5 · M3.1 · M4.5 · M5.1 · M5.2 · M5.3
 
 Next entry points:
-  ▶ ready now:   M1.4 · M3.2 · M3.4 · M4.1 · M4.2 · M4.3 · M4.4
+  ▶ ready now:   M1.4 · M3.2 · M3.4 · M4.1 · M4.2 · M4.3 · M4.4 · M6.1
   planned order: M3.2 on a dedicated branch
 
 External wait:  M1.5 ← G1 · M3.3 ← G2 · M5.4 ← G3
@@ -58,7 +58,7 @@ Review session archive: host `Neutron`, `/data/gitsrc/cloud-provision/work/revie
 Next session entry point: create a dedicated branch for M3.2 from `master`, then implement `plan20260723_234700` for issue #7.
 ```
 
-Tally: 23 tasks - ✅ 13 · 🔄 0 · ⬜ 7 · 🔒 3 / ready(▶) 7 · external gates 3 (G1 · G2 · G3)
+Tally: 24 tasks - ✅ 13 · 🔄 0 · ⬜ 8 · 🔒 3 / ready(▶) 8 · external gates 3 (G1 · G2 · G3)
 
 ## Groups (L1)
 
@@ -69,6 +69,7 @@ Tally: 23 tasks - ✅ 13 · 🔄 0 · ⬜ 7 · 🔒 3 / ready(▶) 7 · external
 | M3 | Shared behavior consistency | 1/4 | ⬜ | ▶ M3.2 · M3.4 |
 | M4 | Explicit policy follow-ups | 1/5 | ⬜ | ▶ M4.1 · M4.2 · M4.3 · M4.4 |
 | M5 | ioc-runner bake provenance | 3/4 | 🔒 | |
+| M6 | Unattended bake execution | 0/1 | ⬜ | ▶ M6.1 |
 
 ## Tasks (L2)
 
@@ -91,7 +92,7 @@ The `Group` cell is written once per group; continuation rows are blank.
 | | M3.3 | [Reuse VM stop behavior in the ioc-runner bake (#11)](https://github.com/jeonghanlee/cloud-provision/issues/11) | 🔒 | | ← G2 | The required bake timeout is decided; the shared or explicitly separate paths cover successful shutdown, timeout, and unexpected state. Resume as ⬜ when G2 completes. |
 | | M3.4 | [Make concurrent `create_vm.bash` runs seed-safe (#22)](https://github.com/jeonghanlee/cloud-provision/issues/22) | ⬜ | ▶ | | Two concurrent runs for different OS types both reach `READY` with working `vmadmin` SSH; each seed ISO carries exactly one `local-hostname` equal to its own VM name; a failed `genisoimage` step exits non-zero instead of reporting `[OK]`; serial behavior and timings unchanged. |
 | M4 Explicit policy follow-ups | M4.1 | [Define the SSH readiness policy for VM lifecycle checks (#17)](https://github.com/jeonghanlee/cloud-provision/issues/17) | ⬜ | ▶ | | The repository defines what SSH readiness means and verifies accepted and rejected cases through the public script path. |
-| | M4.2 | [Review VM readiness retry durations (#19)](https://github.com/jeonghanlee/cloud-provision/issues/19) | ⬜ | ▶ | | IP discovery, SSH readiness, and `cloud-init` completion retry budgets are documented and verified against the selected policy. |
+| | M4.2 | [Review VM readiness retry durations (#19)](https://github.com/jeonghanlee/cloud-provision/issues/19) | ⬜ | ▶ | | IP discovery, SSH readiness, and `cloud-init` completion retry budgets are documented and verified against the selected policy. Observed 2026-07-31 during a production bake, recorded on issue #19: the `cloud-init` budget of 20 attempts at 30 seconds expired while the build VM was healthy and still working — `cloud-init status --long` reported `status: running`, `Running in stage: modules-final`, `errors: []`, `systemctl --failed` listed nothing, and `dnf` had just logged `Total download size: 97 M`. The bake stopped at Step 1 and left a half-provisioned VM that the next attempt must clean up first. The budget, not the boot, ended the run. |
 | | M4.3 | [Clarify libvirt lifecycle behavior across VM actions (#20)](https://github.com/jeonghanlee/cloud-provision/issues/20) | ⬜ | ▶ | | Status, provision, stop, and cleanup behavior is defined for running, shut off, undefined, and unexpected domain states. |
 | | M4.4 | [Clarify image selection behavior across provision and bake paths (#18)](https://github.com/jeonghanlee/cloud-provision/issues/18) | ⬜ | ▶ | | Provision and bake paths document and verify expected image choice for representative OS types and variants. |
 | | M4.5 | [Add fast public-path coverage for cloud-init readiness rejection (#21)](https://github.com/jeonghanlee/cloud-provision/issues/21) | ✅ | | ← D8 | `tests/check-cloud-init-status.bash` adds two readiness rejection cases that drive the real `wait_for_vm` chain through the shut-off restart branch, replacing only `virsh`, `ssh`, and `sleep`; no production line changed. The retry assertion reads the attempt count from the run instead of pinning the budget, so M4.2 may revise it freely. On 2026-07-31, host `Neutron`, `REQUIRED_GROUP=$(id -gn) make check-cloud-init-status` exited 0 with 18/18. Teeth confirmed by mutation: removing the `sleep` call from `wait_for_cloud_init` dropped it to 14/18 with exit 2, and the production file was restored to its committed state afterward. |
@@ -99,6 +100,7 @@ The `Group` cell is written once per group; continuation rows are blank.
 | | M5.2 | Separate VM provisioning targets from bake selector families | ✅ | | ← M5.1 | Commit `b972dc0` separates provisionable OS types, default Make targets, ioc-runner bake inputs, and EtherCAT bake inputs in `README.md`, `docs/ARCHITECTURE.md`, and `docs/RUNBOOK_BAKE.md`. On 2026-07-30, host `Neutron`, `make help.bake` at `67c1829` exited 0 and listed the ioc-runner, validation, and EtherCAT target families separately. |
 | | M5.3 | Document the post-bake acceptance checks | ✅ | | ← M5.2 | Commit `67c1829` documents the fixed post-bake SSH command contract, stale host-key removal for fresh deterministic-IP consumers, and diagnosis steps for slow `cloud-init`, Rocky `dnf`, and Debian `apt`/`dpkg` phases in `docs/RUNBOOK_BAKE.md`. On 2026-07-30, host `Neutron`, `git diff --check 67c1829~1 67c1829` exited 0 over the commit's own diff. The documented procedure itself is exercised only by the G3 production bake acceptance. |
 | | M5.4 | [Accept the production ioc-runner bake for Rocky 8 and Debian 13 (#23)](https://github.com/jeonghanlee/cloud-provision/issues/23) | 🔒 | | ← G3 | The Rocky 8 and Debian 13 ioc-runner bakes run from the current `origin/master`, fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers boot, and each recorded manifest matches its running system. Procedure is in `docs/RUNBOOK_BAKE.md`. Resume as ⬜ when G3 completes. |
+| M6 Unattended bake execution | M6.1 | [Bake refuses to start its configuration step when launched without a terminal (#24)](https://github.com/jeonghanlee/cloud-provision/issues/24) | ⬜ | ▶ | | A bake launched detached from a non-interactive session either completes or fails for a reason that belongs to the bake, and the chosen remedy is readable by an operator before the first attempt. Reproduced twice on 2026-07-31 with `nohup` and with `setsid nohup ... < /dev/null`; the working form is `setsid script -qec "make bake" /dev/null`. |
 
 ## External gates (G)
 
