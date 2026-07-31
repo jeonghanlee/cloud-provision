@@ -409,6 +409,15 @@ function run_promotion_case {
     before_sidecar="$(sha256sum "${sidecar}")"
     before_sidecar="${before_sidecar%% *}"
 
+    # Reproduce a previous golden the invoking user cannot write. libvirt claims
+    # the disk backing chain when a consumer starts and does not restore it when
+    # that consumer is undefined rather than stopped gracefully, so this is the
+    # routine state on a rebake. Only the destination mode matters; ownership
+    # cannot be changed here without privilege and is not what mv requires.
+    if [[ "${mode}" == "publish-unwritable" ]]; then
+        chmod 0444 "${output_image}"
+    fi
+
     init_checkout "${epics_checkout}" "https://github.com/jeonghanlee/EPICS-env-distribution"
     init_checkout "${runner_checkout}" "https://github.com/jeonghanlee/epics-ioc-runner"
     epics_commit="$(git -C "${epics_checkout}" rev-parse HEAD)"
@@ -417,25 +426,71 @@ function run_promotion_case {
     write_runner "${runner_bin}" "${runner_commit:0:7}"
     write_fake_host_commands "${fakebin}"
 
-    CASE_DIR="${case_dir}" \
-    DOMAIN_STATE_FILE="${case_dir}/domain.state" \
-    BASE_IMAGE_PATH="${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2" \
-    CALL_LOG="${case_dir}/calls.log" \
-    PROMOTION_MODE="${mode}" \
-    REMOTE_MANIFEST="${remote_manifest}" \
-    FIXTURE_COMMIT="${fixture_commit}" \
-    EPICS_COMMIT="${epics_commit}" \
-    RUNNER_COMMIT="${runner_commit}" \
-    EPICS_CHECKOUT="${epics_checkout}" \
-    RUNNER_CHECKOUT="${runner_checkout}" \
-    RUNNER_BIN="${runner_bin}" \
-    REAL_VALIDATOR="${VALIDATOR}" \
-    PATH="${fakebin}:${PATH}" \
-    HOME="${home_dir}" \
-    USER="$(id -un)" \
-    REQUIRED_GROUP="$(id -gn)" \
-    "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" -k \
-        > "${case_dir}/output.txt" 2>&1 || rc=$?
+    local -a bake_env=(
+        "CASE_DIR=${case_dir}"
+        "DOMAIN_STATE_FILE=${case_dir}/domain.state"
+        "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+        "CALL_LOG=${case_dir}/calls.log"
+        "PROMOTION_MODE=${mode}"
+        "REMOTE_MANIFEST=${remote_manifest}"
+        "FIXTURE_COMMIT=${fixture_commit}"
+        "EPICS_COMMIT=${epics_commit}"
+        "RUNNER_COMMIT=${runner_commit}"
+        "EPICS_CHECKOUT=${epics_checkout}"
+        "RUNNER_CHECKOUT=${runner_checkout}"
+        "RUNNER_BIN=${runner_bin}"
+        "REAL_VALIDATOR=${VALIDATOR}"
+        "PATH=${fakebin}:${PATH}"
+        "HOME=${home_dir}"
+        "USER=$(id -un)"
+        "REQUIRED_GROUP=$(id -gn)"
+    )
+    local -a bake_command=(
+        "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" -k
+    )
+    local bake_line
+
+    if [[ "${mode}" == "publish-unwritable" ]]; then
+        # Run the bake under a pseudo-terminal. Without one, mv overwrites an
+        # unwritable destination silently, so this case would pass even with -f
+        # removed from the publish step and would pin nothing. With a terminal a
+        # publish step lacking -f stops to ask and never returns, which the
+        # timeout converts into a failed case instead of a hung suite.
+        printf -v bake_line '%q ' "${bake_command[@]}"
+        timeout 120 env "${bake_env[@]}" \
+            script -qec "${bake_line}" /dev/null \
+            > "${case_dir}/output.txt" 2>&1 || rc=$?
+    else
+        env "${bake_env[@]}" "${bake_command[@]}" \
+            > "${case_dir}/output.txt" 2>&1 || rc=$?
+    fi
+
+    after_image="$(sha256sum "${output_image}")"
+    after_image="${after_image%% *}"
+    after_sidecar="$(sha256sum "${sidecar}")"
+    after_sidecar="${after_sidecar%% *}"
+
+    if [[ "${mode}" == "publish-unwritable" ]]; then
+        # The publish step must complete without a terminal to answer a prompt.
+        if [[ "${rc}" == "0" ]]; then
+            record_pass "${mode} public bake completes"
+        else
+            record_fail "${mode} public bake completes" "bake exited ${rc}"
+        fi
+
+        if [[ "${before_image}" != "${after_image}" && "${before_sidecar}" != "${after_sidecar}" ]]; then
+            record_pass "${mode} replaces the published pair"
+        else
+            record_fail "${mode} replaces the published pair" "image or sidecar was not replaced"
+        fi
+
+        if [[ ! -e "${output_image}.tmp" && ! -e "${sidecar}.tmp" ]]; then
+            record_pass "${mode} removes only current temporary outputs"
+        else
+            record_fail "${mode} removes only current temporary outputs" "temporary output remained"
+        fi
+        return 0
+    fi
 
     if [[ "${rc}" != "0" ]]; then
         record_pass "${mode} public bake fails safely"
@@ -443,10 +498,6 @@ function run_promotion_case {
         record_fail "${mode} public bake fails safely" "bake unexpectedly succeeded"
     fi
 
-    after_image="$(sha256sum "${output_image}")"
-    after_image="${after_image%% *}"
-    after_sidecar="$(sha256sum "${sidecar}")"
-    after_sidecar="${after_sidecar%% *}"
     if [[ "${before_image}" == "${after_image}" && "${before_sidecar}" == "${after_sidecar}" ]]; then
         record_pass "${mode} preserves the published pair"
     else
@@ -492,11 +543,13 @@ case "${1:-all}" in
     promotion)
         run_promotion_case validator-reject
         run_promotion_case conversion-fail
+        run_promotion_case publish-unwritable
         ;;
     all)
         run_validator_tests
         run_promotion_case validator-reject
         run_promotion_case conversion-fail
+        run_promotion_case publish-unwritable
         ;;
     *)
         printf "Usage: %s [validator|promotion|all]\n" "$(basename "$0")" >&2

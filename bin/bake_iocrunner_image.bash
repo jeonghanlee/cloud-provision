@@ -414,9 +414,17 @@ done
 OUTPUT_TEMP_CREATED=true
 qemu-img convert -p -O qcow2 "${SOURCE_DISK}" "${OUTPUT_TEMP}"
 [[ -s "${OUTPUT_TEMP}" ]] || die "image conversion produced an empty file"
-mv -- "${OUTPUT_TEMP}" "${OUTPUT_IMAGE}"
+# Publish with -f so the step behaves the same with or without a terminal.
+# libvirt's dynamic_ownership claims the disk backing chain when a consumer
+# starts and does not restore it when that consumer is removed by undefine
+# rather than a graceful stop, so the previous golden is routinely owned by
+# libvirt-qemu and unwritable here. Replacing it needs write permission on the
+# image directory, which the bake already proved by writing the temp files
+# there; the destination's own mode only decides whether mv stops to ask. The
+# sidecar is never claimed and takes -f for symmetry within the published pair.
+mv -f -- "${OUTPUT_TEMP}" "${OUTPUT_IMAGE}"
 OUTPUT_TEMP_CREATED=false
-mv -- "${SIDECAR_TEMP}" "${SIDECAR}"
+mv -f -- "${SIDECAR_TEMP}" "${SIDECAR}"
 SIDECAR_TEMP_CREATED=false
 printf "  Output: %s (%s)\n" "${OUTPUT_IMAGE}" "$(du -h "${OUTPUT_IMAGE}" | awk '{print $1}')"
 printf "  Manifest sidecar: %s\n" "${SIDECAR}"
