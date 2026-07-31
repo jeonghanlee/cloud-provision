@@ -44,10 +44,10 @@ no longer appear outside this note.
 
 ```
 In progress (🔄):  none
-Done (✅):  M1.1 · M1.2 · M1.3 · M2.1 · M2.2 · M2.3 · M2.4 · M2.5 · M3.1 · M4.5 · M5.1 · M5.2 · M5.3 · M6.2
+Done (✅):  M1.1 · M1.2 · M1.3 · M2.1 · M2.2 · M2.3 · M2.4 · M2.5 · M3.1 · M4.1 · M4.5 · M5.1 · M5.2 · M5.3 · M6.2
 
 Next entry points:
-  ▶ ready now:   M1.4 · M1.6 · M3.2 · M3.4 · M4.1 · M4.2 · M4.3 · M4.4 · M6.1
+  ▶ ready now:   M1.4 · M1.6 · M3.2 · M3.4 · M4.2 · M4.3 · M4.4 · M6.1
   planned order: M3.2 on a dedicated branch
 
 External wait:  M1.5 ← G1 · M3.3 ← G2 · M5.4 ← G3
@@ -58,7 +58,7 @@ Review session archive: host `Neutron`, `/data/gitsrc/cloud-provision/work/revie
 Next session entry point: create a dedicated branch for M3.2 from `master`, then implement `plan20260723_234700` for issue #7.
 ```
 
-Tally: 26 tasks - ✅ 14 · 🔄 0 · ⬜ 9 · 🔒 3 / ready(▶) 9 · external gates 3 (G1 · G2 · G3)
+Tally: 26 tasks - ✅ 15 · 🔄 0 · ⬜ 8 · 🔒 3 / ready(▶) 8 · external gates 3 (G1 · G2 · G3)
 
 ## Groups (L1)
 
@@ -67,7 +67,7 @@ Tally: 26 tasks - ✅ 14 · 🔄 0 · ⬜ 9 · 🔒 3 / ready(▶) 9 · external
 | M1 | Golden image lifecycle | 3/6 | ⬜ | ▶ M1.4 · M1.6 |
 | M2 | VM provisioning configuration | 5/5 | ✅ | |
 | M3 | Shared behavior consistency | 1/4 | ⬜ | ▶ M3.2 · M3.4 |
-| M4 | Explicit policy follow-ups | 1/5 | ⬜ | ▶ M4.1 · M4.2 · M4.3 · M4.4 |
+| M4 | Explicit policy follow-ups | 2/5 | ⬜ | ▶ M4.2 · M4.3 · M4.4 |
 | M5 | ioc-runner bake provenance | 3/4 | 🔒 | |
 | M6 | Unattended bake execution | 1/2 | ⬜ | ▶ M6.1 |
 
@@ -92,7 +92,7 @@ The `Group` cell is written once per group; continuation rows are blank.
 | | M3.2 | [Keep VM naming defaults consistent across provision and bake paths (#7)](https://github.com/jeonghanlee/cloud-provision/issues/7) | ⬜ | ▶ | | `plan20260723_234700` is approved for a shared resolver command, but implementation is intentionally deferred off `master`; create a dedicated branch before editing. Local review-session archive is on host `Neutron`. |
 | | M3.3 | [Reuse VM stop behavior in the ioc-runner bake (#11)](https://github.com/jeonghanlee/cloud-provision/issues/11) | 🔒 | | ← M4.2 · G2 | The required bake timeout is decided; the shared or explicitly separate paths cover successful shutdown, timeout, and unexpected state. M4.2 settles the shutdown budget first, so only the code decision — share `do_stop` or keep a parameterized path — remains here. Resume as ⬜ when M4.2 and G2 complete. |
 | | M3.4 | [Make concurrent `create_vm.bash` runs seed-safe (#22)](https://github.com/jeonghanlee/cloud-provision/issues/22) | ⬜ | ▶ | | Two concurrent runs for different OS types both reach `READY` with working `vmadmin` SSH; each seed ISO carries exactly one `local-hostname` equal to its own VM name; a failed `genisoimage` step exits non-zero instead of reporting `[OK]`; serial behavior and timings unchanged. |
-| M4 Explicit policy follow-ups | M4.1 | [Define the SSH readiness policy for VM lifecycle checks (#17)](https://github.com/jeonghanlee/cloud-provision/issues/17) | ⬜ | ▶ | | The repository defines what SSH readiness means and verifies accepted and rejected cases through the public script path. |
+| M4 Explicit policy follow-ups | M4.1 | [Define the SSH readiness policy for VM lifecycle checks (#17)](https://github.com/jeonghanlee/cloud-provision/issues/17) | ✅ | | | `docs/ARCHITECTURE.md` section 13 states the contract: readiness is a non-interactive, key-only login as `vmadmin` that reaches remote command execution. The four literal `ssh -o` call sites in `bin/create_vm.bash` are replaced by one `SSH_USER`, `SSH_PROBE_OPTIONS`, and `ssh_probe`; no literal option list remains. A changed host key is no longer counted as "not available": `ssh_probe` returns a distinct code, `wait_for_ssh` stops instead of spending its budget, and the operator gets the `ssh-keygen -R` repair for that address. Retry budgets untouched, per #19. On 2026-07-31, host `Neutron`, `REQUIRED_GROUP=$(id -gn) make check-cloud-init-status` exited 0 with 26/26; `shellcheck` clean. Teeth confirmed by mutation: removing the distinct return code dropped it to 23/26 with exit 2, including `expected 0, got 5` on the budget assertion. Session `work/review_sessions/20260731_034737_m4_1_ssh_readiness_policy`. Surfaced but not done: whether the provisioner should refresh `known_hosts` itself, as the bake scripts do — deliberately excluded because it writes to the operator's trust store and accepts a changed identity unseen. |
 | | M4.2 | [Review VM readiness and shutdown wait budgets (#19)](https://github.com/jeonghanlee/cloud-provision/issues/19) | ⬜ | ▶ | | All four wait budgets are treated as one policy, documented, and verified: IP discovery (`bin/create_vm.bash:642`, 3 x 10s), SSH readiness (`:683`, 6 x 10s), `cloud-init` completion (`:715`, 20 x 30s), and domain shutdown (`do_stop` at `:335`, 12 x 5s, against the bake's own 24 x 5s at `bin/bake_iocrunner_image.bash:401`). The measured basis this produces is what lets the owner answer G2; M4.2 itself is not blocked by G2. Observed 2026-07-31 during a production bake, recorded on issue #19: the `cloud-init` budget of 20 attempts at 30 seconds expired while the build VM was healthy and still working — `cloud-init status --long` reported `status: running`, `Running in stage: modules-final`, `errors: []`, `systemctl --failed` listed nothing, and `dnf` had just logged `Total download size: 97 M`. The bake stopped at Step 1 and left a half-provisioned VM that the next attempt must clean up first. The budget, not the boot, ended the run. |
 | | M4.3 | [Clarify libvirt lifecycle behavior across VM actions (#20)](https://github.com/jeonghanlee/cloud-provision/issues/20) | ⬜ | ▶ | | Status, provision, stop, and cleanup behavior is defined for running, shut off, undefined, and unexpected domain states. |
 | | M4.4 | [Clarify image selection behavior across provision and bake paths (#18)](https://github.com/jeonghanlee/cloud-provision/issues/18) | ⬜ | ▶ | | Provision and bake paths document and verify expected image choice for representative OS types and variants. |

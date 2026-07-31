@@ -419,3 +419,39 @@ Hint: run bin/bake_iocrunner_image.bash to build it first.
 missing golden image never breaks the default workflow. `make clean`
 iterates over the full `OS_TYPES` list and is safe on missing
 domains.
+
+## 13. VM Readiness Contract
+
+`bin/create_vm.bash` gates every readiness decision on one SSH contract,
+defined once as `SSH_USER`, `SSH_PROBE_OPTIONS`, and `ssh_probe`. The status
+path (`-s`), the provisioning wait, and the `cloud-init` poll all go through
+it, so the four paths cannot drift apart.
+
+**Readiness means a non-interactive, key-only login as `vmadmin` that reaches
+remote command execution.** It is not transport availability: a host whose
+port 22 answers but whose key is not authorized is not ready. It is not a
+broader operator-readiness condition either; nothing beyond running a remote
+command is asserted.
+
+Two option choices carry that meaning.
+
+| Option | What it decides |
+| --- | --- |
+| `BatchMode=yes` | Removes password and keyboard-interactive authentication, so a probe can pass only with a usable key and never blocks on a prompt. |
+| `StrictHostKeyChecking=no` | Accepts a host key that is not yet known, so a freshly provisioned VM needs no operator step. It does **not** accept a key that has changed. |
+
+That second limit produces a third outcome the contract names explicitly. VMs
+reuse deterministic addresses, so recreating one leaves the previous host key
+stored against the same address, and every probe then fails. This is not "not
+ready yet" and waiting will not resolve it, so `ssh_probe` returns a distinct
+code for it, `wait_for_ssh` stops instead of spending its budget, and the
+operator is given the `ssh-keygen -R` repair for that address.
+
+Refreshing `known_hosts` automatically is deliberately not done here. The bake
+scripts do it at their own step 2 because they are talking to a VM they created
+seconds earlier; the provisioner also reports on long-lived VMs the operator did
+not just create, where silently accepting a changed identity would hide a fact
+worth seeing.
+
+Retry counts and intervals are not part of this contract. They are recorded and
+reviewed separately.

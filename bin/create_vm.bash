@@ -538,6 +538,54 @@ function resolve_runtime_ip {
         | awk '/ipv4/ {print $4; exit}' | cut -d'/' -f1
 }
 
+# --- SSH Readiness Contract ---
+# Readiness means a non-interactive, key-only login as SSH_USER that reaches
+# remote command execution. BatchMode=yes removes password and keyboard-
+# interactive authentication, so a probe can pass only with a usable key, and
+# the probe runs a remote command rather than opening a socket. A first-time
+# host key is accepted; a CHANGED host key is not, and StrictHostKeyChecking=no
+# does not override that. That case means the address now answers for a
+# different host, which is a different fact from "not ready yet", so ssh_probe
+# reports it separately and the callers say so.
+declare -g SSH_USER="vmadmin"
+declare -ag SSH_PROBE_OPTIONS=(
+    -o StrictHostKeyChecking=no
+    -o ConnectTimeout=5
+    -o BatchMode=yes
+)
+
+# Runs one remote command under the contract above and prints its stdout.
+# Returns 0 on success, 2 when the stored host key conflicts, 1 otherwise.
+function ssh_probe {
+    local ip_addr="$1"
+    shift
+    local stderr_file
+    local rc=0
+
+    stderr_file="$(mktemp)"
+    # shellcheck disable=SC2029
+    # Client-side expansion is intended: callers pass a fixed remote command.
+    ssh "${SSH_PROBE_OPTIONS[@]}" "${SSH_USER}@${ip_addr}" "$@" \
+        2>"${stderr_file}" || rc=$?
+    if [[ "${rc}" != "0" ]] && grep -qE \
+        'REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed' \
+        "${stderr_file}"; then
+        rc=2
+    fi
+    rm -f -- "${stderr_file}"
+    return "${rc}"
+}
+
+# Prints the operator-facing explanation and repair for a host-key conflict.
+function report_host_key_conflict {
+    local ip_addr="$1"
+
+    printf "SSH: %s answers with a different host key than the stored one.\n" \
+        "${ip_addr}"
+    printf "SSH: repair with: ssh-keygen -f %s/.ssh/known_hosts -R %s\n" \
+        "${HOME}" "${ip_addr}"
+}
+
 # Parses cloud-init status output from the command-line tool. The printed value
 # is the operator-facing status field; the return code is success only for done.
 function parse_cloud_init_status {
@@ -595,13 +643,18 @@ function print_status_report {
     else
         printf "IP         : %s\n" "${ip_addr}"
 
-        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-               "vmadmin@${ip_addr}" "exit" 2>/dev/null; then
+        local probe_rc=0
+        ssh_probe "${ip_addr}" "exit" >/dev/null || probe_rc=$?
+        if [[ "${probe_rc}" == "0" ]]; then
             printf "SSH        : ready\n"
-            ci_output=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-                            "vmadmin@${ip_addr}" "cloud-init status" 2>/dev/null || true)
+            ci_output=$(ssh_probe "${ip_addr}" "cloud-init status" || true)
             ci_status=$(parse_cloud_init_status "${ci_output}") || rc=1
             printf "cloud-init : %s\n" "${ci_status}"
+        elif [[ "${probe_rc}" == "2" ]]; then
+            printf "SSH        : host key mismatch\n"
+            printf "cloud-init : (n/a)\n"
+            report_host_key_conflict "${ip_addr}"
+            rc=1
         else
             printf "SSH        : not available\n"
             printf "cloud-init : (n/a)\n"
@@ -683,12 +736,21 @@ function wait_for_ssh {
     local max_retry=6
     local interval=10
     local attempt=0
+    local probe_rc
 
     while [[ ${attempt} -lt ${max_retry} ]]; do
-        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-               "vmadmin@${ip_addr}" "exit" 2>/dev/null; then
+        probe_rc=0
+        ssh_probe "${ip_addr}" "exit" >/dev/null || probe_rc=$?
+        if [[ "${probe_rc}" == "0" ]]; then
             printf "SSH: ready [OK]\n"
             return 0
+        fi
+
+        # A changed host key will not resolve by waiting; retrying only spends
+        # the budget and then blames the wrong thing.
+        if [[ "${probe_rc}" == "2" ]]; then
+            report_host_key_conflict "${ip_addr}"
+            return 1
         fi
 
         if [[ "${mode}" == "once" ]]; then
@@ -719,8 +781,7 @@ function wait_for_cloud_init {
     local ci_status
 
     while [[ ${attempt} -lt ${max_retry} ]]; do
-        status=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o BatchMode=yes \
-                     "vmadmin@${ip_addr}" "cloud-init status" 2>/dev/null || true)
+        status=$(ssh_probe "${ip_addr}" "cloud-init status" || true)
 
         if ci_status=$(parse_cloud_init_status "${status}"); then
             printf "cloud-init: complete [OK]\n"

@@ -146,7 +146,10 @@ set -e
 remote_cmd="${@: -1}"
 case "${remote_cmd}" in
     exit)
-        exit 0
+        if [[ -n "${FAKE_SSH_STDERR:-}" ]]; then
+            printf "%s\n" "${FAKE_SSH_STDERR}" >&2
+        fi
+        exit "${FAKE_SSH_EXIT_RC:-0}"
         ;;
     "cloud-init status")
         printf "%s" "${FAKE_CLOUD_INIT_STATUS_OUTPUT:-}"
@@ -191,6 +194,8 @@ function run_create_vm {
     FAKE_CLOUD_INIT_STATUS_OUTPUT="${status_output}" \
     FAKE_DOMAIN_STATE="${domain_state}" \
     FAKE_DOMINFO_RC="${dominfo_rc}" \
+    FAKE_SSH_EXIT_RC="${FAKE_SSH_EXIT_RC:-0}" \
+    FAKE_SSH_STDERR="${FAKE_SSH_STDERR:-}" \
     FAKE_SLEEP_LOG="${SLEEP_LOG}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
@@ -239,6 +244,36 @@ function run_rejection_case {
     expect_equal "${name} single retry interval" "1" "${intervals}"
 }
 
+# Drives the readiness path with an SSH probe that fails. The contract says a
+# probe passes only on a non-interactive key login that reaches remote command
+# execution, so a failing probe must be rejected; a probe failing because the
+# stored host key changed must be reported as that, not as "not available",
+# because waiting cannot resolve it.
+function run_ssh_rejection_case {
+    local name="$1"
+    local stderr_text="$2"
+    local want_text="$3"
+    local result rc output sleeps
+
+    reset_sleep_log
+    result=$(FAKE_SSH_EXIT_RC=255 FAKE_SSH_STDERR="${stderr_text}" \
+        run_create_vm $'status: done\n' "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    expect_exit "${name} exit" "1" "${rc}"
+    expect_contains "${name} message" "${output}" "${want_text}"
+    expect_not_contains "${name} not ready" "${output}" "SSH: ready [OK]"
+
+    if [[ -n "${stderr_text}" ]]; then
+        # A changed host key ends the wait at once; spending the budget would
+        # blame the wrong thing.
+        sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+        expect_equal "${name} does not spend the budget" "0" "${sleeps}"
+        expect_contains "${name} repair" "${output}" "ssh-keygen -f"
+    fi
+}
+
 function run_case {
     local name="$1"
     local status_output="$2"
@@ -279,5 +314,9 @@ run_case "status malformed" $'done but no status field\n' "status" 1 "cloud-init
 run_case "provision done" $'status: done\n' "provision" 0 "cloud-init: complete [OK]"
 run_rejection_case "provision not complete" $'status: running\n'
 run_rejection_case "provision malformed" $'done but no status field\n'
+run_ssh_rejection_case "ssh unavailable" "" "SSH: not available after"
+run_ssh_rejection_case "ssh host key changed" \
+    "@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@" \
+    "answers with a different host key"
 
 print_summary
