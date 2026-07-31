@@ -47,7 +47,7 @@ In progress (🔄):  none
 Done (✅):  M1.1 · M1.2 · M1.3 · M2.1 · M2.2 · M2.3 · M2.4 · M2.5 · M3.1 · M4.1 · M4.3 · M4.4 · M4.5 · M5.1 · M5.2 · M5.3 · M6.2
 
 Next entry points:
-  ▶ ready now:   M1.4 · M1.6 · M3.2 · M3.4 · M4.2 · M6.1
+  ▶ ready now:   M1.4 · M1.6 · M3.2 · M3.4 · M4.2 · M5.5 · M6.1
   planned order: M3.2 on a dedicated branch
 
 External wait:  M1.5 ← G1 · M3.3 ← G2 · M5.4 ← G3
@@ -58,7 +58,7 @@ Review session archive: host `Neutron`, `/data/gitsrc/cloud-provision/work/revie
 Next session entry point: create a dedicated branch for M3.2 from `master`, then implement `plan20260723_234700` for issue #7.
 ```
 
-Tally: 26 tasks - ✅ 17 · 🔄 0 · ⬜ 6 · 🔒 3 / ready(▶) 6 · external gates 3 (G1 · G2 · G3)
+Tally: 27 tasks - ✅ 17 · 🔄 0 · ⬜ 7 · 🔒 3 / ready(▶) 7 · external gates 3 (G1 · G2 · G3)
 
 ## Groups (L1)
 
@@ -68,7 +68,7 @@ Tally: 26 tasks - ✅ 17 · 🔄 0 · ⬜ 6 · 🔒 3 / ready(▶) 6 · external
 | M2 | VM provisioning configuration | 5/5 | ✅ | |
 | M3 | Shared behavior consistency | 1/4 | ⬜ | ▶ M3.2 · M3.4 |
 | M4 | Explicit policy follow-ups | 4/5 | ⬜ | ▶ M4.2 |
-| M5 | ioc-runner bake provenance | 3/4 | 🔒 | |
+| M5 | ioc-runner bake provenance | 3/5 | ⬜ | ▶ M5.5 |
 | M6 | Unattended bake execution | 1/2 | ⬜ | ▶ M6.1 |
 
 ## Tasks (L2)
@@ -103,6 +103,7 @@ The `Group` cell is written once per group; continuation rows are blank.
 | | M5.4 | [Accept the production ioc-runner bake for Rocky 8 and Debian 13 (#23)](https://github.com/jeonghanlee/cloud-provision/issues/23) | 🔒 | | ← G3 | The Rocky 8 and Debian 13 ioc-runner bakes run from the current `origin/master`, fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers boot, and each recorded manifest matches its running system. Procedure is in `docs/RUNBOOK_BAKE.md`. Resume as ⬜ when G3 completes. |
 | M6 Unattended bake execution | M6.1 | [Bake refuses to start its configuration step when launched without a terminal (#24)](https://github.com/jeonghanlee/cloud-provision/issues/24) | ⬜ | ▶ | | A bake launched detached from a non-interactive session either completes or fails for a reason that belongs to the bake, and the chosen remedy is readable by an operator before the first attempt. Reproduced twice on 2026-07-31 with `nohup` and with `setsid nohup ... < /dev/null`; the working form is `setsid script -qec "make bake" /dev/null`. |
 | | M6.2 | [Bake publish step stalls when the previous golden changed owner (#24)](https://github.com/jeonghanlee/cloud-provision/issues/24) | ✅ | | | Both publish renames at `bin/bake_iocrunner_image.bash:425` and `:427` now use `mv -f --`, matching the in-VM manifest writes at `:182` and `:211`. A pre-publish writability assertion was reviewed and rejected: `mv` needs write permission on the image directory, not on the destination file, so asserting target writability would abort bakes that succeed. `tests/check-iocrunner-bake-provenance.bash` gains promotion mode `publish-unwritable`, the first case that drives a completed publication; it sets the prior golden to mode 0444 and runs the bake under a pseudo-terminal, because without one `mv` overwrites silently and the case would pin nothing. On 2026-07-31, host `Neutron`, `REQUIRED_GROUP=$(id -gn) make check-bake` exited 0 with 20/20. Teeth confirmed by mutation: removing `-f` from `:425` dropped it to 18/20 with exit 2, failing on `bake exited 1` and `image or sidecar was not replaced`; the earlier non-terminal form of the same case passed 20/20 under that mutation and was discarded as false assurance. Pattern audit: the EtherCAT bake shares the same assumption at `bin/bake_ethercat_image.bash:206-207` and is deferred to the archive separation in #25 by owner direction. Session `work/review_sessions/20260731_024614_m6_2_publish_overwrite` on host `Neutron`. Original done-when: the publish step either overwrites the previous golden pair without prompting, or fails with a named error that identifies the ownership repair; behavior no longer depends on whether a terminal is attached. Observed 2026-07-31: a bake driven under `script -qec` sat 43 minutes at Step 9/10 on the `mv` overwrite prompt. `bin/bake_iocrunner_image.bash:417` and `:419` use `mv --` without `-f`, while the in-VM manifest writes at `:182` and `:211` already use `mv -f --`. The previous golden had changed owner to `libvirt-qemu` when consumer VMs started; libvirt `dynamic_ownership` claims the backing chain and its `remember_owner` restore does not run when a consumer is removed by the `.clean` target instead of a graceful stop. Without a terminal `mv` cannot prompt and silently overwrites, which is why earlier bakes passed unnoticed — so the M6.1 remedy is what exposes this. |
+| | M5.5 | [Accept the requested ioc-runner version field and pass a selector through the bake (#26)](https://github.com/jeonghanlee/cloud-provision/issues/26) | ⬜ | ▶ | | A bake with no selector writes the unchanged six-field `app_ioc_runner` record and passes validation; a bake with a selector produces an image whose `ioc-runner -V` reports that ref's commit, writes both `commit=` and `requested=`, and passes validation; a nonexistent ref fails by name during the Ansible run and publishes nothing; and `requested=` on any of the other four application records is rejected. `ansible-provision` already landed its half in `75f16c3` and `ca2a9de`; until this row lands, `ioc_runner_version` must stay empty in real bakes. Verified against the code 2026-07-31: `parse_app_record` in `bin/validate_iocrunner_bake.bash` rejects any trailing token, and `bin/bake_iocrunner_image.bash:258` accepts no selector flag while all three `ansible-playbook` calls at `:368`, `:374`, and `:380` pass only `-i` and `--limit`. |
 
 ## External gates (G)
 
