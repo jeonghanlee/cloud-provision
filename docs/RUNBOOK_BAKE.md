@@ -6,24 +6,40 @@ Architecture lives in `docs/ARCHITECTURE.md` section 12; this page
 covers bake entry points, failure handling, proxy handling, and acceptance
 checks.
 
+## Runbook rules
+
+This is a command-based runbook. Every procedure must stay executable from
+this page alone, in any situation and at any point in the project's life.
+
+Do not write into this file:
+
+- milestone, issue, plan, or review identifiers;
+- current project state, such as what is next, pending, or recently landed;
+- any reference that resolves only against a tracker or a session record.
+
+Such names are renumbered and retired on their own schedule, which leaves a
+command step pointing at something the reader at the terminal cannot resolve.
+State the operating condition and the command instead. Tracking documents may
+point here; this page does not point back.
+
 ## Which bake entry point to use
 
 Use the selector by the image you need to produce, not by the VM you will boot later:
 
 | Need | Command | Output image | Later runtime selector |
 |---|---|---|---|
-| Rocky 8 IOC runner golden | `make bake.rocky8` | `iocrunner-rocky8.qcow2` | `rocky8-iocrunner` |
-| Debian 13 IOC runner golden | `make bake.debian13` | `iocrunner-debian13.qcow2` | `debian13-iocrunner` |
-| Both IOC runner goldens | `make bake` | both IOC runner images | both `*-iocrunner` selectors |
+| Rocky 8 ioc-runner golden | `make bake.rocky8` | `iocrunner-rocky8.qcow2` | `rocky8-iocrunner` |
+| Debian 13 ioc-runner golden | `make bake.debian13` | `iocrunner-debian13.qcow2` | `debian13-iocrunner` |
+| Both ioc-runner goldens | `make bake` | both ioc-runner images | both `*-iocrunner` selectors |
 | Debian 13 EtherCAT golden | `make bake.ethercat.debian13` | `ethercat-debian13.qcow2` | `debian13-ethercat` |
 
-For M.7 final acceptance after the P008 commits, the next entry point is the production IOC runner bake path: run the Rocky 8 and Debian 13 IOC runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers and compare the manifests against the running systems.
+To accept a production ioc-runner golden image, run the Rocky 8 and Debian 13 ioc-runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers and compare the manifests against the running systems.
 
 ## Fresh consumer SSH host keys
 
 Fresh consumer VMs reuse deterministic testbed IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.
 
-For the default IOC runner consumers:
+For the default ioc-runner consumers:
 
 ```bash
 ssh-keygen -f ~/.ssh/known_hosts -R 192.168.122.150
@@ -82,7 +98,7 @@ Symptoms without this procedure, in the order you will meet them:
 `dnf`/`apt` metadata stalls at 0 B/s (Step 4), then `pip` retries with
 `NewConnectionError`, then in-VM `wget`/`git` of build sources times
 out. Note the fix is per BUILD VM and per bake: the de-proxy step
-(Step 7/10 iocrunner, 5/7 ethercat) strips every layer again before
+(Step 7/10 ioc-runner, 5/7 ethercat) strips every layer again before
 flatten, so goldens never carry the values.
 
 Inject all layers into the booted build VM (as vmadmin):
@@ -176,7 +192,7 @@ ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/apt/history.log
 `set -e` aborts the script; know what state remains:
 
 - The build VM SURVIVES, running and half-provisioned. Re-running the
-  same `make bake.<os>` now fails early because IOC runner bakes require
+  same `make bake.<os>` now fails early because ioc-runner bakes require
   fresh build inputs. Inspect the VM, then run the printed cleanup command
   when a clean retry is intended.
 - A previously published golden is NEVER at risk: validation runs before
@@ -201,9 +217,9 @@ ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/apt/history.log
   provisioning or cleanup (default `libvirt`).
 - `IMAGE_DIR`, `ANSIBLE_PROVISION_DIR` — as before.
 
-## IOC runner bake contract
+## ioc-runner bake contract
 
-IOC runner bakes are fresh-input only. The build domain
+ioc-runner bakes are fresh-input only. The build domain
 `testbed-<os>-server` and its source disk must not exist before the bake.
 If either exists, `bin/bake_iocrunner_image.bash` stops through
 `create_vm.bash -F` and prints the cleanup command instead of removing
@@ -215,7 +231,7 @@ target golden image as a backing file, the bake stops before publication.
 This protects existing consumers from a golden-image replacement while
 they still depend on the old image.
 
-The IOC runner bake publishes only this pair:
+The ioc-runner bake publishes only this pair:
 
 - `${IMAGE_DIR}/iocrunner-rocky8.qcow2` with `${IMAGE_DIR}/iocrunner-rocky8.qcow2.manifest`
 - `${IMAGE_DIR}/iocrunner-debian13.qcow2` with `${IMAGE_DIR}/iocrunner-debian13.qcow2.manifest`
@@ -241,7 +257,7 @@ Create it with mode 0755 and add only these two symlinks:
 Both symlinks point to the existing production base images in
 `/home/jeonglee/libvirt/images`. Preliminary outputs, source disks, seed
 files, image `.tmp` files, and manifest `.tmp` files remain inside
-`PRELIM_IMAGE_DIR`. Production goldens and IOC runner consumers are out of
+`PRELIM_IMAGE_DIR`. Production goldens and ioc-runner consumers are out of
 scope for preliminary cleanup.
 
 Operator-directed cleanup is limited to:
@@ -255,9 +271,9 @@ Operator-directed cleanup is limited to:
 If any unexpected file remains in `PRELIM_IMAGE_DIR`, stop and inspect it
 instead of widening the cleanup command.
 
-## IOC runner bake provenance
+## ioc-runner bake provenance
 
-Each IOC runner bake stamps `/etc/iocrunner-bake.manifest` inside the
+Each ioc-runner bake stamps `/etc/iocrunner-bake.manifest` inside the
 image and copies it to a sidecar `<image>.qcow2.manifest` next to the
 output. The manifest records:
 
