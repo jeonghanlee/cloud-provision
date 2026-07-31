@@ -115,14 +115,34 @@ set -e
 cmd=""
 for arg in "$@"; do
     case "$arg" in
-        domstate|dominfo|domifaddr|net-update|start|shutdown|destroy|undefine)
+        domstate|dominfo|domifaddr|net-update|start|shutdown|destroy|undefine|uri)
             cmd="$arg"
             break
             ;;
     esac
 done
+# FAKE_LIBVIRT_DOWN makes every command fail the way an unreachable libvirt
+# does: domstate and uri both exit non-zero, which is the pair get_domain_state
+# uses to tell an outage from an absent domain.
+if [[ "${FAKE_LIBVIRT_DOWN:-}" == "1" ]]; then
+    printf "error: failed to connect to the hypervisor\n" >&2
+    exit 1
+fi
 case "$cmd" in
+    uri)
+        printf "%s\n" "qemu:///system"
+        ;;
     domstate)
+        if [[ "${FAKE_DOMAIN_STATE:-running}" == "absent" ]]; then
+            printf "error: failed to get domain\n" >&2
+            exit 1
+        fi
+        # A domain that was asked to shut down reports "shut off" from then on,
+        # unless the case asked for one that never obeys.
+        if [[ -n "${FAKE_SHUTDOWN_MARKER:-}" && -e "${FAKE_SHUTDOWN_MARKER}" ]]; then
+            printf "shut off\n"
+            exit 0
+        fi
         printf "%s\n" "${FAKE_DOMAIN_STATE:-running}"
         ;;
     dominfo)
@@ -131,7 +151,12 @@ case "$cmd" in
     domifaddr)
         printf " vnet0 52:54:00:00:64:00 ipv4 192.168.122.100/24\n"
         ;;
-    net-update|start|shutdown|destroy|undefine)
+    shutdown)
+        if [[ -n "${FAKE_SHUTDOWN_MARKER:-}" ]]; then
+            : > "${FAKE_SHUTDOWN_MARKER}"
+        fi
+        ;;
+    net-update|start|destroy|undefine)
         ;;
     *)
         printf "unexpected virsh command: %s\n" "$*" >&2
@@ -184,11 +209,23 @@ function run_create_vm {
     local dominfo_rc=1
     local -a args=("-o" "rocky8" "-n" "server" "-d" "${WORKSPACE}/images")
 
-    if [[ "${action}" == "status" ]]; then
-        args+=("-s")
-    else
-        domain_state="shut off"
-        dominfo_rc=0
+    case "${action}" in
+        status)
+            args+=("-s")
+            ;;
+        stop)
+            args+=("-S")
+            ;;
+        cleanup)
+            args+=("-c")
+            ;;
+        *)
+            domain_state="shut off"
+            dominfo_rc=0
+            ;;
+    esac
+    if [[ -n "${FAKE_STATE_OVERRIDE:-}" ]]; then
+        domain_state="${FAKE_STATE_OVERRIDE}"
     fi
 
     FAKE_CLOUD_INIT_STATUS_OUTPUT="${status_output}" \
@@ -196,6 +233,8 @@ function run_create_vm {
     FAKE_DOMINFO_RC="${dominfo_rc}" \
     FAKE_SSH_EXIT_RC="${FAKE_SSH_EXIT_RC:-0}" \
     FAKE_SSH_STDERR="${FAKE_SSH_STDERR:-}" \
+    FAKE_LIBVIRT_DOWN="${FAKE_LIBVIRT_DOWN:-}" \
+    FAKE_SHUTDOWN_MARKER="${FAKE_SHUTDOWN_MARKER:-}" \
     FAKE_SLEEP_LOG="${SLEEP_LOG}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
@@ -274,6 +313,69 @@ function run_ssh_rejection_case {
     fi
 }
 
+# Drives one cell of the action-by-state table in ARCHITECTURE section 14.
+# The state is forced through the fake virsh rather than by reaching it, so a
+# cell that no action can currently produce is still exercised.
+# Stop against a domain that obeys the ACPI request: the marker makes the fake
+# report "shut off" once shutdown has been issued, which is the transition the
+# poll exists to observe. The attempt count and interval are deliberately not
+# asserted; they belong to the wait-budget policy.
+function run_stop_obeys_case {
+    local name="$1"
+    local want_rc="$2"
+    local want_text="$3"
+    local result rc output
+
+    reset_sleep_log
+    result=$(FAKE_STATE_OVERRIDE="running" \
+        FAKE_SHUTDOWN_MARKER="${WORKSPACE}/shutdown.marker" \
+        run_create_vm $'status: done\n' "stop")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    rm -f -- "${WORKSPACE}/shutdown.marker"
+
+    expect_exit "${name} exit" "${want_rc}" "${rc}"
+    expect_contains "${name} message" "${output}" "${want_text}"
+}
+
+function run_lifecycle_case {
+    local name="$1"
+    local action="$2"
+    local state="$3"
+    local want_rc="$4"
+    local want_text="$5"
+    local result rc output
+
+    reset_sleep_log
+    result=$(FAKE_STATE_OVERRIDE="${state}" \
+        run_create_vm $'status: done\n' "${action}")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    expect_exit "${name} exit" "${want_rc}" "${rc}"
+    expect_contains "${name} message" "${output}" "${want_text}"
+}
+
+# Drives an action while libvirt does not answer at all. The point is that this
+# is reported as its own outcome: an outage read as an absent domain would tell
+# the operator to provision a VM that may already exist.
+function run_outage_case {
+    local name="$1"
+    local action="$2"
+    local want_rc="$3"
+    local want_text="$4"
+    local result rc output
+
+    reset_sleep_log
+    result=$(FAKE_LIBVIRT_DOWN=1 run_create_vm $'status: done\n' "${action}")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    expect_exit "${name} exit" "${want_rc}" "${rc}"
+    expect_contains "${name} message" "${output}" "${want_text}"
+    expect_not_contains "${name} not absent" "${output}" "to provision"
+}
+
 function run_case {
     local name="$1"
     local status_output="$2"
@@ -318,5 +420,20 @@ run_ssh_rejection_case "ssh unavailable" "" "SSH: not available after"
 run_ssh_rejection_case "ssh host key changed" \
     "@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@" \
     "answers with a different host key"
+
+# Libvirt lifecycle policy, ARCHITECTURE section 14. Each case names the row of
+# the action-by-state table it pins.
+run_stop_obeys_case "stop running" 0 "shut off [OK]"
+run_lifecycle_case "stop never obeys" "stop" "running" 1 "did not shut off within"
+run_lifecycle_case "stop already off" "stop" "shut off" 0 "already shut off"
+run_lifecycle_case "stop absent" "stop" "absent" 0 "is not defined"
+run_lifecycle_case "stop paused" "stop" "paused" 1 "unexpected state: paused"
+run_lifecycle_case "stop paused hints cleanup" "stop" "paused" 1 ".clean' then re-run"
+run_lifecycle_case "status paused hints cleanup" "status" "paused" 1 ".clean' then re-run"
+run_lifecycle_case "cleanup running" "cleanup" "running" 0 "Undefining VM"
+run_lifecycle_case "cleanup absent" "cleanup" "absent" 0 "Removing disk"
+run_outage_case "status outage" "status" 1 "libvirt did not answer"
+run_outage_case "stop outage" "stop" 1 "was not checked"
+run_outage_case "provision outage" "provision" 1 "nothing was created"
 
 print_summary

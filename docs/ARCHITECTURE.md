@@ -455,3 +455,39 @@ worth seeing.
 
 Retry counts and intervals are not part of this contract. They are recorded and
 reviewed separately.
+
+## 14. Libvirt Lifecycle Policy
+
+Four public actions read or change domain state. They are stated as one table
+because the failure this policy exists to prevent is the four drifting apart
+without anyone noticing; a divergence shows up here as a row that no longer
+matches.
+
+| Domain state | `-s` status | provision (default) | `-S` stop | `-c` cleanup |
+| --- | --- | --- | --- | --- |
+| `running` | reports IP, SSH, `cloud-init` | prints the summary and exits 0, idempotent | ACPI shutdown, polls until off | destroys, undefines, removes disk and seed |
+| `shut off` | reports the state, hints `virsh start`, exits 1 | starts and waits for readiness | reports already off, exits 0 | same as above; destroy reports not running |
+| `not defined` | reports the state, hints provision, exits 1 | provisions from scratch | reports not defined, exits 0 | same as above; both virsh steps report absent |
+| unexpected (`paused`, `crashed`, `pmsuspended`) | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | proceeds and returns 0 |
+| `unavailable` (libvirt did not answer) | reports it and says the domain was not checked, exits 1 | refuses before creating anything, exits 1 | reports it and exits 1 | proceeds; each step reports its own failure |
+
+Three rules explain the table.
+
+**An unexpected state is not resolved by waiting.** Every action that reads or
+starts refuses and points at cleanup, because cleanup is the way back. Cleanup
+itself proceeds for the same reason.
+
+**`unavailable` is not `not defined`.** `virsh domstate` fails identically when
+the domain is absent and when libvirt cannot be reached, so `get_domain_state`
+asks the connection separately. Reporting an outage as absence would tell the
+operator to provision a VM that may already exist, and would let a stop exit 0
+for a question nobody answered. The distinction stops at reporting: nothing
+retries or reconnects, because that would be a wait budget, which is tracked
+separately.
+
+**Cleanup never checks state, deliberately.** Its contract is idempotent
+removal, and the end state is the same from every starting state. A pre-check
+would race — the domain can change between the check and the command — and would
+buy nothing. Every step reports its own outcome as information and cleanup
+always returns 0, so teardown scripts can run it unconditionally. Do not add
+state checks here for symmetry with the other three actions.

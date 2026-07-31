@@ -342,6 +342,11 @@ function do_stop {
             printf "VM '%s' is not defined.\n" "${VM_NAME}"
             return 0
             ;;
+        unavailable)
+            printf "libvirt did not answer at %s; '%s' was not checked.\n" \
+                "${LIBVIRT_URI}" "${VM_NAME}"
+            return 1
+            ;;
         "shut off")
             printf "VM '%s' is already shut off.\n" "${VM_NAME}"
             return 0
@@ -364,6 +369,7 @@ function do_stop {
             ;;
         *)
             printf "VM '%s' is in unexpected state: %s\n" "${VM_NAME}" "${state}"
+            printf "Hint: run 'make %s.%s.clean' then re-run\n" "${OS_TYPE}" "${NODE_ID}"
             return 1
             ;;
     esac
@@ -518,12 +524,22 @@ function provision_vm {
 # --- Domain State Inspection ---
 # Reports libvirt domain state without polling. Treats undefined domains as
 # a first-class state so callers can branch without inspecting virsh exit codes.
+# Reports the domain state as libvirt sees it, plus two states of our own.
+# "not defined" means libvirt answered and has no such domain. "unavailable"
+# means libvirt did not answer at all: domstate fails identically for both, so
+# the connection is asked separately rather than assuming absence. Reporting an
+# outage as absence would tell the operator to provision a VM that may already
+# exist, and would let a stop exit 0 for a question nobody answered.
 function get_domain_state {
     local state
     if state=$(virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" 2>/dev/null); then
         printf "%s\n" "${state}"
-    else
+        return 0
+    fi
+    if virsh --connect "${LIBVIRT_URI}" uri >/dev/null 2>&1; then
         printf "not defined\n"
+    else
+        printf "unavailable\n"
     fi
 }
 
@@ -625,11 +641,21 @@ function print_status_report {
         printf "cloud-init : (n/a)\n"
         printf "%s\n" "------------------------------------------------------------"
         printf "VM Name    : %s\n" "${VM_NAME}"
-        if [[ "${domain_state}" == "shut off" ]]; then
-            printf "Hint       : virsh -c %s start %s\n" "${LIBVIRT_URI}" "${VM_NAME}"
-        elif [[ "${domain_state}" == "not defined" ]]; then
-            printf "Hint       : run 'make %s.%s' to provision\n" "${OS_TYPE}" "${NODE_ID}"
-        fi
+        case "${domain_state}" in
+            "shut off")
+                printf "Hint       : virsh -c %s start %s\n" "${LIBVIRT_URI}" "${VM_NAME}"
+                ;;
+            "not defined")
+                printf "Hint       : run 'make %s.%s' to provision\n" "${OS_TYPE}" "${NODE_ID}"
+                ;;
+            unavailable)
+                printf "Hint       : libvirt did not answer at %s; the domain was not checked\n" \
+                    "${LIBVIRT_URI}"
+                ;;
+            *)
+                printf "Hint       : run 'make %s.%s.clean' then re-run\n" "${OS_TYPE}" "${NODE_ID}"
+                ;;
+        esac
         printf "%s\n" "------------------------------------------------------------"
         return 1
     fi
@@ -846,6 +872,15 @@ printf "%s\n" "------------------------------------------------------------"
 #   - running   -> emit IP/SSH summary and exit 0 (idempotent, group targets flow through)
 #   - other     -> abnormal state (paused, crashed, ...) — print state and exit 1;
 #                  user reclaims via `make <os>.<node>.clean` then re-run
+# Ask the connection before the dispatch: dominfo fails identically for an
+# absent domain and an unreachable libvirt, and taking an outage for absence
+# would start provisioning a VM that may already exist.
+if [[ "$(get_domain_state)" == "unavailable" ]]; then
+    printf "Error: libvirt did not answer at %s; nothing was created.\n" \
+        "${LIBVIRT_URI}" >&2
+    exit 1
+fi
+
 if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
     existing_state=$(get_domain_state)
 
