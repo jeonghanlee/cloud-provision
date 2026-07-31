@@ -1,10 +1,13 @@
 # Generates a bake target for a single base OS.
 # Usage: $(call bake_targets, os_type)
 define bake_targets
-.PHONY: bake.$(1)
+.PHONY: bake.$(1) refresh.$(1)
 
 bake.$(1): ## Bake golden iocrunner image for $(1)
 	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(BAKE_IMAGE) -o $(1) -d $(IMAGE_DIR) -a $(ANSIBLE_DIR)
+
+refresh.$(1): ## Point the $(1) working copy at the newest archive entry
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(BAKE_IMAGE) -o $(1) -d $(IMAGE_DIR) -a $(ANSIBLE_DIR) -R -
 endef
 
 VARS_EXCLUDES += bake_targets
@@ -22,7 +25,7 @@ VARS_EXCLUDES += ethercat_bake_targets
 
 ##@ Image Baking
 
-.PHONY: bake bake.ethercat check-bake check-bake-fresh-inputs check-bake-provenance help.bake
+.PHONY: bake bake.ethercat check-bake check-bake-fresh-inputs check-bake-provenance help.bake refresh
 
 bake: $(addprefix bake., $(BAKE_OS_TYPES)) ## Bake golden iocrunner images for all bakeable OS types
 
@@ -40,6 +43,8 @@ help.bake: ## Show dynamically generated bake targets
 	$(QUIET) printf "\nPer-OS iocrunner bake targets (OS in: %s):\n" "$(BAKE_OS_TYPES)"
 	$(QUIET) printf "  make bake               Bake all iocrunner OS types sequentially\n"
 	$(QUIET) printf "  make bake.<os>          Bake golden iocrunner image for one OS\n"
+	$(QUIET) printf "\nWorking copy targets:\n"
+	$(QUIET) printf "  make refresh.<os>       Point the working copy at the newest archive entry\n"
 	$(QUIET) printf "\nValidation targets:\n"
 	$(QUIET) printf "  make check-bake         Run offline bake contract checks\n"
 	$(QUIET) printf "  make check-bake-fresh-inputs\n"

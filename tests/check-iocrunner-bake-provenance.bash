@@ -398,6 +398,7 @@ function run_promotion_case {
     local runner_checkout="${case_dir}/runner"
     local runner_bin="${case_dir}/ioc-runner"
     local remote_manifest="${case_dir}/remote.manifest"
+    local archive_dir="${case_dir}/archive"
     local output_image="${image_dir}/iocrunner-rocky8.qcow2"
     local sidecar="${output_image}.manifest"
     local before_image before_sidecar after_image after_sidecar
@@ -433,6 +434,7 @@ function run_promotion_case {
     write_fake_host_commands "${fakebin}"
 
     local -a bake_env=(
+        "ARCHIVE_DIR=${archive_dir}"
         "CASE_DIR=${case_dir}"
         "DOMAIN_STATE_FILE=${case_dir}/domain.state"
         "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
@@ -494,6 +496,38 @@ function run_promotion_case {
             record_pass "${mode} removes only current temporary outputs"
         else
             record_fail "${mode} removes only current temporary outputs" "temporary output remained"
+        fi
+
+        # The publish target is the archive, not the image directory. Without
+        # this the refresh that follows would hide where the bake actually
+        # wrote, and the split could be reverted with every case still green.
+        local -a archived=()
+        shopt -s nullglob
+        archived=("${archive_dir}"/iocrunner-rocky8-*.qcow2)
+        shopt -u nullglob
+        if (( ${#archived[@]} == 1 )); then
+            record_pass "${mode} publishes one archive entry"
+        else
+            record_fail "${mode} publishes one archive entry" \
+                "found ${#archived[@]} entries in ${archive_dir}"
+        fi
+        if (( ${#archived[@]} == 1 )) && [[ -f "${archived[0]}.manifest" ]]; then
+            record_pass "${mode} archives the sidecar beside it"
+        else
+            record_fail "${mode} archives the sidecar beside it" "sidecar missing"
+        fi
+        if (( ${#archived[@]} == 1 )) && [[ "${archived[0]##*/}" =~ ^iocrunner-rocky8-[0-9]{8}T[0-9]{6}Z\.qcow2$ ]]; then
+            record_pass "${mode} names the entry from the bake timestamp"
+        else
+            record_fail "${mode} names the entry from the bake timestamp" \
+                "unexpected name: ${archived[0]##*/}"
+        fi
+        # The working copy must be a real file. A symlink would satisfy every
+        # existence check above and hand the archive entry to libvirt.
+        if [[ -f "${output_image}" && ! -L "${output_image}" ]]; then
+            record_pass "${mode} working copy is a real file"
+        else
+            record_fail "${mode} working copy is a real file" "not a regular file"
         fi
         return 0
     fi

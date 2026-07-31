@@ -15,6 +15,8 @@ declare -g OS_TYPE=""
 declare -g IMAGE_DIR="${IMAGE_DIR:-${HOME}/libvirt/images}"
 declare -g ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${SC_TOP}/../ansible-provision}"
 declare -g KEEP_VM=false
+declare -g REFRESH_ONLY=false
+declare -g REFRESH_ENTRY=""
 declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
 declare -g NODE_ID="server"
 declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
@@ -40,6 +42,8 @@ function print_usage {
     printf "  -d <image_dir>  Image storage (default: %s)\n" "${IMAGE_DIR}"
     printf "  -a <dir>        ansible-provision directory (default: %s)\n" "${ANSIBLE_DIR}"
     printf "  -k              Keep the build VM after bake (default: destroy)\n"
+    printf "  -R <entry|->    Refresh the working copy from an archive entry and exit.\n"
+    printf "                  Use - for the newest entry. Does not bake.\n"
     printf "  -h              Show this help\n"
 }
 
@@ -127,6 +131,70 @@ function protect_output_consumers {
             die "output image is in use by qcow2 disk ${disk}"
         fi
     done
+}
+
+# Copies an archive entry to the working copy consumers back onto. A REAL copy,
+# never a symlink: libvirt resolves the backing chain by path, so a symlink here
+# would resolve through and hand the archive entry to libvirt-qemu on the first
+# consumer start - exactly what the archive exists to prevent, on the copy meant
+# to be permanent.
+function refresh_working_copy {
+    local archive_image="$1"
+    local archive_sidecar="${archive_image}.manifest"
+    local image_tmp="${OUTPUT_IMAGE}.refresh.tmp"
+    local sidecar_tmp="${SIDECAR}.refresh.tmp"
+
+    [[ -f "${archive_image}" ]] || die "archive entry missing: ${archive_image}"
+    [[ -f "${archive_sidecar}" ]] || die "archive sidecar missing: ${archive_sidecar}"
+
+    # The guard belongs here, not on the archive publish: nothing backs onto an
+    # archive entry, but replacing the working copy while a consumer runs still
+    # pulls the floor out from under it.
+    protect_output_consumers
+
+    trap 'rm -f -- "${image_tmp}" "${sidecar_tmp}"' EXIT HUP INT TERM
+    cp -- "${archive_image}" "${image_tmp}"
+    cp -- "${archive_sidecar}" "${sidecar_tmp}"
+    mv -f -- "${image_tmp}" "${OUTPUT_IMAGE}"
+    mv -f -- "${sidecar_tmp}" "${SIDECAR}"
+    trap - EXIT HUP INT TERM
+
+    [[ ! -L "${OUTPUT_IMAGE}" ]] || die "working copy must be a real file: ${OUTPUT_IMAGE}"
+    printf "  Working copy: %s <- %s\n" "${OUTPUT_IMAGE}" "${archive_image##*/}"
+}
+
+# Lists archive entries for this OS type, newest first, and names the ones past
+# the keep depth. Nothing is deleted: retention is manual per issue #2, and the
+# operator needs to see which entry a downstream pin still claims before
+# removing anything.
+function report_archive_retention {
+    local keep=2
+    local -a entries=()
+    local index
+
+    # Collect through the array, not through printf: with nullglob an empty
+    # archive gives printf no arguments, so it emits one blank line and the
+    # listing reports a nameless entry.
+    shopt -s nullglob
+    entries=("${ARCHIVE_DIR}/iocrunner-${OS_TYPE}-"*.qcow2)
+    shopt -u nullglob
+    if (( ${#entries[@]} > 1 )); then
+        mapfile -t entries < <(printf "%s\n" "${entries[@]}" | sort -r)
+    fi
+
+    printf "  Archive entries for %s: %s (keeping %s)\n" \
+        "${OS_TYPE}" "${#entries[@]}" "${keep}"
+    for (( index = 0; index < ${#entries[@]}; index++ )); do
+        if (( index < keep )); then
+            printf "    keep    %s\n" "${entries[index]##*/}"
+        else
+            printf "    surplus %s\n" "${entries[index]##*/}"
+        fi
+    done
+    if (( ${#entries[@]} > keep )); then
+        printf "  Surplus entries are NOT removed. Check %s/pins before deleting.\n" \
+            "${ARCHIVE_DIR}"
+    fi
 }
 
 function stamp_manifest_header {
@@ -255,12 +323,13 @@ exit "${hits}"
 REMOTE_VERIFY
 }
 
-while getopts ":o:d:a:kh" opt; do
+while getopts ":o:d:a:kR:h" opt; do
     case "${opt}" in
         o) OS_TYPE="${OPTARG}" ;;
         d) IMAGE_DIR="${OPTARG}" ;;
         a) ANSIBLE_DIR="${OPTARG}" ;;
         k) KEEP_VM=true ;;
+        R) REFRESH_ONLY=true; REFRESH_ENTRY="${OPTARG}" ;;
         h) print_usage; exit 0 ;;
         :) die "-${OPTARG} requires an argument" ;;
         ?) die "unknown option -${OPTARG}" ;;
@@ -285,10 +354,27 @@ ANSIBLE_DIR="$(realpath "${ANSIBLE_DIR}")"
 
 declare -g VM_NAME="${VM_PREFIX}-${OS_TYPE}-${NODE_ID}"
 declare -g SOURCE_DISK="${IMAGE_DIR}/${VM_NAME}.qcow2"
+# The archive holds every published golden pair under a name taken from the
+# bake timestamp. Nothing ever backs onto an archive entry, so libvirt never
+# claims one and a downstream pin can keep referring to an older environment.
+# It is a sibling of the image directory rather than a child so the working
+# directory stays readable, and so a consumer cannot be pointed at an archive
+# entry by a careless glob.
+declare -g ARCHIVE_DIR="${ARCHIVE_DIR:-${IMAGE_DIR%/}/../archive}"
+declare -g ARCHIVE_IMAGE=""
+declare -g ARCHIVE_SIDECAR=""
+declare -g BAKE_DATE=""
+# The working copy keeps the path and name consumers already resolve. Existing
+# per-VM overlays record it as an absolute backing path, so it must not move.
 declare -g OUTPUT_IMAGE="${IMAGE_DIR}/iocrunner-${OS_TYPE}.qcow2"
 declare -g OUTPUT_TEMP="${OUTPUT_IMAGE}.tmp"
 declare -g SIDECAR="${OUTPUT_IMAGE}.manifest"
 declare -g SIDECAR_TEMP="${SIDECAR}.tmp"
+
+mkdir -p -- "${ARCHIVE_DIR}"
+ARCHIVE_DIR="$(realpath "${ARCHIVE_DIR}")"
+[[ "${ARCHIVE_DIR}" != "${IMAGE_DIR}" ]] \
+    || die "archive directory must not be the image directory: ${ARCHIVE_DIR}"
 declare -g CREATE_VM="${SC_TOP}/bin/create_vm.bash"
 declare -g VALIDATOR="${SC_TOP}/bin/validate_iocrunner_bake.bash"
 declare -g INVENTORY_PATH
@@ -320,6 +406,31 @@ printf "  Source disk: %s\n" "${SOURCE_DISK}"
 printf "  Output     : %s\n" "${OUTPUT_IMAGE}"
 printf "  Ansible    : %s\n" "${ANSIBLE_DIR}"
 printf "%s\n" "------------------------------------------------------------"
+
+# Refresh-only: point the working copy at an archive entry without baking. This
+# is how an operator rolls a platform back to an earlier golden. Provisioning
+# never refreshes on its own, so which environment a consumer receives is always
+# the result of an explicit action.
+if [[ "${REFRESH_ONLY}" == true ]]; then
+    if [[ "${REFRESH_ENTRY}" == "-" ]]; then
+        declare -a CANDIDATES=()
+        shopt -s nullglob
+        CANDIDATES=("${ARCHIVE_DIR}/iocrunner-${OS_TYPE}-"*.qcow2)
+        shopt -u nullglob
+        (( ${#CANDIDATES[@]} > 0 )) \
+            || die "no archive entry for ${OS_TYPE} in ${ARCHIVE_DIR}"
+        if (( ${#CANDIDATES[@]} > 1 )); then
+            mapfile -t CANDIDATES < <(printf "%s\n" "${CANDIDATES[@]}" | sort -r)
+        fi
+        REFRESH_ENTRY="${CANDIDATES[0]}"
+    elif [[ "${REFRESH_ENTRY}" != /* ]]; then
+        REFRESH_ENTRY="${ARCHIVE_DIR}/${REFRESH_ENTRY}"
+    fi
+    printf "Refresh working copy for %s\n" "${OS_TYPE}"
+    refresh_working_copy "${REFRESH_ENTRY}"
+    report_archive_retention
+    exit 0
+fi
 
 printf "\nStep 1/10: Boot a fresh %s\n" "${VM_NAME}"
 "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -F
@@ -358,7 +469,13 @@ EPICS_BASE_VERSION="$(awk '$1 == "epics_base_version:" {gsub(/"/, "", $2); print
     "${ANSIBLE_DIR}/inventory/group_vars/all.yml")"
 [[ -n "${EPICS_ENV_VERSION}" && -n "${EPICS_BASE_VERSION}" ]] \
     || die "EPICS selectors are missing"
-stamp_manifest_header "$(date -u +%FT%TZ)" "${CLOUD_HEAD}" "${ANSIBLE_HEAD}" \
+BAKE_DATE="$(date -u +%FT%TZ)"
+# Archive entries are named from the value the manifest itself records, so the
+# name and the contents can never disagree, and a plain listing orders by time.
+ARCHIVE_IMAGE="${ARCHIVE_DIR}/iocrunner-${OS_TYPE}-${BAKE_DATE//[-:]/}.qcow2"
+ARCHIVE_SIDECAR="${ARCHIVE_IMAGE}.manifest"
+[[ ! -e "${ARCHIVE_IMAGE}" ]] || die "archive entry already exists: ${ARCHIVE_IMAGE}"
+stamp_manifest_header "${BAKE_DATE}" "${CLOUD_HEAD}" "${ANSIBLE_HEAD}" \
     "${EPICS_ENV_VERSION}" "${EPICS_BASE_VERSION}" "${BASE_NAME}" "${BASE_DIGEST}"
 printf "  base image: %s sha256=%s [OK]\n" "${BASE_NAME}" "${BASE_DIGEST}"
 
@@ -422,12 +539,18 @@ qemu-img convert -p -O qcow2 "${SOURCE_DISK}" "${OUTPUT_TEMP}"
 # image directory, which the bake already proved by writing the temp files
 # there; the destination's own mode only decides whether mv stops to ask. The
 # sidecar is never claimed and takes -f for symmetry within the published pair.
-mv -f -- "${OUTPUT_TEMP}" "${OUTPUT_IMAGE}"
+mv -f -- "${OUTPUT_TEMP}" "${ARCHIVE_IMAGE}"
 OUTPUT_TEMP_CREATED=false
-mv -f -- "${SIDECAR_TEMP}" "${SIDECAR}"
+mv -f -- "${SIDECAR_TEMP}" "${ARCHIVE_SIDECAR}"
 SIDECAR_TEMP_CREATED=false
-printf "  Output: %s (%s)\n" "${OUTPUT_IMAGE}" "$(du -h "${OUTPUT_IMAGE}" | awk '{print $1}')"
-printf "  Manifest sidecar: %s\n" "${SIDECAR}"
+printf "  Archived: %s (%s)\n" "${ARCHIVE_IMAGE}" "$(du -h "${ARCHIVE_IMAGE}" | awk '{print $1}')"
+printf "  Manifest sidecar: %s\n" "${ARCHIVE_SIDECAR}"
+
+# Refresh here so `make bake.<os>` still leaves consumers on the image just
+# built, as it did before the split. Pointing the working copy at an older
+# entry is a separate, explicit action.
+refresh_working_copy "${ARCHIVE_IMAGE}"
+report_archive_retention
 
 printf "\nStep 10/10: Cleanup build VM\n"
 if [[ "${KEEP_VM}" == true ]]; then

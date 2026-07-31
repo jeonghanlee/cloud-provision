@@ -449,7 +449,11 @@ function verify_base_image {
     if [[ -z "${BASE_URL}" ]]; then
         printf "Error: Base image %s not found and no download URL.\n" \
             "${BASE_IMAGE_FULL_PATH}" >&2
-        printf "Hint: run the matching bin/bake_*_image.bash to build it first.\n" >&2
+        # Provisioning never refreshes the working copy on its own: which
+        # environment a consumer receives must be the result of an explicit
+        # action, not a side effect of asking for a VM.
+        printf "Hint: if an archive entry exists, run 'make refresh.<os>'.\n" >&2
+        printf "Hint: otherwise run the matching bin/bake_*_image.bash first.\n" >&2
         exit 1
     fi
 

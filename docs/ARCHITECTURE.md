@@ -526,3 +526,71 @@ a check asserts the pair rather than a comment asking for care.
 Two types may share one image — `rocky8` and `epics-env-rocky8` select the same
 Rocky 8 base, as do `debian13` and `epics-env-debian13`. That is intended: the
 EPICS-env hosts are the same base with a different build applied on top.
+
+## 16. Golden Image Archive and Working Copy
+
+Golden images live in two places with different jobs.
+
+```
+/data/libvirt/archive/iocrunner-rocky8-20260729T060708Z.qcow2
+/data/libvirt/archive/iocrunner-rocky8-20260729T060708Z.qcow2.manifest
+/data/libvirt/images/iocrunner-rocky8.qcow2          <- consumers back onto this
+```
+
+The **archive** holds every published pair. No VM ever backs onto an entry, so
+libvirt never claims one and it stays owned by the baking account. This is what
+lets a downstream release gate keep pointing at an older environment.
+
+The **working copy** is what consumers back onto. It is refreshed from a chosen
+archive entry, and libvirt may claim it freely because it is reproducible.
+
+`make bake.<os>` publishes to the archive and then refreshes the working copy, so
+it ends where it always did. `make refresh.<os>` points the working copy at the
+newest entry without baking; `-R <entry>` on the bake script names a specific one,
+which is how a platform is rolled back.
+
+### The rules that make it work
+
+**The working copy is a real file, never a symlink.** libvirt resolves the
+backing chain by path, so a symlink here would resolve through and hand the
+archive entry to `libvirt-qemu` on the first consumer start — the outcome the
+archive exists to prevent, on the copy meant to be permanent. This says nothing
+about symlinks elsewhere on the path: `~/libvirt -> /data/libvirt` exists for
+capacity reasons and is unaffected, because resolution ends at a real file and
+libvirt chowns per file. Observed on this host — a golden is owned by
+`libvirt-qemu` while its sidecar manifest beside it is still owned by the
+invoking user.
+
+**The working copy keeps the path and name consumers already resolve.** Every
+per-VM overlay records it as an absolute backing path. The archive is the new
+thing; nothing consumers see moved, which is why no other repository needed a
+coordinated change.
+
+**The backing-chain guard runs on refresh, not on publish.** Nothing backs onto
+an archive entry, so a guard there could never fire while still reading as
+protection. Replacing a working copy while a consumer runs is the real hazard,
+and that is where `protect_output_consumers` is called.
+
+**Provisioning never refreshes on its own.** A missing working copy is refused
+with a hint naming `make refresh.<os>`. Refreshing implicitly would hand an
+operator the previous environment with nothing reported, which is worse than an
+error because the run looks correct.
+
+**Entries are named from the bake timestamp** the manifest already records, so
+the name and the contents cannot disagree and a plain listing orders by time. A
+source hash was rejected because the manifest holds several and choosing one
+leaves the others free to change without changing the name; a serial was
+rejected because it carries no information.
+
+**Retention keeps the current and the previous entry** per platform. The bake
+reports which entries are surplus and removes nothing: retention is manual, and
+the operator needs to see which entry a downstream pin still claims first.
+
+### Not covered here
+
+Upstream base images are excluded deliberately. They migrate ownership by the
+same mechanism, but they are re-fetchable and the provisioner no longer deletes
+one on a failed inspection, so the loss is cheap.
+
+The EtherCAT bake still publishes directly into the image directory. Bringing it
+onto this layout is tracked separately.

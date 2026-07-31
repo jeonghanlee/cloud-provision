@@ -35,6 +35,30 @@ Use the selector by the image you need to produce, not by the VM you will boot l
 
 To accept a production ioc-runner golden image, run the Rocky 8 and Debian 13 ioc-runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers and compare the manifests against the running systems.
 
+## Where a bake writes
+
+`make bake.<os>` publishes the golden pair into the archive and then refreshes
+the working copy consumers back onto, so it ends where it always did.
+
+```bash
+ls -l ~/libvirt/archive/iocrunner-rocky8-*.qcow2
+ls -l ~/libvirt/images/iocrunner-rocky8.qcow2
+```
+
+The bake prints which archive entries it keeps and which are surplus. It removes
+nothing; check what a downstream pin still claims before deleting an entry.
+
+To put a platform back on an earlier golden without baking:
+
+```bash
+make refresh.rocky8
+bin/bake_iocrunner_image.bash -o rocky8 -R iocrunner-rocky8-20260729T060708Z.qcow2
+```
+
+The first form takes the newest entry, the second a named one. Provisioning
+never refreshes on its own, so a consumer always gets the environment the last
+refresh selected.
+
 ## Fresh consumer SSH host keys
 
 Fresh consumer VMs reuse deterministic testbed IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.
