@@ -196,13 +196,19 @@ set -e
 command_name=""
 for argument in "$@"; do
     case "${argument}" in
-        list|dominfo|domblklist|domstate|net-update|shutdown)
+        list|dominfo|domblklist|domstate|net-update|shutdown|uri)
             command_name="${argument}"
             break
             ;;
     esac
 done
 case "${command_name}" in
+    uri)
+        # create_vm.bash asks the connection separately so it can tell an
+        # absent domain from an unreachable libvirt. A fake that does not
+        # answer this reads as an outage and the provisioner refuses.
+        printf "%s\n" "qemu:///system"
+        ;;
     list)
         ;;
     dominfo)
