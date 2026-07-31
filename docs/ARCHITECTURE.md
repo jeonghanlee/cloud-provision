@@ -491,3 +491,38 @@ would race — the domain can change between the check and the command — and w
 buy nothing. Every step reports its own outcome as information and cleanup
 always returns 0, so teardown scripts can run it unconditionally. Do not add
 state checks here for symmetry with the other three actions.
+
+## 15. Image Selection
+
+Every `OS_TYPE` selects exactly one base image, and the choice is decided before
+anything is created. `-s` and the provision header both print it, so an operator
+can see which image a run will use before the run does anything.
+
+What matters operationally is not the file name but whether the image can be
+obtained again. Three classes follow from that.
+
+| Class | Meaning | Types |
+| --- | --- | --- |
+| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | `rocky8`, `debian13`, `epics-env-rocky8`, `epics-env-debian13`, `epics-env-rocky10`, `epics-env-ubuntu24`, `epics-env-ubuntu26` |
+| upstream, pinned | A dated upstream release at a fixed URL. Re-fetchable and stable. | `debian13-rtbase` |
+| baked locally, not downloadable | Produced by `bin/bake_*_image.bash` on this host. There is no URL; losing it costs a full bake. | `rocky8-iocrunner`, `debian13-iocrunner`, `debian13-ethercat` |
+
+Two consequences are load-bearing.
+
+**The provisioner never deletes a base image.** A failed inspection reports the
+reason and stops; it does not remove the file. For a locally baked golden a
+delete would destroy work that cannot be fetched back, and for a downloadable
+one the subsequent `curl -f -L -o` overwrites the target anyway, so the delete
+was never buying anything. The inspection uses `qemu-img info --force-share`,
+matching the bake: without that flag an image a running consumer holds is
+refused rather than described, which says nothing about the image being bad.
+
+**A bake output name and a consumer input name are one pair.**
+`bin/bake_iocrunner_image.bash` composes `iocrunner-<os>.qcow2` from its own
+`OS_TYPE`, and the consumer type `<os>-iocrunner` selects that same name as a
+literal. The two are spelled in different files and agree only by convention, so
+a check asserts the pair rather than a comment asking for care.
+
+Two types may share one image — `rocky8` and `epics-env-rocky8` select the same
+Rocky 8 base, as do `debian13` and `epics-env-debian13`. That is intended: the
+EPICS-env hosts are the same base with a different build applied on top.

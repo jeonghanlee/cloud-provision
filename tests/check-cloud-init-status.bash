@@ -197,7 +197,24 @@ fi
 exit 0
 EOF
 
-    chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh" "${FAKEBIN}/sleep"
+    cat > "${FAKEBIN}/qemu-img" <<'EOF'
+#!/usr/bin/env bash
+# Only "info" is used by the selection path under test. FAKE_QEMU_IMG_FAIL
+# reproduces an inspection that cannot describe the image - a lock held by a
+# running consumer looks exactly like this - without corrupting a fixture.
+set -e
+if [[ "$1" == "info" ]]; then
+    if [[ "${FAKE_QEMU_IMG_FAIL:-}" == "1" ]]; then
+        printf "qemu-img: Failed to get shared write lock\n" >&2
+        exit 1
+    fi
+    printf "file format: qcow2\n"
+    exit 0
+fi
+exit 0
+EOF
+
+    chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh" "${FAKEBIN}/sleep" "${FAKEBIN}/qemu-img"
 }
 
 function run_create_vm {
@@ -207,7 +224,7 @@ function run_create_vm {
     local rc=0
     local domain_state="running"
     local dominfo_rc=1
-    local -a args=("-o" "rocky8" "-n" "server" "-d" "${WORKSPACE}/images")
+    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "server" "-d" "${WORKSPACE}/images")
 
     case "${action}" in
         status)
@@ -230,11 +247,12 @@ function run_create_vm {
 
     FAKE_CLOUD_INIT_STATUS_OUTPUT="${status_output}" \
     FAKE_DOMAIN_STATE="${domain_state}" \
-    FAKE_DOMINFO_RC="${dominfo_rc}" \
+    FAKE_DOMINFO_RC="${CASE_DOMINFO_RC:-${dominfo_rc}}" \
     FAKE_SSH_EXIT_RC="${FAKE_SSH_EXIT_RC:-0}" \
     FAKE_SSH_STDERR="${FAKE_SSH_STDERR:-}" \
     FAKE_LIBVIRT_DOWN="${FAKE_LIBVIRT_DOWN:-}" \
     FAKE_SHUTDOWN_MARKER="${FAKE_SHUTDOWN_MARKER:-}" \
+    FAKE_QEMU_IMG_FAIL="${FAKE_QEMU_IMG_FAIL:-}" \
     FAKE_SLEEP_LOG="${SLEEP_LOG}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
@@ -376,6 +394,66 @@ function run_outage_case {
     expect_not_contains "${name} not absent" "${output}" "to provision"
 }
 
+# Asserts the base image an OS type selects, and its class, through the public
+# status path. Selection is decided before anything is created, so this needs no
+# image, no libvirt, and no network.
+function run_selection_case {
+    local os_type="$1"
+    local want_line="$2"
+    local result output
+
+    reset_sleep_log
+    result=$(CASE_OS_TYPE="${os_type}" run_create_vm $'status: done\n' "status")
+    output="${result#*$'\n'}"
+    expect_contains "select ${os_type}" "${output}" "${want_line}"
+}
+
+# A bake output name and the consumer input name that reads it are one pair,
+# spelled in two files. This derives the bake's name and asserts a consumer
+# selects exactly it, so a divergence introduced in either file fails here.
+function run_bake_pair_case {
+    local bake_os="$1"
+    local consumer_os="$2"
+    local derived result output
+
+    derived="iocrunner-${bake_os}.qcow2"
+    reset_sleep_log
+    result=$(CASE_OS_TYPE="${consumer_os}" run_create_vm $'status: done\n' "status")
+    output="${result#*$'\n'}"
+    expect_contains "bake pair ${bake_os}" "${output}" "Base image : ${derived}"
+}
+
+# The provisioner must never delete a base image it cannot fetch back. The
+# refusal is asserted three ways together: the file survives, the run stops, and
+# the message names the image. Survival alone would also pass a silent continue.
+function run_no_delete_case {
+    local name="$1"
+    local os_type="$2"
+    local image_name="$3"
+    local image_path="${WORKSPACE}/images/${image_name}"
+    local result rc output
+
+    mkdir -p "${WORKSPACE}/images"
+    printf "%s\n" "golden fixture" > "${image_path}"
+    reset_sleep_log
+    # dominfo must fail so the dispatch falls through to the fresh-provision
+    # path; that is the only route that reaches verify_base_image.
+    result=$(CASE_OS_TYPE="${os_type}" FAKE_QEMU_IMG_FAIL=1 CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE="absent" run_create_vm $'status: done\n' "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    if [[ -f "${image_path}" ]]; then
+        record_pass "${name} keeps the image"
+    else
+        record_fail "${name} keeps the image" "base image was deleted"
+    fi
+    expect_exit "${name} exit" "1" "${rc}"
+    expect_contains "${name} names the image" "${output}" "${image_name} did not verify"
+    expect_contains "${name} explains" "${output}" "no download URL"
+    rm -f -- "${image_path}"
+}
+
 function run_case {
     local name="$1"
     local status_output="$2"
@@ -435,5 +513,14 @@ run_lifecycle_case "cleanup absent" "cleanup" "absent" 0 "Removing disk"
 run_outage_case "status outage" "status" 1 "libvirt did not answer"
 run_outage_case "stop outage" "stop" 1 "was not checked"
 run_outage_case "provision outage" "provision" 1 "nothing was created"
+
+# Image selection, ARCHITECTURE section 15.
+run_selection_case "rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
+run_selection_case "debian13-rtbase" "debian-13-genericcloud-amd64-20260601-2496.qcow2 (upstream, pinned)"
+run_selection_case "rocky8-iocrunner" "iocrunner-rocky8.qcow2 (baked locally, not downloadable)"
+run_selection_case "epics-env-rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
+run_bake_pair_case "rocky8" "rocky8-iocrunner"
+run_bake_pair_case "debian13" "debian13-iocrunner"
+run_no_delete_case "unusable golden" "rocky8-iocrunner" "iocrunner-rocky8.qcow2"
 
 print_summary

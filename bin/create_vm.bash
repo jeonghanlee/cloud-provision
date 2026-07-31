@@ -399,16 +399,51 @@ function require_fresh_input {
 }
 
 # --- Base Image Acquisition ---
+# Names the class of the selected base image. The operationally important fact
+# is not the file name but whether it can be obtained again: a moving upstream
+# image reappears on the next run, a pinned one reappears at a fixed URL, and a
+# locally baked one does not reappear at all.
+function base_image_class {
+    if [[ -z "${BASE_URL}" ]]; then
+        printf "baked locally, not downloadable\n"
+    elif [[ "${BASE_URL}" == *"/latest/"* || "${BASE_URL}" == *"/current/"* \
+            || "${BASE_IMAGE_NAME}" == *"daily"* || "${BASE_IMAGE_NAME}" == *".latest."* ]]; then
+        printf "upstream, moving\n"
+    else
+        printf "upstream, pinned\n"
+    fi
+}
+
+# Never deletes the base image. A locally baked golden has no download URL, so
+# removing it on a failed inspection destroys hours of work that cannot be
+# fetched back; and for a downloadable image the curl below overwrites the
+# target anyway, so a delete buys nothing there either. --force-share matches
+# the bake's own inspection: without it qemu-img takes a lock and an image a
+# running consumer is using is refused rather than described, which has nothing
+# to do with the image being bad.
 function verify_base_image {
+    local info_output
+    local info_rc
+
     if [[ -f "${BASE_IMAGE_FULL_PATH}" ]]; then
         printf "Base image: verifying... "
-        if ! qemu-img info "${BASE_IMAGE_FULL_PATH}" 2>/dev/null | grep -q "file format: qcow2"; then
-            printf "[CORRUPT] removing\n"
-            rm -f "${BASE_IMAGE_FULL_PATH}"
-        else
+        info_rc=0
+        info_output="$(qemu-img info --force-share "${BASE_IMAGE_FULL_PATH}" 2>&1)" \
+            || info_rc=$?
+        if [[ "${info_rc}" == "0" ]] && grep -q "file format: qcow2" <<< "${info_output}"; then
             printf "[OK]\n"
             return 0
         fi
+
+        printf "[UNUSABLE]\n"
+        printf "Error: base image %s did not verify.\n" "${BASE_IMAGE_FULL_PATH}" >&2
+        printf "qemu-img: %s\n" "${info_output%%$'\n'*}" >&2
+        if [[ -z "${BASE_URL}" ]]; then
+            printf "Hint: this image is produced locally and has no download URL.\n" >&2
+            printf "Hint: it was left in place; inspect it before re-baking.\n" >&2
+            exit 1
+        fi
+        printf "Hint: re-downloading over it from %s\n" "${BASE_URL}" >&2
     fi
 
     if [[ -z "${BASE_URL}" ]]; then
@@ -633,6 +668,7 @@ function print_status_report {
     local rc=0
 
     domain_state=$(get_domain_state)
+    printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
     printf "Domain     : %s\n" "${domain_state}"
 
     if [[ "${domain_state}" != "running" ]]; then
@@ -861,6 +897,7 @@ printf "OS Type    : %s\n" "${OS_TYPE}"
 printf "Node ID    : %s\n" "${NODE_ID}"
 printf "VM Name    : %s\n" "${VM_NAME}"
 printf "Storage    : %s\n" "${IMAGE_DIR}"
+printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
 if [[ -n "${VM_IP}" ]]; then
     printf "IP Address : %s\n" "${VM_IP}"
     printf "MAC Address: %s\n" "${VM_MAC}"
