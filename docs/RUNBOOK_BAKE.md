@@ -59,6 +59,22 @@ The first form takes the newest entry, the second a named one. Provisioning
 never refreshes on its own, so a consumer always gets the environment the last
 refresh selected.
 
+## Pinning the ioc-runner version
+
+`-r <ref>` pins the `epics-ioc-runner` version baked into the image. This
+repository passes it to Ansible as `ioc_runner_version` on the `site.yml` play
+and does nothing else with it; the `requested=<ref>` field on the
+`app_ioc_runner` manifest record is written by `ansible-provision`, and this
+repository's validator only shape-checks it.
+
+```bash
+bin/bake_iocrunner_image.bash -o rocky8 -r 1.2.3
+```
+
+Without `-r` the bake takes whatever the inventory resolves to and the manifest
+record is unchanged. A ref that does not exist fails during the Ansible run and
+publishes nothing.
+
 ## Fresh consumer SSH host keys
 
 Fresh consumer VMs reuse deterministic testbed IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.
@@ -298,8 +314,9 @@ instead of widening the cleanup command.
 ## ioc-runner bake provenance
 
 Each ioc-runner bake stamps `/etc/iocrunner-bake.manifest` inside the
-image and copies it to a sidecar `<image>.qcow2.manifest` next to the
-output. The manifest records:
+image and publishes the image together with its `.manifest` sidecar into
+the archive. The sidecar next to the working copy consumers back onto is
+the copy the refresh step makes. The manifest records:
 
 - bake date, OS selector, both repository identities, and EPICS selectors;
 - actual base-image filename and SHA-256 digest from the source disk backing file;
@@ -311,6 +328,20 @@ Application records use:
 ```
 app_name schema=1 repo=<url> commit=<40-hex> state=<state> tag=<tag> recorded_at=<UTC>
 ```
+
+`app_ioc_runner` may carry one optional trailing field, and no other record
+may carry any:
+
+```
+app_ioc_runner schema=1 repo=<url> commit=<40-hex> state=<state> tag=<tag> recorded_at=<UTC> requested=<ref>
+```
+
+`requested` is written only when the bake was given a version selector, so an
+unpinned bake produces a record byte-identical to the six-field form. It
+records what the caller asked for beside the commit that was resolved, and the
+two may legitimately differ: a ref is intent, while the tag is whatever happens
+to point at the resolved commit. The validator therefore checks its shape —
+present, non-empty, no whitespace — and does not tie it to `tag` or `state`.
 
 `state` is `clean-tagged`, `clean-untagged`, or `dirty`. Dirty repository
 suffixes are acceptable for preliminary bakes only; final acceptance

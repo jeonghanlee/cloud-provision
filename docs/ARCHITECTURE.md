@@ -356,19 +356,25 @@ ${IMAGE_DIR}/iocrunner-<os>.qcow2  →  base image of <os>-iocrunner variant
 | Variable                  | Default                  | Override                          |
 |---------------------------|--------------------------|-----------------------------------|
 | `IMAGE_DIR`               | `~/libvirt/images`       | `-d` flag                         |
+| `ARCHIVE_DIR`             | `${IMAGE_DIR}/../archive` | env var                          |
 | `ANSIBLE_PROVISION_DIR`   | `${SC_TOP}/../ansible-provision` | `-a` flag or env var      |
 | `OS_TYPE`                 | (required)               | `-o rocky8` / `-o debian13`       |
 
-The bake script never mutates the upstream cloud base image. It also
-refuses to start when a defined domain or qcow2 file in the selected
-`IMAGE_DIR` resolves through the target output image as a backing file.
-The flattened output is independent and self-contained. Re-running the
-bake replaces `${IMAGE_DIR}/iocrunner-<os>.qcow2` and its sidecar only
-after non-empty `.tmp` siblings have passed validation and conversion.
+The bake script never mutates the upstream cloud base image. The
+flattened output is independent and self-contained. Re-running the bake
+publishes a new archive entry only after non-empty `.tmp` siblings have
+passed validation and conversion; the working copy at
+`${IMAGE_DIR}/iocrunner-<os>.qcow2` changes only when the refresh step
+replaces it, and the refresh refuses while a defined domain or qcow2
+file in the selected `IMAGE_DIR` resolves through the working copy as a
+backing file (section 16).
 
 **Provenance manifest.** Each IOC runner bake writes
-`/etc/iocrunner-bake.manifest` inside the build VM and copies it to
-`${IMAGE_DIR}/iocrunner-<os>.qcow2.manifest` after validation. The
+`/etc/iocrunner-bake.manifest` inside the build VM and, after validation,
+publishes it as the sidecar of the archive entry in `${ARCHIVE_DIR}`. The
+sidecar beside the working copy at
+`${IMAGE_DIR}/iocrunner-<os>.qcow2.manifest` is the copy the refresh step
+makes together with the working copy (section 16). The
 manifest contains exactly one header, schema, bake date, OS selector,
 repository identity for `cloud-provision` and `ansible-provision`, EPICS
 selectors, observed base image identity, five application records, and
@@ -377,6 +383,20 @@ one or more `pip3` records. Application records use:
 ```
 app_name schema=1 repo=<url> commit=<40-hex> state=<state> tag=<tag> recorded_at=<UTC>
 ```
+
+`app_ioc_runner` may carry one optional trailing field, and no other record
+may carry any:
+
+```
+app_ioc_runner schema=1 repo=<url> commit=<40-hex> state=<state> tag=<tag> recorded_at=<UTC> requested=<ref>
+```
+
+`requested` is written only when the bake was given a version selector, so an
+unpinned bake produces a record byte-identical to the six-field form. It
+records what the caller asked for beside the commit that was resolved, and the
+two may legitimately differ: a ref is intent, while the tag is whatever happens
+to point at the resolved commit. The validator therefore checks its shape —
+present, non-empty, no whitespace — and does not tie it to `tag` or `state`.
 
 Allowed application states are `clean-tagged`, `clean-untagged`, and
 `dirty`. Final release acceptance requires clean 40-hex repository

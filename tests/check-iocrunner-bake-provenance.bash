@@ -50,6 +50,18 @@ function record_fail {
     printf "  %s\n" "${detail}" >&2
 }
 
+function expect_equal {
+    local name="$1"
+    local want="$2"
+    local got="$3"
+
+    if [[ "${got}" == "${want}" ]]; then
+        record_pass "${name}"
+    else
+        record_fail "${name}" "expected ${want}, got ${got}"
+    fi
+}
+
 function expect_success {
     local name="$1"
     local output
@@ -185,6 +197,50 @@ function run_validator_tests {
     write_runner "${runner_bin}" "deadbee"
     expect_failure "validator rejects installed hash-prefix mismatch" \
         run_validator "${manifest}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
+
+    # The optional requested= field, issue #26. ansible-provision writes it on
+    # app_ioc_runner when a selector is set, recording what the caller asked
+    # for beside the commit that was resolved. The unset manifest above is the
+    # guard for the no-op path and must stay green.
+    write_runner "${runner_bin}" "${runner_commit:0:7}"
+
+    sed '/^app_ioc_runner /s/$/ requested=1.2.3/' "${manifest}" > "${mutation}"
+    chmod 0644 "${mutation}"
+    expect_success "validator accepts a requested ref on the runner record" \
+        run_validator "${mutation}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
+
+    # A requested ref is caller intent; the tag that happens to point at the
+    # resolved commit is not. They may differ, so the field is not tied to tag
+    # or state.
+    sed '/^app_ioc_runner /s/$/ requested=some-branch/' "${manifest}" > "${mutation}"
+    chmod 0644 "${mutation}"
+    expect_success "validator does not tie the requested ref to the tag" \
+        run_validator "${mutation}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
+
+    sed '/^app_ioc_runner /s/$/ requested=/' "${manifest}" > "${mutation}"
+    chmod 0644 "${mutation}"
+    expect_failure "validator rejects an empty requested ref" \
+        run_validator "${mutation}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
+
+    sed '/^app_ioc_runner /s/$/ requested=one two/' "${manifest}" > "${mutation}"
+    chmod 0644 "${mutation}"
+    expect_failure "validator rejects a whitespace requested ref" \
+        run_validator "${mutation}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
+
+    sed '/^app_epics /s/$/ requested=1.2.3/' "${manifest}" > "${mutation}"
+    chmod 0644 "${mutation}"
+    expect_failure "validator rejects requested on a non-runner record" \
+        run_validator "${mutation}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
+
+    sed '/^app_ioc_runner /s/$/ unexpected=1/' "${manifest}" > "${mutation}"
+    chmod 0644 "${mutation}"
+    expect_failure "validator rejects an unknown trailing field" \
+        run_validator "${mutation}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
+
+    sed '/^app_ioc_runner /s/$/ requested=1.2.3 extra=x/' "${manifest}" > "${mutation}"
+    chmod 0644 "${mutation}"
+    expect_failure "validator rejects a second trailing field" \
+        run_validator "${mutation}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
 }
 
 function write_fake_host_commands {
@@ -314,6 +370,13 @@ EOF
     cat > "${fakebin}/ansible-playbook" <<'EOF'
 #!/usr/bin/env bash
 set -e
+# Every invocation is recorded so a case can assert which play received the
+# version selector. The selector belongs to site.yml alone; the other two plays
+# have nothing to do with the runner version.
+if [[ -n "${ANSIBLE_ARG_LOG:-}" ]]; then
+    printf "%s
+" "$*" >> "${ANSIBLE_ARG_LOG}"
+fi
 if [[ "$*" != *"site.yml"* ]] || grep -q '^app_con ' "${REMOTE_MANIFEST}" 2>/dev/null; then
     exit 0
 fi
@@ -421,7 +484,7 @@ function run_promotion_case {
     # that consumer is undefined rather than stopped gracefully, so this is the
     # routine state on a rebake. Only the destination mode matters; ownership
     # cannot be changed here without privilege and is not what mv requires.
-    if [[ "${mode}" == "publish-unwritable" ]]; then
+    if [[ "${mode}" == publish-* ]]; then
         chmod 0444 "${output_image}"
     fi
 
@@ -434,6 +497,7 @@ function run_promotion_case {
     write_fake_host_commands "${fakebin}"
 
     local -a bake_env=(
+        "ANSIBLE_ARG_LOG=${case_dir}/ansible-args.log"
         "ARCHIVE_DIR=${archive_dir}"
         "CASE_DIR=${case_dir}"
         "DOMAIN_STATE_FILE=${case_dir}/domain.state"
@@ -456,9 +520,12 @@ function run_promotion_case {
     local -a bake_command=(
         "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" -k
     )
+    if [[ -n "${CASE_RUNNER_REF:-}" ]]; then
+        bake_command+=(-r "${CASE_RUNNER_REF}")
+    fi
     local bake_line
 
-    if [[ "${mode}" == "publish-unwritable" ]]; then
+    if [[ "${mode}" == publish-* ]]; then
         # Run the bake under a pseudo-terminal. Without one, mv overwrites an
         # unwritable destination silently, so this case would pass even with -f
         # removed from the publish step and would pin nothing. With a terminal a
@@ -478,7 +545,7 @@ function run_promotion_case {
     after_sidecar="$(sha256sum "${sidecar}")"
     after_sidecar="${after_sidecar%% *}"
 
-    if [[ "${mode}" == "publish-unwritable" ]]; then
+    if [[ "${mode}" == publish-* ]]; then
         # The publish step must complete without a terminal to answer a prompt.
         if [[ "${rc}" == "0" ]]; then
             record_pass "${mode} public bake completes"
@@ -522,6 +589,32 @@ function run_promotion_case {
             record_fail "${mode} names the entry from the bake timestamp" \
                 "unexpected name: ${archived[0]##*/}"
         fi
+        # Where the version selector went, issue #26. Asserting only that the
+        # bake succeeded would pass whether the selector reached site.yml, all
+        # three plays, or none of them.
+        local arg_log="${case_dir}/ansible-args.log"
+        local site_lines other_with_ref
+        site_lines="$(grep -c 'site\.yml' "${arg_log}" 2>/dev/null || true)"
+        other_with_ref="$(grep 'ioc_runner_version' "${arg_log}" 2>/dev/null \
+            | grep -c -v 'site\.yml' || true)"
+        if [[ -z "${CASE_RUNNER_REF:-}" ]]; then
+            if ! grep -q 'ioc_runner_version' "${arg_log}" 2>/dev/null; then
+                record_pass "${mode} unset selector adds no extra vars"
+            else
+                record_fail "${mode} unset selector adds no extra vars" \
+                    "$(grep 'ioc_runner_version' "${arg_log}" | head -1)"
+            fi
+        else
+            if grep 'site\.yml' "${arg_log}" 2>/dev/null \
+                | grep -q -- "-e ioc_runner_version=${CASE_RUNNER_REF}"; then
+                record_pass "${mode} selector reaches site.yml"
+            else
+                record_fail "${mode} selector reaches site.yml" "not in the recorded arguments"
+            fi
+            expect_equal "${mode} selector reaches no other play" "0" "${other_with_ref}"
+        fi
+        expect_equal "${mode} site.yml ran once" "1" "${site_lines}"
+
         # The working copy must be a real file. A symlink would satisfy every
         # existence check above and hand the archive entry to libvirt.
         if [[ -f "${output_image}" && ! -L "${output_image}" ]]; then
@@ -574,6 +667,37 @@ function print_summary {
     fi
 }
 
+# The -r guard runs before anything is touched, so these need no fixtures.
+# A forgotten value makes getopts take the next flag as the ref (-r -k), and
+# a dash-led token would otherwise pass the character class. Each case asserts
+# the NAMED reason, not merely a non-zero exit: with the guard removed, every
+# one of these still fails later on the nonexistent image directory, and a
+# bare expect_failure would stay green over the missing guard.
+function run_ref_guard_case {
+    local name="$1"
+    local want_text="$2"
+    shift 2
+    local output rc=0
+
+    output="$(env REQUIRED_GROUP="$(id -gn)" "${BAKE}" "$@" 2>&1)" || rc=$?
+    if [[ "${rc}" != "0" && "${output}" == *"${want_text}"* ]]; then
+        record_pass "${name}"
+    else
+        record_fail "${name}" "rc=${rc}, output: ${output%%$'\n'*}"
+    fi
+}
+
+function run_ref_guard_tests {
+    run_ref_guard_case "bake rejects an empty ref" "requires a non-empty ref" \
+        -o rocky8 -r "" -d /nonexistent
+    run_ref_guard_case "bake rejects a dash-led ref" "starts with -" \
+        -o rocky8 -r -k -d /nonexistent
+    run_ref_guard_case "bake rejects a ref with a space" "invalid ioc-runner ref" \
+        -o rocky8 -r "one two" -d /nonexistent
+    run_ref_guard_case "bake rejects a selector alongside refresh" "cannot be combined with -R" \
+        -o rocky8 -R - -r 1.2.3 -d /nonexistent
+}
+
 WORKSPACE="$(mktemp -d /tmp/iocrunner-bake-provenance-test.XXXXXX)"
 
 case "${1:-all}" in
@@ -581,15 +705,19 @@ case "${1:-all}" in
         run_validator_tests
         ;;
     promotion)
+        run_ref_guard_tests
         run_promotion_case validator-reject
         run_promotion_case conversion-fail
         run_promotion_case publish-unwritable
+        CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
         ;;
     all)
         run_validator_tests
+        run_ref_guard_tests
         run_promotion_case validator-reject
         run_promotion_case conversion-fail
         run_promotion_case publish-unwritable
+        CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
         ;;
     *)
         printf "Usage: %s [validator|promotion|all]\n" "$(basename "$0")" >&2

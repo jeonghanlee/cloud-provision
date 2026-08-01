@@ -78,9 +78,24 @@ function parse_app_record {
     local line="$1"
     local app_name="$2"
     local schema repo commit state tag recorded_at extra
+    local requested=""
 
     read -r app_name schema repo commit state tag recorded_at extra <<< "${line}"
-    [[ -z "${extra:-}" ]] || die "application record has extra fields: ${app_name}"
+
+    # Exactly one optional trailing field is allowed, only on app_ioc_runner,
+    # only spelled requested=<ref>. It records what the caller asked for beside
+    # the commit that was resolved, and the two may legitimately differ: a ref
+    # is intent, and the tag that happens to point at the resolved commit is
+    # not. So it is checked for shape only and is not tied to tag or state.
+    if [[ -n "${extra:-}" ]]; then
+        [[ "${app_name}" == "app_ioc_runner" ]] \
+            || die "application record has extra fields: ${app_name}"
+        [[ "${extra}" == requested=* ]] \
+            || die "unexpected trailing field: ${app_name}"
+        requested="${extra#requested=}"
+        [[ -n "${requested}" && "${requested}" != *[[:space:]]* ]] \
+            || die "invalid requested ref: ${app_name}"
+    fi
     [[ "${schema}" == "schema=1" ]] || die "invalid application schema: ${app_name}"
     [[ "${repo}" == repo=* ]] || die "missing repository field: ${app_name}"
     [[ "${commit}" == commit=* ]] || die "missing commit field: ${app_name}"

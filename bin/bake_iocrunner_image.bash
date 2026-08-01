@@ -17,6 +17,8 @@ declare -g ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${SC_TOP}/../ansible-provision}
 declare -g KEEP_VM=false
 declare -g REFRESH_ONLY=false
 declare -g REFRESH_ENTRY=""
+declare -g IOC_RUNNER_VERSION=""
+declare -g IOC_RUNNER_VERSION_GIVEN=false
 declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
 declare -g NODE_ID="server"
 declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
@@ -42,6 +44,8 @@ function print_usage {
     printf "  -d <image_dir>  Image storage (default: %s)\n" "${IMAGE_DIR}"
     printf "  -a <dir>        ansible-provision directory (default: %s)\n" "${ANSIBLE_DIR}"
     printf "  -k              Keep the build VM after bake (default: destroy)\n"
+    printf "  -r <ref>        Pin the epics-ioc-runner version baked into the image.\n"
+    printf "                  Unset bakes whatever the inventory resolves to.\n"
     printf "  -R <entry|->    Refresh the working copy from an archive entry and exit.\n"
     printf "                  Use - for the newest entry. Does not bake.\n"
     printf "  -h              Show this help\n"
@@ -323,13 +327,14 @@ exit "${hits}"
 REMOTE_VERIFY
 }
 
-while getopts ":o:d:a:kR:h" opt; do
+while getopts ":o:d:a:kR:r:h" opt; do
     case "${opt}" in
         o) OS_TYPE="${OPTARG}" ;;
         d) IMAGE_DIR="${OPTARG}" ;;
         a) ANSIBLE_DIR="${OPTARG}" ;;
         k) KEEP_VM=true ;;
         R) REFRESH_ONLY=true; REFRESH_ENTRY="${OPTARG}" ;;
+        r) IOC_RUNNER_VERSION="${OPTARG}"; IOC_RUNNER_VERSION_GIVEN=true ;;
         h) print_usage; exit 0 ;;
         :) die "-${OPTARG} requires an argument" ;;
         ?) die "unknown option -${OPTARG}" ;;
@@ -346,6 +351,30 @@ for command_name in ansible-playbook awk du git jq mv qemu-img realpath sed \
                     sha256sum ssh ssh-keygen ssh-keyscan virsh; do
     require_command "${command_name}"
 done
+
+if [[ "${IOC_RUNNER_VERSION_GIVEN}" == true ]]; then
+    # -r with an empty value is rejected rather than treated as unset. An
+    # operator writing -r "${SOME_VAR}" against an unset variable would
+    # otherwise get an unpinned bake and learn about it hours later, from a
+    # manifest with no requested field.
+    [[ -n "${IOC_RUNNER_VERSION}" ]] || die "-r requires a non-empty ref"
+    # getopts takes whatever token follows -r as its value, so a forgotten
+    # value swallows the next flag: -r -k yields ref "-k", which the character
+    # class below would accept. No Git ref starts with a dash, so refusing the
+    # shape catches the mistake instead of pinning the bake to "-k".
+    [[ "${IOC_RUNNER_VERSION}" != -* ]] \
+        || die "invalid ioc-runner ref (starts with -): ${IOC_RUNNER_VERSION}"
+    # A ref reaches Ansible as an extra variable and ends up in the manifest, so
+    # it is constrained to what a Git ref can contain. Rejecting here keeps a
+    # malformed value out of both.
+    [[ "${IOC_RUNNER_VERSION}" =~ ^[A-Za-z0-9._/-]+$ ]] \
+        || die "invalid ioc-runner ref: ${IOC_RUNNER_VERSION}"
+    # Refresh exits before Ansible runs, so a selector given alongside it would
+    # be silently discarded. Two requests that cannot both be honoured are
+    # refused rather than half-served.
+    [[ "${REFRESH_ONLY}" != true ]] \
+        || die "-r cannot be combined with -R: refresh does not run Ansible"
+fi
 
 [[ -d "${IMAGE_DIR}" ]] || die "image directory not found: ${IMAGE_DIR}"
 [[ -d "${ANSIBLE_DIR}" ]] || die "ansible-provision directory not found: ${ANSIBLE_DIR}"
@@ -482,7 +511,16 @@ printf "  base image: %s sha256=%s [OK]\n" "${BASE_NAME}" "${BASE_DIGEST}"
 printf "\nStep 4/10: Apply ansible site.yml on %s\n" "${VM_NAME}"
 (
     cd "${ANSIBLE_DIR}"
-    ansible-playbook -i "${INVENTORY_PATH}" --limit "${VM_NAME}" site.yml
+    # The selector goes to site.yml alone. This is the first --extra-vars use in
+    # this repository, and confining it to the one invocation that builds the
+    # runner keeps the precedent narrow; 04_nfs_sim and 07_test_users have
+    # nothing to do with the runner version.
+    if [[ -n "${IOC_RUNNER_VERSION}" ]]; then
+        ansible-playbook -i "${INVENTORY_PATH}" --limit "${VM_NAME}" \
+            -e ioc_runner_version="${IOC_RUNNER_VERSION}" site.yml
+    else
+        ansible-playbook -i "${INVENTORY_PATH}" --limit "${VM_NAME}" site.yml
+    fi
 )
 
 printf "\nStep 5/10: Apply 04_nfs_sim.yml on %s\n" "${VM_NAME}"
