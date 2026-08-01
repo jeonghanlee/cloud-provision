@@ -214,7 +214,38 @@ fi
 exit 0
 EOF
 
-    chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh" "${FAKEBIN}/sleep" "${FAKEBIN}/qemu-img"
+    cat > "${FAKEBIN}/genisoimage" <<'EOF'
+#!/usr/bin/env bash
+# Records the staging paths it was handed and copies the staged meta-data out,
+# because generate_seed removes the staging directory on success. Writes the
+# same statistics to stderr that the real tool writes on success, so a test can
+# tell a captured-and-discarded stream from a leaked one.
+set -e
+for argument in "$@"; do
+    case "${argument}" in
+        meta-data=*)
+            printf "%s\n" "${argument#meta-data=}" > "${FAKE_SEED_PATH_LOG}"
+            cp -- "${argument#meta-data=}" "${FAKE_SEED_META_COPY}" 2>/dev/null || true
+            ;;
+    esac
+done
+printf "Total translation table size: 0\n" >&2
+printf "183 extents written (0 MB)\n" >&2
+if [[ "${FAKE_GENISOIMAGE_FAIL:-}" == "1" ]]; then
+    printf "genisoimage: Unable to open disc image file\n" >&2
+    exit 1
+fi
+exit 0
+EOF
+
+    cat > "${FAKEBIN}/virt-install" <<'EOF'
+#!/usr/bin/env bash
+set -e
+exit 0
+EOF
+
+    chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh" "${FAKEBIN}/sleep" \
+        "${FAKEBIN}/qemu-img" "${FAKEBIN}/genisoimage" "${FAKEBIN}/virt-install"
 }
 
 function run_create_vm {
@@ -253,6 +284,9 @@ function run_create_vm {
     FAKE_LIBVIRT_DOWN="${FAKE_LIBVIRT_DOWN:-}" \
     FAKE_SHUTDOWN_MARKER="${FAKE_SHUTDOWN_MARKER:-}" \
     FAKE_QEMU_IMG_FAIL="${FAKE_QEMU_IMG_FAIL:-}" \
+    FAKE_GENISOIMAGE_FAIL="${FAKE_GENISOIMAGE_FAIL:-}" \
+    FAKE_SEED_PATH_LOG="${WORKSPACE}/seed-path.txt" \
+    FAKE_SEED_META_COPY="${WORKSPACE}/seed-meta.txt" \
     FAKE_SLEEP_LOG="${SLEEP_LOG}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
@@ -454,6 +488,76 @@ function run_no_delete_case {
     rm -f -- "${image_path}"
 }
 
+# Drives the fresh-provision path far enough to run generate_seed, then asserts
+# on what the fake genisoimage recorded. Seed staging is the subject: issue #22
+# reported that two concurrent runs shared one staging directory and interleaved
+# their writes, leaving two local-hostname lines in one meta-data. The path is
+# per-VM now, but that arrived as a side effect of the provenance work in
+# c4ba7fd rather than as a deliberate fix, so nothing held it. These cases hold
+# it.
+function run_seed_case {
+    local name="$1"
+    local result rc output staged_path staged_meta hostname_count
+
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" \
+        > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    printf "%s\n" "base" > "${WORKSPACE}/images/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+    rm -f "${WORKSPACE}/seed-path.txt" "${WORKSPACE}/seed-meta.txt"
+
+    reset_sleep_log
+    result=$(CASE_DOMINFO_RC=1 FAKE_STATE_OVERRIDE="absent" \
+        run_create_vm $'status: done\n' "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    expect_exit "${name} exit" "0" "${rc}"
+
+    staged_path="$(cat "${WORKSPACE}/seed-path.txt" 2>/dev/null || true)"
+    # Staging must not live inside the repository. It did until c4ba7fd, and
+    # that made every bake stamp its manifest cloud-provision <sha>-dirty,
+    # because the bake counts untracked files when it records provenance.
+    if [[ -n "${staged_path}" && "${staged_path}" != "${TOP}/"* ]]; then
+        record_pass "${name} stages outside the repository"
+    else
+        record_fail "${name} stages outside the repository" "staged at ${staged_path:-<nothing>}"
+    fi
+
+    staged_meta="$(cat "${WORKSPACE}/seed-meta.txt" 2>/dev/null || true)"
+    hostname_count="$(grep -c '^local-hostname:' <<< "${staged_meta}" || true)"
+    expect_equal "${name} one local-hostname" "1" "${hostname_count}"
+    expect_contains "${name} own VM name" "${staged_meta}" "local-hostname: testbed-rocky8-server"
+
+    # genisoimage writes statistics to stderr even when it succeeds. They must
+    # not reach the operator: the success line stays one line.
+    expect_not_contains "${name} no genisoimage noise" "${output}" "extents written"
+    expect_contains "${name} reports OK" "${output}" "cloud-init ISO... [OK]"
+}
+
+# A failing genisoimage must stop the run and say why. It already stopped, by
+# set -e, but the reason was discarded with 2>/dev/null and the operator saw a
+# truncated progress line and nothing else.
+function run_seed_failure_case {
+    local name="$1"
+    local result rc output
+
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" \
+        > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    printf "%s\n" "base" > "${WORKSPACE}/images/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+
+    reset_sleep_log
+    result=$(CASE_DOMINFO_RC=1 FAKE_STATE_OVERRIDE="absent" FAKE_GENISOIMAGE_FAIL=1 \
+        run_create_vm $'status: done\n' "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    expect_exit "${name} exit" "1" "${rc}"
+    expect_not_contains "${name} not OK" "${output}" "cloud-init ISO... [OK]"
+    expect_contains "${name} names the reason" "${output}" "Unable to open disc image file"
+    expect_contains "${name} keeps the staging" "${output}" "Staging left for inspection"
+}
+
 function run_case {
     local name="$1"
     local status_output="$2"
@@ -522,5 +626,9 @@ run_selection_case "epics-env-rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.q
 run_bake_pair_case "rocky8" "rocky8-iocrunner"
 run_bake_pair_case "debian13" "debian13-iocrunner"
 run_no_delete_case "unusable golden" "rocky8-iocrunner" "iocrunner-rocky8.qcow2"
+
+# Seed staging, issue #22.
+run_seed_case "seed"
+run_seed_failure_case "seed failure"
 
 print_summary

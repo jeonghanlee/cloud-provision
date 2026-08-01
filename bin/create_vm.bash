@@ -519,12 +519,27 @@ function generate_seed {
         rm -f "${CLOUD_INIT_ISO}"
     fi
 
-    genisoimage -output "${CLOUD_INIT_ISO}" \
+    # genisoimage writes its statistics to stderr even on success, so the
+    # output is captured rather than discarded and replayed only on failure.
+    # Discarding it left a failed run showing a truncated progress line and no
+    # reason at all. The staging directory is deliberately left in place when
+    # this fails: it holds the exact inputs that produced the failure.
+    local iso_log
+    iso_log="$(mktemp)"
+    if ! genisoimage -output "${CLOUD_INIT_ISO}" \
         -volid cidata -joliet -rock \
         -input-charset utf-8 \
         -graft-points \
         "user-data=${seed_dir}/user-data" \
-        "meta-data=${seed_dir}/meta-data" 2>/dev/null
+        "meta-data=${seed_dir}/meta-data" 2>"${iso_log}"; then
+        printf "[FAILED]\n"
+        printf "Error: cloud-init seed generation failed for %s\n" "${VM_NAME}" >&2
+        sed 's/^/  genisoimage: /' "${iso_log}" >&2
+        printf "Staging left for inspection: %s\n" "${seed_dir}" >&2
+        rm -f -- "${iso_log}"
+        exit 1
+    fi
+    rm -f -- "${iso_log}"
 
     rm -rf "${seed_dir}"
     printf "[OK]\n"
