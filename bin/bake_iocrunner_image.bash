@@ -26,6 +26,8 @@ declare -g LIBVIRT_URI="qemu:///system"
 declare -g VM_IP=""
 declare -g OUTPUT_TEMP_CREATED=false
 declare -g SIDECAR_TEMP_CREATED=false
+declare -g REFRESH_IMAGE_TEMP=""
+declare -g REFRESH_SIDECAR_TEMP=""
 
 # Connection multiplexing is refused for every ssh this bake makes. An operator
 # ssh_config that sets ControlMaster/ControlPath under Host * names its socket
@@ -86,6 +88,12 @@ function report_build_vm_on_failure {
     local rc="$1"
 
     [[ "${rc}" != "0" ]] || return 0
+    # Refresh-only never boots anything, so a domain of this name belongs to an
+    # earlier run - a -k bake, or one that failed and left it. Observed
+    # 2026-08-01: a -R refused at the in-use guard named a build VM created
+    # minutes earlier by hand and offered to delete it. Existing is not the same
+    # as ours.
+    [[ "${REFRESH_ONLY}" != true ]] || return 0
     [[ -n "${VM_NAME:-}" ]] || return 0
     virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" >/dev/null 2>&1 || return 0
 
@@ -103,6 +111,12 @@ function cleanup_output_temps {
     fi
     if [[ "${SIDECAR_TEMP_CREATED}" == true ]]; then
         rm -f -- "${SIDECAR_TEMP}"
+    fi
+    if [[ -n "${REFRESH_IMAGE_TEMP}" ]]; then
+        rm -f -- "${REFRESH_IMAGE_TEMP}"
+    fi
+    if [[ -n "${REFRESH_SIDECAR_TEMP}" ]]; then
+        rm -f -- "${REFRESH_SIDECAR_TEMP}"
     fi
     report_build_vm_on_failure "${rc}"
     return "${rc}"
@@ -192,12 +206,21 @@ function refresh_working_copy {
     # pulls the floor out from under it.
     protect_output_consumers
 
-    trap 'rm -f -- "${image_tmp}" "${sidecar_tmp}"' EXIT HUP INT TERM
+    # Registered with the script's own EXIT handler rather than guarded by a
+    # local trap. A local one has to be taken down afterwards, and `trap -`
+    # restores the default action instead of the handler it replaced, so it
+    # removed cleanup_output_temps for the rest of the run - on every
+    # successful bake, since this runs at the end of Step 9. Signals are
+    # already covered: the script's HUP/INT/TERM handler exits, which reaches
+    # the EXIT handler.
+    REFRESH_IMAGE_TEMP="${image_tmp}"
+    REFRESH_SIDECAR_TEMP="${sidecar_tmp}"
     cp -- "${archive_image}" "${image_tmp}"
     cp -- "${archive_sidecar}" "${sidecar_tmp}"
     mv -f -- "${image_tmp}" "${OUTPUT_IMAGE}"
+    REFRESH_IMAGE_TEMP=""
     mv -f -- "${sidecar_tmp}" "${SIDECAR}"
-    trap - EXIT HUP INT TERM
+    REFRESH_SIDECAR_TEMP=""
 
     [[ ! -L "${OUTPUT_IMAGE}" ]] || die "working copy must be a real file: ${OUTPUT_IMAGE}"
     printf "  Working copy: %s <- %s\n" "${OUTPUT_IMAGE}" "${archive_image##*/}"

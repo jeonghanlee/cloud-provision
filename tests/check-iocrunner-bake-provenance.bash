@@ -490,6 +490,29 @@ EOF
     chmod +x "${fakebin}"/*
 }
 
+# What this suite cannot reach, so the next reader does not spend the day
+# finding out again.
+#
+# No case here fails AFTER Step 9's working-copy refresh, and none can be
+# written. The only step past that point is Step 10, whose do_cleanup swallows
+# every virsh failure by design (bin/create_vm.bash:349 and :353), so a fake
+# that refuses the teardown commands still lets the bake exit 0. A late-failure
+# mode was written on 2026-08-01 to try, and was withdrawn when the bake
+# completed anyway. The one other candidate, report_archive_retention, has no
+# lever either.
+#
+# The consequence: reintroducing `trap - EXIT` at the end of refresh_working_copy
+# — the M6.4 defect, which uninstalled the script's own handler mid-run — is not
+# caught by anything below. What IS caught is the handler being absent at exit:
+# remove the rc check in report_build_vm_on_failure and the three successful
+# publish cases fail, because the guidance then fires on success. That mutation
+# is the standing proof, and it only started working once the handler survived.
+#
+# Two attempts were already spent on this region. The first put the "no build
+# VM" assertion on the -r guard refusals, which die before the trap is installed
+# at all and stay silent however the trap is written; run_in_use_case replaced
+# it. Check where a failure lands relative to bake_iocrunner_image.bash:474
+# before trusting any assertion about that handler.
 function run_promotion_case {
     local mode="$1"
     local case_dir="${WORKSPACE}/promotion-${mode}"
@@ -801,6 +824,32 @@ function run_in_use_case {
     else
         record_fail "in-use refusal creates no build VM" "a domain was created"
     fi
+
+    # Refresh-only with a domain of the build VM's name already present. -R
+    # never boots anything, so that domain is somebody else's - an earlier -k
+    # bake, or one that failed and left it standing. Observed on the real host
+    # 2026-08-01 before the guard existed: the run named a VM created by hand
+    # minutes earlier and offered the command to delete it.
+    printf "%s\n" "running" > "${case_dir}/domain.state"
+    output="$(env \
+        "ARCHIVE_DIR=${case_dir}/archive" \
+        "DOMAIN_STATE_FILE=${case_dir}/domain.state" \
+        "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2" \
+        "OUTPUT_IMAGE_PATH=${output_image}" \
+        "CALL_LOG=${case_dir}/calls.log" \
+        "PATH=${fakebin}:${PATH}" \
+        "HOME=${home_dir}" \
+        "REQUIRED_GROUP=$(id -gn)" \
+        "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" \
+        -R /nonexistent-entry.qcow2 2>&1)" || true
+
+    if [[ "${output}" != *"was left for inspection"* ]]; then
+        record_pass "refresh-only claims no build VM as its own"
+    else
+        record_fail "refresh-only claims no build VM as its own" \
+            "named a domain this run never created"
+    fi
+    rm -f "${case_dir}/domain.state"
 }
 
 function run_ref_guard_case {
