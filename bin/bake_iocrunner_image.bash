@@ -27,6 +27,22 @@ declare -g VM_IP=""
 declare -g OUTPUT_TEMP_CREATED=false
 declare -g SIDECAR_TEMP_CREATED=false
 
+# Connection multiplexing is refused for every ssh this bake makes. An operator
+# ssh_config that sets ControlMaster/ControlPath under Host * names its socket
+# after the connection target, and the build VM is destroyed and recreated at a
+# fixed address. A master left alive by a previous bake then accepts this run's
+# first connection and fails mid-request behind it; ssh falls back to a direct
+# connection and returns with O_NONBLOCK set on the caller's stdin, which it
+# never clears. Ansible refuses to start on a non-blocking stdin, so a leak at
+# step 2 or 3 fails the playbook at step 4 with no visible link back. Both
+# options are needed: ControlPath=none stops this ssh from using a socket,
+# ControlMaster=no stops it from becoming one for the next call. Stated here
+# and in bin/create_vm.bash; ARCHITECTURE section 13 holds the contract.
+declare -ag SSH_OPTIONS=(
+    -o ControlMaster=no
+    -o ControlPath=none
+)
+
 function die {
     printf "Error: %s\n" "$*" >&2
     exit 1
@@ -217,7 +233,7 @@ function stamp_manifest_header {
         "${epics_env_version}" "${epics_base_version}" "${base_name}" "${base_digest}"
 
     # shellcheck disable=SC2029
-    ssh "vmadmin@${VM_IP}" "${remote_command}" <<'REMOTE_MANIFEST'
+    ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" "${remote_command}" <<'REMOTE_MANIFEST'
 if [[ ! -o privileged ]]; then
     printf "%s\n" "error: privileged Bash mode is required" >&2
     exit 1
@@ -257,7 +273,7 @@ REMOTE_MANIFEST
 }
 
 function append_pip_provenance {
-    ssh "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' <<'REMOTE_PIP'
+    ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' <<'REMOTE_PIP'
 if [[ ! -o privileged ]]; then
     printf "%s\n" "error: privileged Bash mode is required" >&2
     exit 1
@@ -287,7 +303,7 @@ REMOTE_PIP
 }
 
 function remove_proxy_configuration {
-    ssh "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' <<'REMOTE_DEPROXY'
+    ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' <<'REMOTE_DEPROXY'
 if [[ ! -o privileged ]]; then
     printf "%s\n" "error: privileged Bash mode is required" >&2
     exit 1
@@ -306,7 +322,7 @@ git config --system --unset-all https.proxy 2>/dev/null || true
 rm -f /root/.ssh/environment /home/*/.ssh/environment
 REMOTE_DEPROXY
 
-    ssh "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' <<'REMOTE_VERIFY'
+    ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' <<'REMOTE_VERIFY'
 if [[ ! -o privileged ]]; then
     printf "%s\n" "error: privileged Bash mode is required" >&2
     exit 1
@@ -541,11 +557,11 @@ remove_proxy_configuration
 printf "  manifest and de-proxy checks complete [OK]\n"
 
 printf "\nStep 8/10: Validate the real in-image provenance\n"
-ssh "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' < "${VALIDATOR}"
+ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' < "${VALIDATOR}"
 printf "  validator accepted the manifest [OK]\n"
 
 SIDECAR_TEMP_CREATED=true
-ssh "vmadmin@${VM_IP}" 'sudo cat /etc/iocrunner-bake.manifest' > "${SIDECAR_TEMP}"
+ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo cat /etc/iocrunner-bake.manifest' > "${SIDECAR_TEMP}"
 [[ -s "${SIDECAR_TEMP}" ]] || die "sidecar extraction produced an empty file"
 
 printf "\nStep 9/10: Shutdown, flatten, and publish the validated pair\n"

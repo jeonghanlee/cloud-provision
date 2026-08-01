@@ -83,6 +83,35 @@ function expect_failure {
     fi
 }
 
+# Pins that every ssh this repository makes to a testbed VM refuses connection
+# multiplexing. A bake reaches the VM through its own call sites and through
+# create_vm.bash's readiness probe, so one recorded log covers both scripts.
+#
+# The assertion is on the arguments, deliberately. With the options removed the
+# bake still succeeds and every other case in this file stays green, while on a
+# real host a master left over from a previous run at the same address accepts
+# the connection, fails mid-request, and hands the caller back a non-blocking
+# stdin that the next ansible-playbook refuses to start on.
+function assert_ssh_multiplexing_off {
+    local label="$1"
+    local arg_log="$2"
+    local total=0
+    local offenders=0
+
+    if [[ ! -s "${arg_log}" ]]; then
+        record_fail "${label} records ssh invocations" \
+            "no ssh invocation reached ${arg_log}"
+        return 0
+    fi
+    total="$(wc -l < "${arg_log}")"
+    offenders="$(awk \
+        '!/-o ControlMaster=no/ || !/-o ControlPath=none/ {count++} END {print count + 0}' \
+        "${arg_log}")"
+    printf "  ssh invocations recorded: %s (missing options: %s)\n" \
+        "${total}" "${offenders}"
+    expect_equal "${label} every ssh refuses multiplexing" "0" "${offenders}"
+}
+
 function init_checkout {
     local checkout="$1"
     local repo_url="$2"
@@ -398,6 +427,12 @@ EOF
     cat > "${fakebin}/ssh" <<'EOF'
 #!/usr/bin/env bash
 set -e
+# Every invocation is recorded whole so a case can assert what each connection
+# carried, not merely that the run succeeded. The multiplexing-off options are
+# the claim; an exit-code assertion would stay green with them removed.
+if [[ -n "${SSH_ARG_LOG:-}" ]]; then
+    printf "%s\n" "$*" >> "${SSH_ARG_LOG}"
+fi
 remote_command="${@: -1}"
 case "${remote_command}" in
     exit)
@@ -498,6 +533,7 @@ function run_promotion_case {
 
     local -a bake_env=(
         "ANSIBLE_ARG_LOG=${case_dir}/ansible-args.log"
+        "SSH_ARG_LOG=${case_dir}/ssh-args.log"
         "ARCHIVE_DIR=${archive_dir}"
         "CASE_DIR=${case_dir}"
         "DOMAIN_STATE_FILE=${case_dir}/domain.state"
@@ -544,6 +580,8 @@ function run_promotion_case {
     after_image="${after_image%% *}"
     after_sidecar="$(sha256sum "${sidecar}")"
     after_sidecar="${after_sidecar%% *}"
+
+    assert_ssh_multiplexing_off "${mode}" "${case_dir}/ssh-args.log"
 
     if [[ "${mode}" == publish-* ]]; then
         # The publish step must complete without a terminal to answer a prompt.

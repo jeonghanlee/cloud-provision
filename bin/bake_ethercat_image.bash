@@ -32,6 +32,22 @@ declare -g LIBVIRT_URI="qemu:///system"
 # Ansible inventory for the playbook call; env-overridable per site.
 declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
 
+# Connection multiplexing is refused for every ssh this bake makes. An operator
+# ssh_config that sets ControlMaster/ControlPath under Host * names its socket
+# after the connection target, and the build VM is destroyed and recreated at a
+# fixed address. A master left alive by a previous bake then accepts this run's
+# first connection and fails mid-request behind it; ssh falls back to a direct
+# connection and returns with O_NONBLOCK set on the caller's stdin, which it
+# never clears. Ansible refuses to start on a non-blocking stdin, so a leak at
+# step 2 or 3 fails the playbook at step 4 with no visible link back. Both
+# options are needed: ControlPath=none stops this ssh from using a socket,
+# ControlMaster=no stops it from becoming one for the next call. Stated here
+# and in bin/create_vm.bash; ARCHITECTURE section 13 holds the contract.
+declare -ag SSH_OPTIONS=(
+    -o ControlMaster=no
+    -o ControlPath=none
+)
+
 function print_usage {
     printf "Usage: %s -o <os_type> [options]\n" "$(basename "$0")"
     printf "\n"
@@ -133,7 +149,7 @@ CLOUD_HEAD="$(git -C "${SC_TOP}" rev-parse HEAD 2>/dev/null || printf unknown)"
 [[ -n "$(git -C "${SC_TOP}" status --porcelain 2>/dev/null)" ]] && CLOUD_HEAD="${CLOUD_HEAD}-dirty"
 ANSIBLE_HEAD="$(git -C "${ANSIBLE_DIR}" rev-parse HEAD 2>/dev/null || printf unknown)"
 [[ -n "$(git -C "${ANSIBLE_DIR}" status --porcelain 2>/dev/null)" ]] && ANSIBLE_HEAD="${ANSIBLE_HEAD}-dirty"
-ssh "vmadmin@${VM_IP}" "sudo tee /etc/ethercat-bake.manifest >/dev/null" <<MANIFEST
+ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" "sudo tee /etc/ethercat-bake.manifest >/dev/null" <<MANIFEST
 # ethercat golden bake manifest
 bake_date $(date -u +%FT%TZ)
 cloud-provision ${CLOUD_HEAD}
@@ -146,7 +162,7 @@ printf "\nStep 4/7: Apply ansible %s on %s\n" "${ETHERCAT_BASE_PLAYBOOK}" "${VM_
     -i "${INVENTORY}" --limit "${VM_NAME}" "${ETHERCAT_BASE_PLAYBOOK}" )
 
 printf "\nStep 5/7: De-proxy, verify, copy manifest sidecar\n"
-ssh "vmadmin@${VM_IP}" 'sudo sh -s' <<'DEPROXY'
+ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo sh -s' <<'DEPROXY'
 set -e
 [ -f /etc/dnf/dnf.conf ] && sed -i '/^proxy=/d' /etc/dnf/dnf.conf
 rm -f /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy \
@@ -156,7 +172,7 @@ git config --system --unset-all http.proxy 2>/dev/null || true
 git config --system --unset-all https.proxy 2>/dev/null || true
 rm -f /root/.ssh/environment /home/*/.ssh/environment
 DEPROXY
-if ssh "vmadmin@${VM_IP}" 'sudo sh -s' <<'REMNANT'
+if ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo sh -s' <<'REMNANT'
 set -e
 hits=0
 [ -f /etc/dnf/dnf.conf ] && grep -qsi proxy /etc/dnf/dnf.conf && hits=1
@@ -173,7 +189,7 @@ else
     printf "Error: proxy remnants survived the de-proxy step\n" >&2
     exit 1
 fi
-ssh "vmadmin@${VM_IP}" 'sudo cat /etc/ethercat-bake.manifest' > "${OUTPUT_IMAGE}.manifest.tmp"
+ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo cat /etc/ethercat-bake.manifest' > "${OUTPUT_IMAGE}.manifest.tmp"
 printf "  manifest copied to sidecar [OK]\n"
 
 printf "\nStep 6/7: Shutdown and flatten qcow2\n"

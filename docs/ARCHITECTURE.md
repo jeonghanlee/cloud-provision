@@ -476,6 +476,44 @@ worth seeing.
 Retry counts and intervals are not part of this contract. They are recorded and
 reviewed separately.
 
+### Connection multiplexing is refused
+
+Two further options are set, and they are not about what readiness means. They
+refuse OpenSSH connection multiplexing outright.
+
+| Option | What it decides |
+| --- | --- |
+| `ControlPath=none` | This connection uses no shared master socket, whatever the operator's `ssh_config` offers. |
+| `ControlMaster=no` | This connection does not become a master for the calls that follow it. |
+
+Both are needed. `ControlPath=none` only declines to join; without
+`ControlMaster=no` a call can still open a socket the next caller inherits.
+
+The reason is the same address reuse that produces the changed-host-key case
+above. An operator `ssh_config` that enables multiplexing under `Host *`
+typically names the socket after the connection target, so the name survives
+the VM. A previous run leaves a master alive for its persist window; the VM at
+that address is destroyed and recreated; the next run's first `ssh` finds that
+master still listening with a dead connection behind it. The master accepts the
+request and then fails mid-request, `ssh` falls back to a direct connection —
+and returns with `O_NONBLOCK` set on the caller's stdin, which it never clears.
+
+That flag is inherited by everything the script runs afterwards. Ansible
+refuses to start on non-blocking standard streams, so an SSH call at a bake's
+step 2 or 3 fails the playbook at step 4, with nothing in the failure naming
+the SSH call that caused it. Refusing multiplexing is what keeps the fault from
+crossing between steps; a master that is healthy, absent, or refused does not
+produce it, so the refusal is aimed at exactly the accepts-then-breaks case.
+
+The refusal is not confined to the probe. Both bake scripts define the same two
+options once at the top of the file and pass them at every `ssh` call site, so
+every connection this repository makes to a testbed VM carries them. Three
+files therefore state the same decision, which is the price of keeping each
+script self-contained; lifting it into a shared definition is tracked
+separately. `ssh-keyscan` is deliberately not given these options: it takes no
+`ssh_config` override, never opens a session channel, and has no multiplexing
+code path.
+
 ## 14. Libvirt Lifecycle Policy
 
 Four public actions read or change domain state. They are stated as one table

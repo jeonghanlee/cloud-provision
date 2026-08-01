@@ -655,11 +655,24 @@ function resolve_runtime_ip {
 # does not override that. That case means the address now answers for a
 # different host, which is a different fact from "not ready yet", so ssh_probe
 # reports it separately and the callers say so.
+#
+# Connection multiplexing is refused, not merely left unconfigured. An operator
+# ssh_config that sets ControlMaster/ControlPath under Host * names its socket
+# after the connection target, and this repository's VMs are destroyed and
+# recreated at fixed addresses. A master left alive by a previous run then
+# accepts the next run's first connection and fails mid-request behind it; ssh
+# falls back to a direct connection and returns with O_NONBLOCK set on the
+# caller's stdin, which it never clears. Ansible refuses to start on a
+# non-blocking stdin, so the leak surfaces hours later at a bake's playbook
+# step. Both options are needed: ControlPath=none stops this ssh from using a
+# socket, ControlMaster=no stops it from becoming one for the next call.
 declare -g SSH_USER="vmadmin"
 declare -ag SSH_PROBE_OPTIONS=(
     -o StrictHostKeyChecking=no
     -o ConnectTimeout=5
     -o BatchMode=yes
+    -o ControlMaster=no
+    -o ControlPath=none
 )
 
 # Runs one remote command under the contract above and prints its stdout.

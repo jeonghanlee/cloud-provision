@@ -25,6 +25,7 @@ declare -g TOP
 declare -g WORKSPACE
 declare -g FAKEBIN
 declare -g SLEEP_LOG
+declare -g SSH_ARG_LOG
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
 declare -g TEST_FAILED=0
@@ -175,6 +176,11 @@ EOF
     cat > "${FAKEBIN}/ssh" <<'EOF'
 #!/usr/bin/env bash
 set -e
+# Every invocation is recorded whole so the suite can assert what each probe
+# carried. An exit-code assertion would say nothing about the options.
+if [[ -n "${FAKE_SSH_ARG_LOG:-}" ]]; then
+    printf "%s\n" "$*" >> "${FAKE_SSH_ARG_LOG}"
+fi
 remote_cmd="${@: -1}"
 case "${remote_cmd}" in
     exit)
@@ -296,6 +302,7 @@ function run_create_vm {
     FAKE_SEED_PATH_LOG="${WORKSPACE}/seed-path.txt" \
     FAKE_SEED_META_COPY="${WORKSPACE}/seed-meta.txt" \
     FAKE_SLEEP_LOG="${SLEEP_LOG}" \
+    FAKE_SSH_ARG_LOG="${SSH_ARG_LOG}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
     REQUIRED_GROUP="$(id -gn)" \
@@ -665,6 +672,28 @@ function run_case {
     expect_contains "${name} output" "${output}" "${want_text}"
 }
 
+# Pins the multiplexing half of the SSH readiness contract, ARCHITECTURE
+# section 13, across every probe the suite drove. The claim is about the
+# arguments: with the two options removed from SSH_PROBE_OPTIONS every other
+# case in this file still passes, while on a real host a master left over from a
+# previous run at the same reused address accepts the connection, fails
+# mid-request, and returns a non-blocking stdin the caller never clears.
+function assert_ssh_multiplexing_off {
+    local total offenders
+
+    if [[ ! -s "${SSH_ARG_LOG}" ]]; then
+        record_fail "ssh probes were recorded" "no ssh invocation reached the log"
+        return 0
+    fi
+    total="$(wc -l < "${SSH_ARG_LOG}" | tr -d '[:space:]')"
+    offenders="$(awk \
+        '!/-o ControlMaster=no/ || !/-o ControlPath=none/ {count++} END {print count + 0}' \
+        "${SSH_ARG_LOG}")"
+    printf "  ssh invocations recorded: %s (missing options: %s)\n" \
+        "${total}" "${offenders}"
+    expect_equal "every ssh probe refuses multiplexing" "0" "${offenders}"
+}
+
 function print_summary {
     printf "Summary: %s passed / %s total\n" "${TEST_PASSED}" "${TEST_TOTAL}"
     if [[ ${TEST_FAILED} -gt 0 ]]; then
@@ -677,7 +706,9 @@ function print_summary {
 
 WORKSPACE="$(mktemp -d /tmp/cloud-init-status-test.XXXXXX)"
 FAKEBIN="${WORKSPACE}/bin"
+SSH_ARG_LOG="${WORKSPACE}/ssh-args.log"
 mkdir -p "${FAKEBIN}"
+: > "${SSH_ARG_LOG}"
 write_fake_commands
 
 run_case "status done" $'status: done\n' "status" 0 "cloud-init : done"
@@ -728,5 +759,9 @@ run_address_distinct_case "probe" rocky8 debian13 rocky8-iocrunner debian13-ethe
 # DHCP reservation guard. rocky8-iocrunner/server maps to 192.168.122.150.
 run_reservation_case "reservation guard ignores a longer address" "192.168.122.1501" "no"
 run_reservation_case "reservation guard fires on the same address" "192.168.122.150" "yes"
+
+# SSH readiness contract, ARCHITECTURE section 13. Asserted last so it covers
+# every probe every case above drove.
+assert_ssh_multiplexing_off
 
 print_summary

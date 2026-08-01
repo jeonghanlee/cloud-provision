@@ -22,6 +22,20 @@ command step pointing at something the reader at the terminal cannot resolve.
 State the operating condition and the command instead. Tracking documents may
 point here; this page does not point back.
 
+## Why every ssh here carries two options
+
+Every `ssh` command on this page begins with
+`-o ControlMaster=no -o ControlPath=none`. Keep them when you copy a command.
+
+OpenSSH connection multiplexing keys its shared socket on the connection target,
+and the target here is an address. These VMs are destroyed and recreated at the
+same fixed addresses, so a socket left by an earlier VM outlives it and the next
+connection to that address finds a master whose connection is already dead. The
+fallback from that state leaves the caller's standard input and standard error
+non-blocking, which nothing clears; a later `ansible-playbook` in the same shell
+then refuses to run at all. The two options keep each command off that path,
+without touching the multiplexing an operator wants everywhere else.
+
 ## Which bake entry point to use
 
 Use the selector by the image you need to produce, not by the VM you will boot later:
@@ -89,8 +103,8 @@ ssh-keygen -f ~/.ssh/known_hosts -R 192.168.122.50
 Then connect normally:
 
 ```bash
-ssh vmadmin@192.168.122.150
-ssh vmadmin@192.168.122.50
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50
 ```
 
 Do not disable host-key checking for final acceptance. The expected workflow is to remove the stale deterministic-IP entry, accept the new key for the freshly provisioned VM, and then read `/etc/iocrunner-bake.manifest` or run the provenance validator.
@@ -102,21 +116,21 @@ SSH checks in local output redirection.
 Rocky 8 consumer:
 
 ```bash
-ssh vmadmin@192.168.122.150 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
-ssh vmadmin@192.168.122.150 "sudo sha256sum /etc/iocrunner-bake.manifest"
-ssh vmadmin@192.168.122.150 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo sha256sum /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
 scp bin/validate_iocrunner_bake.bash vmadmin@192.168.122.150:/tmp/validate_iocrunner_bake.bash
-ssh vmadmin@192.168.122.150 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
 ```
 
 Debian 13 consumer:
 
 ```bash
-ssh vmadmin@192.168.122.50 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
-ssh vmadmin@192.168.122.50 "sudo sha256sum /etc/iocrunner-bake.manifest"
-ssh vmadmin@192.168.122.50 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo sha256sum /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
 scp bin/validate_iocrunner_bake.bash vmadmin@192.168.122.50:/tmp/validate_iocrunner_bake.bash
-ssh vmadmin@192.168.122.50 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
 ```
 
 Compare the remote manifest hash against the sidecar hash on the control host:
@@ -182,8 +196,8 @@ over SSH but cloud-init has not reported completion. Check the live cloud-init
 state from the control host:
 
 ```bash
-ssh vmadmin@<vm-ip> cloud-init status --long
-ssh vmadmin@<vm-ip> systemctl --no-pager --failed
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> cloud-init status --long
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> systemctl --no-pager --failed
 ```
 
 If cloud-init reports `status: running`, `Running in stage: modules-final`, no
@@ -196,10 +210,10 @@ During Rocky 8 package installation, Ansible can be quiet while `dnf` downloads
 or runs the RPM transaction. Check the package manager process and logs:
 
 ```bash
-ssh vmadmin@<vm-ip> pgrep -af dnf
-ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.log
-ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.librepo.log
-ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.rpm.log
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> pgrep -af dnf
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.log
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.librepo.log
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var/log/dnf.rpm.log
 ```
 
 Mirror timeouts in `dnf makecache --timer` do not by themselves prove the
@@ -213,9 +227,9 @@ downloads and `dpkg` unpacks a large package set. Check the live processes and
 available disk space:
 
 ```bash
-ssh vmadmin@<vm-ip> pgrep -af apt
-ssh vmadmin@<vm-ip> pgrep -af dpkg
-ssh vmadmin@<vm-ip> df -h / /var
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> pgrep -af apt
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> pgrep -af dpkg
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> df -h / /var
 ```
 
 If `apt` or `dpkg` is active and disk space is sufficient, continue waiting.
@@ -223,8 +237,8 @@ If both package-manager processes are gone and the Ansible task does not resume,
 inspect the apt logs before retrying:
 
 ```bash
-ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/apt/term.log
-ssh vmadmin@<vm-ip> sudo tail -n 80 /var/log/apt/history.log
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var/log/apt/term.log
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var/log/apt/history.log
 ```
 
 ## Failed bake mid-way
