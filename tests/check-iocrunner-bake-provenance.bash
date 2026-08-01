@@ -333,6 +333,10 @@ case "$1" in
         fi
         if [[ "${disk}" == *"/testbed-rocky8-server.qcow2" ]]; then
             printf '{"format":"qcow2","full-backing-filename":"%s"}\n' "${BASE_IMAGE_PATH}"
+        elif [[ "${disk}" == *"/consumer-in-use.qcow2" ]]; then
+            # Reproduces a consumer layered on the golden this bake would
+            # replace, which is what protect_output_consumers refuses.
+            printf '{"format":"qcow2","full-backing-filename":"%s"}\n' "${OUTPUT_IMAGE_PATH}"
         else
             printf "%s\n" '{"format":"qcow2"}'
         fi
@@ -519,7 +523,7 @@ function run_promotion_case {
     # that consumer is undefined rather than stopped gracefully, so this is the
     # routine state on a rebake. Only the destination mode matters; ownership
     # cannot be changed here without privilege and is not what mv requires.
-    if [[ "${mode}" == publish-* ]]; then
+    if [[ "${mode}" == publish-unwritable || "${mode}" == publish-pinned ]]; then
         chmod 0444 "${output_image}"
     fi
 
@@ -561,12 +565,17 @@ function run_promotion_case {
     fi
     local bake_line
 
-    if [[ "${mode}" == publish-* ]]; then
+    if [[ "${mode}" == publish-unwritable || "${mode}" == publish-pinned ]]; then
         # Run the bake under a pseudo-terminal. Without one, mv overwrites an
         # unwritable destination silently, so this case would pass even with -f
         # removed from the publish step and would pin nothing. With a terminal a
         # publish step lacking -f stops to ask and never returns, which the
         # timeout converts into a failed case instead of a hung suite.
+        #
+        # The pty costs something: when the child exits, trailing writes to the
+        # session can be lost, so a message emitted from the EXIT trap does not
+        # reliably reach output.txt. publish-clean exists to assert on that
+        # message from a successful run without a terminal in the way.
         printf -v bake_line '%q ' "${bake_command[@]}"
         timeout 120 env "${bake_env[@]}" \
             script -qec "${bake_line}" /dev/null \
@@ -601,6 +610,16 @@ function run_promotion_case {
             record_pass "${mode} removes only current temporary outputs"
         else
             record_fail "${mode} removes only current temporary outputs" "temporary output remained"
+        fi
+
+        # These cases run with -k, which keeps the build VM on purpose. The
+        # failure guidance must not fire here, or every successful debugging
+        # bake would read as a failed one.
+        if ! grep -q 'was left for inspection' "${case_dir}/output.txt"; then
+            record_pass "${mode} prints no failure guidance on success"
+        else
+            record_fail "${mode} prints no failure guidance on success" \
+                "cleanup guidance printed after a successful bake"
         fi
 
         # The publish target is the archive, not the image directory. Without
@@ -694,6 +713,22 @@ function run_promotion_case {
     else
         record_fail "${mode} removes only current temporary outputs" "temporary output remained"
     fi
+
+    # The runbook tells a reader who hits this to run the printed cleanup
+    # command, so the failing bake has to print one and has to name the VM it
+    # actually left. Asserting only that some text appeared would pass on a
+    # message naming the wrong domain.
+    if grep -q 'was left for inspection' "${case_dir}/output.txt"; then
+        record_pass "${mode} names the build VM left behind"
+    else
+        record_fail "${mode} names the build VM left behind" "no cleanup guidance printed"
+    fi
+    if grep -q 'create_vm.bash -o rocky8 -n server .* -p testbed -c' "${case_dir}/output.txt"; then
+        record_pass "${mode} prints a runnable clean-restart command"
+    else
+        record_fail "${mode} prints a runnable clean-restart command" \
+            "cleanup command absent or malformed"
+    fi
 }
 
 function print_summary {
@@ -711,6 +746,63 @@ function print_summary {
 # the NAMED reason, not merely a non-zero exit: with the guard removed, every
 # one of these still fails later on the nonexistent image directory, and a
 # bare expect_failure would stay green over the missing guard.
+# The one place a bake fails with the EXIT trap installed and no build VM yet:
+# protect_output_consumers runs three lines after the trap and forty before
+# Step 1. Without this case the "no build VM" assertions on the ref guards are
+# hollow, because those refusals happen before the trap exists at all and stay
+# silent however the trap is written. Observed for real on 2026-08-01, when a
+# golden published before the archive split was still backed onto by its
+# consumer and refused the bake that would have created the split.
+function run_in_use_case {
+    local case_dir="${WORKSPACE}/in-use-refusal"
+    local fakebin="${case_dir}/bin"
+    local image_dir="${case_dir}/images"
+    local home_dir="${case_dir}/home"
+    local output_image="${image_dir}/iocrunner-rocky8.qcow2"
+    local output rc=0
+
+    mkdir -p "${fakebin}" "${image_dir}" "${home_dir}/.ssh"
+    printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" > "${home_dir}/.ssh/id_ed25519.pub"
+    : > "${home_dir}/.ssh/known_hosts"
+    printf "%s\n" "base image" > "${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+    printf "%s\n" "prior image" > "${output_image}"
+    printf "%s\n" "consumer overlay" > "${image_dir}/consumer-in-use.qcow2"
+    write_fake_host_commands "${fakebin}"
+
+    output="$(env \
+        "ARCHIVE_DIR=${case_dir}/archive" \
+        "DOMAIN_STATE_FILE=${case_dir}/domain.state" \
+        "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2" \
+        "OUTPUT_IMAGE_PATH=${output_image}" \
+        "CALL_LOG=${case_dir}/calls.log" \
+        "PATH=${fakebin}:${PATH}" \
+        "HOME=${home_dir}" \
+        "REQUIRED_GROUP=$(id -gn)" \
+        "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" 2>&1)" || rc=$?
+
+    if [[ "${rc}" != "0" && "${output}" == *"is in use by qcow2 disk"* ]]; then
+        record_pass "in-use refusal names the disk holding the output"
+    else
+        record_fail "in-use refusal names the disk holding the output" \
+            "rc=${rc}, output: ${output%%$'\n'*}"
+    fi
+
+    # The refusal happens with the trap installed, so silence here is a
+    # decision the trap made by asking libvirt, not an accident of ordering.
+    if [[ "${output}" != *"was left for inspection"* ]]; then
+        record_pass "in-use refusal names no build VM"
+    else
+        record_fail "in-use refusal names no build VM" \
+            "named a build VM before Step 1 created one"
+    fi
+
+    if [[ ! -e "${case_dir}/domain.state" ]]; then
+        record_pass "in-use refusal creates no build VM"
+    else
+        record_fail "in-use refusal creates no build VM" "a domain was created"
+    fi
+}
+
 function run_ref_guard_case {
     local name="$1"
     local want_text="$2"
@@ -722,6 +814,16 @@ function run_ref_guard_case {
         record_pass "${name}"
     else
         record_fail "${name}" "rc=${rc}, output: ${output%%$'\n'*}"
+    fi
+
+    # These refusals happen before Step 1, so no build VM exists. Naming one
+    # here would send the reader to clean up a domain that was never created,
+    # which is the failure mode the domain query in the trap exists to avoid.
+    if [[ "${output}" != *"was left for inspection"* ]]; then
+        record_pass "${name} leaves no build VM to clean up"
+    else
+        record_fail "${name} leaves no build VM to clean up" \
+            "named a build VM that was never created"
     fi
 }
 
@@ -744,16 +846,20 @@ case "${1:-all}" in
         ;;
     promotion)
         run_ref_guard_tests
+        run_in_use_case
         run_promotion_case validator-reject
         run_promotion_case conversion-fail
+        run_promotion_case publish-clean
         run_promotion_case publish-unwritable
         CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
         ;;
     all)
         run_validator_tests
         run_ref_guard_tests
+        run_in_use_case
         run_promotion_case validator-reject
         run_promotion_case conversion-fail
+        run_promotion_case publish-clean
         run_promotion_case publish-unwritable
         CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
         ;;

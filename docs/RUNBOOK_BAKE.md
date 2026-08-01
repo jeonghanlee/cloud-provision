@@ -247,8 +247,12 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var
 
 - The build VM SURVIVES, running and half-provisioned. Re-running the
   same `make bake.<os>` now fails early because ioc-runner bakes require
-  fresh build inputs. Inspect the VM, then run the printed cleanup command
+  fresh build inputs. Inspect the VM, then run the clean-restart command
   when a clean retry is intended.
+- A bake that fails before its last step prints that command itself, naming
+  the VM it left. Do not expect it after a failure in the final cleanup
+  step: the handler that prints it is uninstalled once the working copy has
+  been refreshed. The command is written out below in either case.
 - A previously published golden is NEVER at risk: validation runs before
   sidecar extraction and flattening, and the image plus manifest are
   published from non-empty `.tmp` siblings only after validation and

@@ -76,6 +76,25 @@ function require_command {
         || die "required command not found: ${command_name}"
 }
 
+# A failed bake leaves the build VM running and half-provisioned so it can be
+# inspected. docs/RUNBOOK_BAKE.md tells the reader to run the printed cleanup
+# command; nothing was printed, and that runbook is read by agents working from
+# a log more often than by operators at a terminal. The domain is queried
+# instead of tracked by a flag, so a run that dies before Step 1 stays silent
+# rather than naming a VM that was never created.
+function report_build_vm_on_failure {
+    local rc="$1"
+
+    [[ "${rc}" != "0" ]] || return 0
+    [[ -n "${VM_NAME:-}" ]] || return 0
+    virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" >/dev/null 2>&1 || return 0
+
+    printf "\nBuild VM %s was left for inspection. To restart clean:\n" \
+        "${VM_NAME}" >&2
+    printf "  %s -o %s -n %s -d %s -p %s -c\n" \
+        "${CREATE_VM}" "${OS_TYPE}" "${NODE_ID}" "${IMAGE_DIR}" "${VM_PREFIX}" >&2
+}
+
 function cleanup_output_temps {
     local rc=$?
 
@@ -85,6 +104,7 @@ function cleanup_output_temps {
     if [[ "${SIDECAR_TEMP_CREATED}" == true ]]; then
         rm -f -- "${SIDECAR_TEMP}"
     fi
+    report_build_vm_on_failure "${rc}"
     return "${rc}"
 }
 
