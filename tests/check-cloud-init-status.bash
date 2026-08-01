@@ -255,7 +255,7 @@ function run_create_vm {
     local rc=0
     local domain_state="running"
     local dominfo_rc=1
-    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "server" "-d" "${WORKSPACE}/images")
+    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "${CASE_NODE_ID:-server}" "-d" "${WORKSPACE}/images")
 
     case "${action}" in
         status)
@@ -558,6 +558,51 @@ function run_seed_failure_case {
     expect_contains "${name} keeps the staging" "${output}" "Staging left for inspection"
 }
 
+# Address assignment, issue #27. An address must identify a VM, not a node
+# name: hashing NODE_ID alone gave every OS type the same address and MAC for a
+# given node ID, so the second VM could not be created at all. Known node IDs
+# are asserted separately because they must not move - existing VMs record
+# their addresses and downstream notes cite them.
+function run_address_case {
+    local name="$1"
+    local os_type="$2"
+    local node_id="$3"
+    local want_last="$4"
+    local result output got
+
+    reset_sleep_log
+    result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
+        run_create_vm $'status: done\n' "status")
+    output="${result#*$'\n'}"
+    got="$(grep -oE 'mapped to 192\.168\.122\.[0-9]+|IP Address : 192\.168\.122\.[0-9]+' <<< "${output}" \
+        | grep -oE '[0-9]+$' | head -1)"
+    expect_equal "${name}" "${want_last}" "${got:-none}"
+}
+
+# The whole point of #27: the same unknown node ID across OS types must not
+# land on one address. Asserting individual values would pass even if two of
+# them agreed, so the distinctness is asserted directly.
+function run_address_distinct_case {
+    local node_id="$1"
+    shift
+    local os_type result output got
+    local -a seen=()
+    local unique
+
+    for os_type in "$@"; do
+        reset_sleep_log
+        result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
+            run_create_vm $'status: done\n' "status")
+        output="${result#*$'\n'}"
+        got="$(grep -oE 'mapped to 192\.168\.122\.[0-9]+' <<< "${output}" \
+            | grep -oE '[0-9]+$' | head -1)"
+        seen+=("${got:-none}")
+    done
+    unique="$(printf "%s\n" "${seen[@]}" | sort -u | wc -l | tr -d '[:space:]')"
+    expect_equal "unknown node ${node_id} gives one address per OS type" \
+        "${#seen[@]}" "${unique}"
+}
+
 function run_case {
     local name="$1"
     local status_output="$2"
@@ -630,5 +675,11 @@ run_no_delete_case "unusable golden" "rocky8-iocrunner" "iocrunner-rocky8.qcow2"
 # Seed staging, issue #22.
 run_seed_case "seed"
 run_seed_failure_case "seed failure"
+
+# Address assignment, issue #27.
+run_address_case "known node rocky8-iocrunner server" "rocky8-iocrunner" "server" "150"
+run_address_case "known node rocky8-iocrunner node2" "rocky8-iocrunner" "node2" "152"
+run_address_case "known node debian13-ethercat node1" "debian13-ethercat" "node1" "71"
+run_address_distinct_case "probe" rocky8 debian13 rocky8-iocrunner debian13-ethercat epics-env-rocky8
 
 print_summary

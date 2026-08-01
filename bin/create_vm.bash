@@ -249,16 +249,25 @@ function resolve_network {
             return 1
             ;;
         *)
-            # Deterministic hash of NODE_ID mapped to 200-254 range
+            # Deterministic hash of OS_TYPE and NODE_ID mapped to 160-254.
+            # 160-199 sits between the highest per-OS block (150 plus node
+            # offsets) and the old 200-254 window, and nothing else uses it, so
+            # widening costs nothing and roughly halves the collision rate. A
+            # fixed range still collides; register_dhcp names it when it does.
+            # Both go into the hash: an address identifies a VM, not a node
+            # name. Hashing NODE_ID alone gave every OS type the same address
+            # and the same MAC for a given node ID, so the second VM could not
+            # be created at all.
             local hash=0
             local i ch
-            for (( i=0; i<${#NODE_ID}; i++ )); do
-                printf -v ch '%d' "'${NODE_ID:$i:1}"
-                hash=$(( (hash * 31 + ch) % 55 ))
+            local hash_key="${OS_TYPE}/${NODE_ID}"
+            for (( i=0; i<${#hash_key}; i++ )); do
+                printf -v ch '%d' "'${hash_key:$i:1}"
+                hash=$(( (hash * 31 + ch) % 95 ))
             done
-            local ip_last=$(( 200 + hash ))
+            local ip_last=$(( 160 + hash ))
             VM_IP="${NETWORK_SUBNET}.${ip_last}"
-            VM_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "200" "${hash}")
+            VM_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "160" "${hash}")
             printf "Note: NODE_ID=%s mapped to %s\n" "${NODE_ID}" "${VM_IP}"
             return 0
             ;;
@@ -275,10 +284,29 @@ function register_dhcp {
         return 0
     fi
 
-    # Remove existing reservation if present
+    # Remove existing reservation if present. This matches only this VM's own
+    # exact triple, so another VM holding the same address is left alone and
+    # the add below is what meets it.
     virsh --connect "${LIBVIRT_URI}" net-update "${LIBVIRT_NETWORK}" delete ip-dhcp-host \
         "<host mac='${VM_MAC}' name='${VM_NAME}' ip='${VM_IP}'/>" \
         --live --config 2>/dev/null || true
+
+    # Name the collision before libvirt does. The address computed for this VM
+    # can be held by another one — the fallback node-ID mapping has 95 slots,
+    # so unrelated pairs can land together. libvirt refuses the duplicate, but
+    # its message says only that an entry exists; it cannot say which VM holds
+    # the address or that a node-ID choice produced it.
+    local holder
+    holder="$(virsh --connect "${LIBVIRT_URI}" net-dumpxml "${LIBVIRT_NETWORK}" 2>/dev/null \
+        | awk -v ip="${VM_IP}" -F"'" '$0 ~ "ip=." ip ".*/>" {for (i=1;i<=NF;i++) if ($(i-1) ~ /name=$/) print $i}' \
+        | head -1)"
+    if [[ -n "${holder}" && "${holder}" != "${VM_NAME}" ]]; then
+        printf "Error: %s is already reserved for %s.\n" "${VM_IP}" "${holder}" >&2
+        printf "Cause: OS type %s with node ID %s maps to that address.\n" \
+            "${OS_TYPE}" "${NODE_ID}" >&2
+        printf "Hint: choose a different node ID, or remove the other VM.\n" >&2
+        exit 1
+    fi
 
     printf "Network: registering %s → %s (%s)... " "${VM_NAME}" "${VM_IP}" "${VM_MAC}"
     virsh --connect "${LIBVIRT_URI}" net-update "${LIBVIRT_NETWORK}" add ip-dhcp-host \
