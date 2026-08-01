@@ -6,4 +6,5 @@ include $(TOP)/configure/RULES_VM
 include $(TOP)/configure/RULES_BAKE
 include $(TOP)/configure/RULES_EPICS_ENV
 include $(TOP)/configure/RULES_VIRT
+include $(TOP)/configure/RULES_DOCS
 include $(TOP)/configure/RULES_VARS

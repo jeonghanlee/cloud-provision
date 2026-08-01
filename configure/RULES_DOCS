@@ -1,0 +1,8 @@
+##@ Documentation
+
+.PHONY: check-docs check-doc-refs
+
+check-docs: check-doc-refs ## Run offline documentation contract checks
+
+check-doc-refs: ## Verify every cited source coordinate names the tree it was read from
+	$(QUIET) bash $(TOP)/tests/check-doc-refs.bash
