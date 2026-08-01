@@ -115,7 +115,7 @@ set -e
 cmd=""
 for arg in "$@"; do
     case "$arg" in
-        domstate|dominfo|domifaddr|net-update|start|shutdown|destroy|undefine|uri)
+        domstate|dominfo|domifaddr|net-update|net-dumpxml|start|shutdown|destroy|undefine|uri)
             cmd="$arg"
             break
             ;;
@@ -155,6 +155,13 @@ case "$cmd" in
         if [[ -n "${FAKE_SHUTDOWN_MARKER:-}" ]]; then
             : > "${FAKE_SHUTDOWN_MARKER}"
         fi
+        ;;
+    net-dumpxml)
+        # A reservation whose address is a strict prefix of the one under test.
+        # A substring or regex match would report the tested address as held.
+        printf "%s\n" "<network><ip><dhcp>"
+        printf "%s\n" "  <host mac='52:54:00:00:64:01' name='other-vm' ip='${FAKE_RESERVED_IP:-192.168.122.1501}'/>"
+        printf "%s\n" "</dhcp></ip></network>"
         ;;
     net-update|start|destroy|undefine)
         ;;
@@ -284,6 +291,7 @@ function run_create_vm {
     FAKE_LIBVIRT_DOWN="${FAKE_LIBVIRT_DOWN:-}" \
     FAKE_SHUTDOWN_MARKER="${FAKE_SHUTDOWN_MARKER:-}" \
     FAKE_QEMU_IMG_FAIL="${FAKE_QEMU_IMG_FAIL:-}" \
+    FAKE_RESERVED_IP="${FAKE_RESERVED_IP:-}" \
     FAKE_GENISOIMAGE_FAIL="${FAKE_GENISOIMAGE_FAIL:-}" \
     FAKE_SEED_PATH_LOG="${WORKSPACE}/seed-path.txt" \
     FAKE_SEED_META_COPY="${WORKSPACE}/seed-meta.txt" \
@@ -603,6 +611,41 @@ function run_address_distinct_case {
         "${#seen[@]}" "${unique}"
 }
 
+# The DHCP collision guard must compare whole address fields. Matching by
+# substring or regex would read 192.168.122.150 as held by the entry for
+# 192.168.122.1501 and refuse a VM whose address is free - a guard that blocks
+# correct work is worse than the collision it was added to name.
+function run_reservation_case {
+    local name="$1"
+    local reserved="$2"
+    local want_blocked="$3"
+    local result rc output
+
+    # register_dhcp sits behind verify_base_image, prepare_disk, and
+    # generate_seed. Without these fixtures the run dies earlier and every
+    # assertion below passes for the wrong reason.
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" \
+        > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    printf "%s\n" "golden" > "${WORKSPACE}/images/iocrunner-rocky8.qcow2"
+
+    reset_sleep_log
+    result=$(CASE_OS_TYPE="rocky8-iocrunner" CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE="absent" FAKE_RESERVED_IP="${reserved}" \
+        run_create_vm $'status: done\n' "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    if [[ "${want_blocked}" == "yes" ]]; then
+        expect_contains "${name}" "${output}" "is already reserved for"
+    else
+        expect_not_contains "${name}" "${output}" "is already reserved for"
+        # Prove the run actually reached the registration step, so a failure
+        # earlier in the path cannot be mistaken for the guard staying quiet.
+        expect_contains "${name} reached registration" "${output}" "Network: registering"
+    fi
+}
+
 function run_case {
     local name="$1"
     local status_output="$2"
@@ -681,5 +724,9 @@ run_address_case "known node rocky8-iocrunner server" "rocky8-iocrunner" "server
 run_address_case "known node rocky8-iocrunner node2" "rocky8-iocrunner" "node2" "152"
 run_address_case "known node debian13-ethercat node1" "debian13-ethercat" "node1" "71"
 run_address_distinct_case "probe" rocky8 debian13 rocky8-iocrunner debian13-ethercat epics-env-rocky8
+
+# DHCP reservation guard. rocky8-iocrunner/server maps to 192.168.122.150.
+run_reservation_case "reservation guard ignores a longer address" "192.168.122.1501" "no"
+run_reservation_case "reservation guard fires on the same address" "192.168.122.150" "yes"
 
 print_summary

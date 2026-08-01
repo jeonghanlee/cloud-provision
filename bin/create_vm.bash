@@ -296,10 +296,20 @@ function register_dhcp {
     # so unrelated pairs can land together. libvirt refuses the duplicate, but
     # its message says only that an entry exists; it cannot say which VM holds
     # the address or that a node-ID choice produced it.
+    # Match the address as a whole quoted field. A substring or regex match
+    # would report 192.168.122.10 as held by the entry for 192.168.122.101,
+    # refusing a VM whose address is free.
     local holder
     holder="$(virsh --connect "${LIBVIRT_URI}" net-dumpxml "${LIBVIRT_NETWORK}" 2>/dev/null \
-        | awk -v ip="${VM_IP}" -F"'" '$0 ~ "ip=." ip ".*/>" {for (i=1;i<=NF;i++) if ($(i-1) ~ /name=$/) print $i}' \
-        | head -1)"
+        | awk -F"'" -v want="${VM_IP}" '
+            {
+                name = ""; addr = ""
+                for (i = 2; i <= NF; i += 2) {
+                    if ($(i-1) ~ /name=$/) name = $i
+                    if ($(i-1) ~ /ip=$/)   addr = $i
+                }
+                if (addr == want && name != "") { print name; exit }
+            }')"
     if [[ -n "${holder}" && "${holder}" != "${VM_NAME}" ]]; then
         printf "Error: %s is already reserved for %s.\n" "${VM_IP}" "${holder}" >&2
         printf "Cause: OS type %s with node ID %s maps to that address.\n" \
