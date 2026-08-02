@@ -8,15 +8,15 @@ The physics reading at the end is a shared shorthand, not normative.
 
 | Label | Name | What it is |
 | --- | --- | --- |
-| A | OS원본 | The image fetched from upstream. In code, a `BASE_IMAGE_NAME` whose `BASE_URL` is non-empty. |
-| B | OS골든 | An OS image carrying the settings we need, usable as it stands. |
-| C | VM 디스크 | A copy of B (B') after the purpose work; the VM's own disk. |
-| ′ (prime) | 사본 | A' / B' mark a same-kind copy under preparation. Prime, not star or dagger — those carry other meanings (dual, adjoint). |
+| A | OS base | The image fetched from upstream. In code, a `BASE_IMAGE_NAME` whose `BASE_URL` is non-empty. |
+| B | OS golden | An OS image carrying the settings we need, usable as it stands. |
+| C | VM disk | A copy of B (B') after the purpose work; the VM's own disk. |
+| ′ (prime) | copy | A' / B' mark a same-kind copy under preparation. Prime, not star or dagger — those carry other meanings (dual, adjoint). |
 
 ## Chain
 
 ```
-A (OS원본) ──copy──▶ A' ──prepare──▶ B (OS골든)
+A (OS base) ──copy──▶ A' ──prepare──▶ B (OS golden)
 ```
 
 A' is the copy. The preparation runs on A' only; A is never written to.
@@ -29,7 +29,7 @@ removing A cannot break B, and rebuilding B cannot disturb A.
 Same shape as A to B: copy first, prepare on the copy.
 
 ```
-B (OS골든) ──copy──▶ B' ──prepare (purpose work)──▶ VM disk
+B (OS golden) ──copy──▶ B' ──prepare (purpose work)──▶ VM disk
 ```
 
 B' is the copy and is the VM's own disk. The purpose work — what
@@ -105,9 +105,9 @@ housekeeping — when to remove leftover VMs — not correctness.
 
 ## A is kept (settled 2026-08-01)
 
-A stays after B exists — owner's words: "받아온 이미지는 그냥 두고".
-Deleting A was raised by the assistant and rejected. A is read-only
-ground; nothing we make ever writes to it.
+A stays after B exists. Deleting A once B was built was raised by the
+assistant and rejected by the owner. A is read-only ground; nothing we
+make ever writes to it.
 
 ## Current code, for contrast
 
@@ -150,22 +150,21 @@ terms above; this section is how the two of us recall it.
 In equations:
 
 ```
-|0⟩ = A                          the vacuum, never acted on
+|0⟩       = A                        vacuum, never acted on
+|B⟩       = P |0⟩                    preparation as creation operator,
+                                     applied to the copy A', mediated
+                                     by a virtual (build) VM
+P         = Π_k O_k                  O_k ∈ {pkg, cfg}; the operator
+                                     product the record keeps
+|C_i⟩     = W_i |B⟩                  purpose work W on the copy B'
+i         = (t_i, h_i)               the label that makes identical
+                                     particles distinguishable
+valid(X)  ⟺ name(X) ≡ record(X)      the pair rule; either half alone
+                                     is ignored
+a |C_i⟩   = |0⟩ + record_i           clean returns it to vacuum and
+                                     the record survives
 
-|B⟩ = P |0⟩                      preparation P as creation operator,
-                                 applied to the copy A', mediated by a
-                                 virtual (build) VM
-
-P   = Π_k O_k ,  O_k ∈ {pkg, cfg}   the operator product the record keeps
-
-|C_i⟩ = W_i |B⟩ ,  i = (t_i, h_i)   purpose work W on the copy B';
-                                 the label i (timestamp, hash) is what
-                                 makes identical particles distinguishable
-
-valid(X)  ⟺  name(X) ≡ record(X)    the pair rule; either half alone ⇒ ignore
-
-old:  |golden, C_1, C_2, …⟩  entangled — not separable, one file shared
-new:  |B⟩ ⊗ |C_1⟩ ⊗ |C_2⟩ ⊗ …   product state — local stays local
-
-a |C_i⟩ = |0⟩ + record_i         clean returns to vacuum; the record survives
+old       |golden, C_1, C_2, …⟩      entangled: one file shared, not
+                                     separable
+new       |B⟩ ⊗ |C_1⟩ ⊗ |C_2⟩ ⊗ …    product state: local stays local
 ```
