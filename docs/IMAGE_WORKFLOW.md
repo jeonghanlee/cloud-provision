@@ -125,20 +125,13 @@ In equations:
 
 ```
 |0⟩       = A                        vacuum, never acted on
-|B⟩       = P |0⟩                    preparation as creation operator,
-                                     applied to the copy A', mediated
-                                     by a virtual (build) VM
-P         = Π_k O_k                  O_k ∈ {pkg, cfg}; the operator
-                                     product the record keeps
+|B⟩       = P |0⟩                    preparation as creation operator, applied to A', mediated by a virtual (build) VM
+P         = Π_k O_k                  O_k ∈ {pkg, cfg}; the operator product the record keeps
 |C_i⟩     = W_i |B⟩                  purpose work W on the copy B'
-i         = (t_i, h_i)               the label that makes identical
-                                     particles distinguishable
-valid(X)  ⟺ name(X) ≡ record(X)      the pair rule; either half alone
-                                     is ignored
-a |C_i⟩   = |0⟩ + record_i           clean returns it to vacuum and
-                                     the record survives
+i         = (t_i, h_i)               the label that makes identical particles distinguishable
+valid(X)  ⟺ name(X) ≡ record(X)      the pair rule; either half alone is ignored
+a |C_i⟩   = |0⟩ + record_i           clean returns it to vacuum and the record survives
 
-old       |golden, C_1, C_2, …⟩      entangled: one file shared, not
-                                     separable
+old       |golden, C_1, C_2, …⟩      entangled: one file shared, not separable
 new       |B⟩ ⊗ |C_1⟩ ⊗ |C_2⟩ ⊗ …    product state: local stays local
 ```
