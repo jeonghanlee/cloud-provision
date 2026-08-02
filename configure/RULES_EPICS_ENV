@@ -15,6 +15,11 @@ epics-env.provision: ## Provision the two core epics-env VMs without building
 	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-rocky8   -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-debian13 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 
+# OS coverage grows outward from the core pair: Debian 13 and Rocky 8 are
+# settled first, and the matrix is extended to further OS types afterwards.
+# epics-env-ubuntu24 is defined in CONFIG_SITE with its own address block but
+# has no target yet for that reason; it is reachable through the generic
+# per-OS targets in the meantime.
 epics-env.provision.matrix: ## Provision the rocky10 and ubuntu26 matrix VMs without building
 	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-rocky10  -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-ubuntu26 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
