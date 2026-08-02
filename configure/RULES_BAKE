@@ -25,7 +25,7 @@ VARS_EXCLUDES += ethercat_bake_targets
 
 ##@ Image Baking
 
-.PHONY: bake bake.ethercat check-bake check-bake-fresh-inputs check-bake-provenance help.bake refresh
+.PHONY: bake bake.ethercat check-bake check-bake-fresh-inputs check-bake-provenance help.bake
 
 bake: $(addprefix bake., $(BAKE_OS_TYPES)) ## Bake golden iocrunner images for all bakeable OS types
 
