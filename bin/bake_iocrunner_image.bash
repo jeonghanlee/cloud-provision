@@ -28,6 +28,7 @@ declare -g OUTPUT_TEMP_CREATED=false
 declare -g SIDECAR_TEMP_CREATED=false
 declare -g REFRESH_IMAGE_TEMP=""
 declare -g REFRESH_SIDECAR_TEMP=""
+declare -g VM_NAME_WAS_FREE=false
 
 # Connection multiplexing is refused for every ssh this bake makes. An operator
 # ssh_config that sets ControlMaster/ControlPath under Host * names its socket
@@ -81,19 +82,23 @@ function require_command {
 # A failed bake leaves the build VM running and half-provisioned so it can be
 # inspected. docs/RUNBOOK_BAKE.md tells the reader to run the printed cleanup
 # command; nothing was printed, and that runbook is read by agents working from
-# a log more often than by operators at a terminal. The domain is queried
-# instead of tracked by a flag, so a run that dies before Step 1 stays silent
-# rather than naming a VM that was never created.
+# a log more often than by operators at a terminal. Naming the VM takes both a
+# flag and a query: the flag says the name was free when this run began, the
+# query says something answers to it now. Either alone is wrong - a flag alone
+# would name a domain that has since been removed, and a query alone names
+# whatever happens to exist, which is the defect this pair was built from.
 function report_build_vm_on_failure {
     local rc="$1"
 
     [[ "${rc}" != "0" ]] || return 0
-    # Refresh-only never boots anything, so a domain of this name belongs to an
-    # earlier run - a -k bake, or one that failed and left it. Observed
-    # 2026-08-01: a -R refused at the in-use guard named a build VM created
-    # minutes earlier by hand and offered to delete it. Existing is not the same
-    # as ours.
-    [[ "${REFRESH_ONLY}" != true ]] || return 0
+    # Existing is not the same as ours, and asking libvirt only answers the
+    # first. A -k bake, or one that failed and left its VM standing, leaves a
+    # domain of exactly this name behind; a run that never reached Step 1 - a
+    # -R refresh, or a bake refused at the in-use guard - would then offer the
+    # command to destroy it. Observed twice on 2026-08-01, first through -R and
+    # then through the guard. VM_NAME_WAS_FREE is what separates them: it is
+    # true only when nothing answered to the name as this run began.
+    [[ "${VM_NAME_WAS_FREE}" == true ]] || return 0
     [[ -n "${VM_NAME:-}" ]] || return 0
     virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" >/dev/null 2>&1 || return 0
 
@@ -521,6 +526,12 @@ if [[ "${REFRESH_ONLY}" == true ]]; then
 fi
 
 printf "\nStep 1/10: Boot a fresh %s\n" "${VM_NAME}"
+# Recorded before the VM is asked for, not after it appears. A domain answering
+# to this name at exit is only ours if nothing answered to it beforehand; asking
+# afterwards cannot tell the two apart. Set even when create_vm fails partway,
+# because a half-created domain is still this run's to name.
+virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" >/dev/null 2>&1 \
+    || VM_NAME_WAS_FREE=true
 "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -F
 
 printf "\nStep 2/10: Refresh known_hosts and resolve the VM address\n"

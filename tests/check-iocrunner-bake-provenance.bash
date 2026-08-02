@@ -849,6 +849,30 @@ function run_in_use_case {
         record_fail "refresh-only claims no build VM as its own" \
             "named a domain this run never created"
     fi
+
+    # The same question from the third side. A plain bake refused at the in-use
+    # guard has not reached Step 1 either, so it created no VM; but the domain
+    # planted above still stands, from an earlier -k bake or a failure that left
+    # it. The first invocation of this case cannot see it - it runs with no
+    # domain at all, so its silence comes from the domain being absent rather
+    # than from any guard.
+    output="$(env \
+        "ARCHIVE_DIR=${case_dir}/archive" \
+        "DOMAIN_STATE_FILE=${case_dir}/domain.state" \
+        "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2" \
+        "OUTPUT_IMAGE_PATH=${output_image}" \
+        "CALL_LOG=${case_dir}/calls.log" \
+        "PATH=${fakebin}:${PATH}" \
+        "HOME=${home_dir}" \
+        "REQUIRED_GROUP=$(id -gn)" \
+        "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" 2>&1)" || true
+
+    if [[ "${output}" != *"was left for inspection"* ]]; then
+        record_pass "a refused bake claims no build VM it never created"
+    else
+        record_fail "a refused bake claims no build VM it never created" \
+            "named a domain this run never created"
+    fi
     rm -f "${case_dir}/domain.state"
 }
 
