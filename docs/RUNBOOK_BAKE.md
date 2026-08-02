@@ -253,10 +253,17 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var
   naming the VM it left. A refresh-only run never prints it: it boots
   nothing, so a build VM of that name belongs to an earlier run. The
   command is written out below in either case.
-- A previously published golden is NEVER at risk: validation runs before
-  sidecar extraction and flattening, and the image plus manifest are
-  published from non-empty `.tmp` siblings only after validation and
-  conversion succeed.
+- An archived golden is NEVER at risk: every bake writes a new entry named
+  from its own timestamp and refuses a name that already exists, so no
+  failure can overwrite an earlier pair.
+- The working copy consumers back onto is NEVER at risk either: it is
+  replaced only by the refresh at the end of Step 9, which runs after
+  validation, sidecar extraction, conversion, and the archive publish have
+  all succeeded. A failure at any earlier step leaves consumers on the
+  golden they already had. Empty or failed `.tmp` and `.refresh.tmp` files
+  are removed by the script trap, and each refresh temporary is released as
+  its own move completes, so a half-done refresh never removes the file it
+  has just put in place.
 - `-k` keeps the build VM after a successful bake for debugging.
 - To restart truly clean:
   `bin/create_vm.bash -o <os> -n server -d <IMAGE_DIR> -p testbed -c`
@@ -283,51 +290,35 @@ If either exists, `bin/bake_iocrunner_image.bash` stops through
 `create_vm.bash -F` and prints the cleanup command instead of removing
 anything automatically.
 
-Before mutating output paths, the bake scans defined libvirt domains and
-qcow2 files in the selected `IMAGE_DIR`. If any disk resolves through the
-target golden image as a backing file, the bake stops before publication.
-This protects existing consumers from a golden-image replacement while
-they still depend on the old image.
+The bake scans defined libvirt domains and qcow2 files in the selected
+`IMAGE_DIR` for a disk that resolves through the working copy as its backing
+file. The scan runs at two points, for two different reasons. It runs once at
+the start, before the build VM is booted, so a run that could never finish is
+refused before it spends the build; it runs again immediately before the
+working copy is replaced, which is the moment a consumer still depending on
+the old image would lose the file underneath it. A `-R` refresh-only run
+reaches both, in that order: the startup scan comes before the refresh block,
+and the refresh scan comes immediately before the copy is put in place. Either
+refusal stops the run. An archive entry is never the subject of the scan,
+because nothing ever backs onto one.
 
-The ioc-runner bake publishes only this pair:
+The ioc-runner bake publishes the validated pair into the archive beside the
+image directory, under a name taken from the bake timestamp:
 
-- `${IMAGE_DIR}/iocrunner-rocky8.qcow2` with `${IMAGE_DIR}/iocrunner-rocky8.qcow2.manifest`
-- `${IMAGE_DIR}/iocrunner-debian13.qcow2` with `${IMAGE_DIR}/iocrunner-debian13.qcow2.manifest`
+- `${IMAGE_DIR}/../archive/iocrunner-rocky8-<timestamp>.qcow2` with its `.manifest` sidecar
+- `${IMAGE_DIR}/../archive/iocrunner-debian13-<timestamp>.qcow2` with its `.manifest` sidecar
 
-The image and sidecar are first created as `.tmp` siblings. Empty or failed
-outputs are removed by the script trap; prior published files remain in
-place.
+The working copy consumers back onto is `${IMAGE_DIR}/iocrunner-<os>.qcow2`
+with `${IMAGE_DIR}/iocrunner-<os>.qcow2.manifest`. It changes only when the
+refresh step runs: at the end of a successful bake, or on a `-R` refresh-only
+run. It is always a real copy of an archive entry, never a symlink.
 
-## Temporary preliminary bake path
-
-Preliminary review bakes use a dedicated temporary image directory under
-the production image parent:
-
-```
-PRELIM_IMAGE_DIR=/home/jeonglee/libvirt/images/m7-preliminary.XXXXXX
-```
-
-Create it with mode 0755 and add only these two symlinks:
-
-- `Rocky-8-GenericCloud-Base.latest.x86_64.qcow2`
-- `debian-13-genericcloud-amd64-daily.qcow2`
-
-Both symlinks point to the existing production base images in
-`/home/jeonglee/libvirt/images`. Preliminary outputs, source disks, seed
-files, image `.tmp` files, and manifest `.tmp` files remain inside
-`PRELIM_IMAGE_DIR`. Production goldens and ioc-runner consumers are out of
-scope for preliminary cleanup.
-
-Operator-directed cleanup is limited to:
-
-- `testbed-rocky8-server` and `testbed-debian13-server`;
-- their source disks and seed files inside `PRELIM_IMAGE_DIR`;
-- `iocrunner-rocky8.qcow2`, `iocrunner-debian13.qcow2`, their manifests, and their `.tmp` siblings inside `PRELIM_IMAGE_DIR`;
-- the two base-image symlinks inside `PRELIM_IMAGE_DIR`;
-- `rmdir "${PRELIM_IMAGE_DIR}"` after the directory is empty.
-
-If any unexpected file remains in `PRELIM_IMAGE_DIR`, stop and inspect it
-instead of widening the cleanup command.
+The image and sidecar are first created as `.tmp` siblings of the working
+copy, then moved into the archive once conversion and extraction succeed; the
+refresh copies them back through `.refresh.tmp` siblings. Empty or failed
+outputs are removed by the script trap. An archive entry is never overwritten
+— the bake refuses a name that already exists — and the working copy is
+replaced only after the archive pair is in place.
 
 ## ioc-runner bake provenance
 

@@ -36,7 +36,7 @@ The repository has several selectors that look similar but operate at different 
 |---|---|---|---|
 | `DEFAULT_OS_TYPES` | `rocky8`, `debian13` | `make all`, `make status`, `make stop` | Plain base test VMs. |
 | `OS_TYPES` | all values accepted by `create_vm.bash -o` | per-OS targets, `make clean` | Every provisionable VM type, including baked variants and EPICS-env build hosts. |
-| `BAKE_OS_TYPES` | `rocky8`, `debian13` | `make bake`, `make bake.<os>` | Base OS inputs used to produce IOC runner golden images. |
+| `BAKE_OS_TYPES` | `rocky8`, `debian13` | `make bake`, `make bake.<os>`, `make refresh.<os>` | Base OS inputs used to produce IOC runner golden images. |
 | `ETHERCAT_BAKE_OS_TYPES` | `debian13` | `make bake.ethercat`, `make bake.ethercat.<os>` | Base OS input used to produce the EtherCAT golden image. |
 
 Operational rule: bake commands create golden images; provision commands boot VMs from either a public cloud image or a local golden image.
@@ -57,20 +57,26 @@ make rocky8.node2
 
 ### EPICS-env from-source build
 
-Provision the two dedicated epics-env VMs (.120 / .20, `EPICS_ENV_RAM` MB each)
+Provision the two core epics-env VMs (.120 / .20, `EPICS_ENV_RAM` MB each)
 and build EPICS-env from source on each via ansible-provision, in one command.
 Both the VMs and the ansible role are idempotent.
 
+The core group carries the internal distribution targets. The rocky10 (.130)
+and ubuntu26 (.30) matrix VMs extend the OS coverage for the public
+distribution and are driven with their own ansible invocations, so they are
+provisioned without building.
+
 ```bash
-make epics-env             # provision both VMs and build EPICS-env from source
-make epics-env.provision   # provision the two VMs only
-make help.epics-env        # show this workflow
+make epics-env                    # provision both core VMs and build EPICS-env from source
+make epics-env.provision          # provision the two core VMs only
+make epics-env.provision.matrix   # provision the rocky10 / ubuntu26 matrix VMs only
+make help.epics-env               # show this workflow
 ```
 
 ### Status
 
 ```bash
-make status               # all VMs
+make status               # base OS types only
 make rocky8.status        # all rocky8 nodes
 make rocky8.server.status
 ```
@@ -84,7 +90,7 @@ make net                  # libvirt network list
 ### Stop
 
 ```bash
-make stop                 # graceful shutdown of all VMs
+make stop                 # graceful shutdown, base OS types only
 make rocky8.stop          # all rocky8 nodes
 make rocky8.server.stop
 ```
@@ -106,7 +112,7 @@ and the cleanest path is to rebuild the baseline before re-running.
 ```bash
 make rocky8.server.clean rocky8.server      # one VM
 make rocky8.clean rocky8                    # one OS group
-make clean all                              # all 6 VMs
+make clean all                              # every VM type, then the 6 base VMs
 ```
 
 `clean` removes the VM domain, layered qcow2 disk, and seed ISO. The
@@ -140,12 +146,27 @@ exists; `make clean` covers them. See [docs/ARCHITECTURE.md section
 
 Bake script options:
 
-| Flag | Description                              | Default                |
-|------|------------------------------------------|------------------------|
-| `-o` | OS type: `rocky8`, `debian13` (required) |                        |
-| `-d` | Image storage directory                  | `~/libvirt/images`     |
-| `-a` | ansible-provision directory              | `../ansible-provision` |
-| `-k` | Keep build VM after bake                 | destroy                |
+| Flag | Description                                                                            | Default                   |
+|------|----------------------------------------------------------------------------------------|---------------------------|
+| `-o` | OS type: `rocky8`, `debian13` (required)                                               |                           |
+| `-d` | Image storage directory                                                                | `~/libvirt/images`        |
+| `-a` | ansible-provision directory                                                            | `../ansible-provision`    |
+| `-k` | Keep build VM after bake                                                               | destroy                   |
+| `-r` | Pin the epics-ioc-runner ref baked into the image                                      | resolved by the inventory |
+| `-R` | Refresh the working copy from an archive entry and exit; no bake. `-` picks the newest |                           |
+
+### Refresh the working copy
+
+A bake publishes the golden pair into the archive and then refreshes the
+working copy that VMs back onto. `make refresh.<os>` points the working
+copy at the newest archive entry without baking, which is how a platform
+is returned to a previously published environment; provisioning never
+refreshes on its own.
+
+```bash
+make refresh.rocky8
+make refresh.debian13
+```
 
 ### Bake EtherCAT variant
 
@@ -189,6 +210,7 @@ Options:
 | `-d` | Image storage directory                  | `~/libvirt/images` |
 | `-p` | VM name prefix                           | `testbed`          |
 | `-m` | VM memory in MB                          | `4096`             |
+| `-F` | Refuse if domain or disk exists (provisioning only) |         |
 | `-s` | Check domain, IP, SSH, and cloud-init readiness |             |
 | `-S` | Graceful shutdown (ACPI, polls until shut off) |              |
 | `-c` | Remove VM domain, disk, and seed ISO     |                    |

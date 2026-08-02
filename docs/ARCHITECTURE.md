@@ -77,13 +77,32 @@ layer.
 ${IMAGE_DIR}/
 ├── Rocky-8-GenericCloud-Base.latest.x86_64.qcow2   (base, read-only, shared)
 ├── debian-13-genericcloud-amd64-daily.qcow2        (base, read-only, shared)
+├── iocrunner-<os>.qcow2                            (golden working copy, shared)
+├── iocrunner-<os>.qcow2.manifest                   (provenance sidecar)
+├── ethercat-<os>.qcow2                             (golden, shared)
+├── ethercat-<os>.qcow2.manifest                    (provenance sidecar)
 ├── ${VM_NAME}.qcow2                                (layered, per-VM)
-└── ${VM_NAME}-seed.iso                             (cloud-init, per-VM)
+├── ${VM_NAME}-seed.iso                             (cloud-init, per-VM)
+└── ${VM_NAME}.seed_staging/                        (transient, per-VM)
+
+${ARCHIVE_DIR}/                                     (sibling of ${IMAGE_DIR})
+├── iocrunner-<os>-<bake timestamp>.qcow2           (published golden)
+└── iocrunner-<os>-<bake timestamp>.qcow2.manifest  (provenance sidecar)
 ```
 
 Base images are downloaded once and shared across VMs as backing files.
 Each VM disk is a thin-provisioned qcow2 layer that stores only the delta
 from the base image.
+
+Golden images are flat, not layered, and back the pre-baked variants. The
+IOC runner bake publishes its image and manifest pair into `${ARCHIVE_DIR}`
+and copies the chosen entry to the working copy in `${IMAGE_DIR}` (section
+16); the EtherCAT bake writes its pair directly into `${IMAGE_DIR}`. Both
+bakes flatten into a `.tmp` file in `${IMAGE_DIR}` and rename only after the
+conversion succeeds, but the destination differs: the IOC runner rename
+lands in `${ARCHIVE_DIR}`, and only after the converted file is confirmed
+non-empty, while the EtherCAT rename lands on the final name in
+`${IMAGE_DIR}` with no such check.
 
 ---
 
@@ -111,7 +130,7 @@ templates/user-data.${OS_VARIANT}
      | perl: SSH_AUTHORIZED_KEY_PLACEHOLDER → ~/.ssh/id_ed25519.pub
      |
      V
-.seed_staging/user-data  +  .seed_staging/meta-data
+${IMAGE_DIR}/${VM_NAME}.seed_staging/{user-data, meta-data}
      |
      | genisoimage (cidata volume)
      |
@@ -126,6 +145,11 @@ ${VM_NAME}-seed.iso  →  attached as CDROM (bus=sata)
 - OS-specific packages installed
 - timezone configured
 ```
+
+The staging directory is created beside the per-VM disk in `${IMAGE_DIR}`,
+not inside the repository. It is removed once the seed ISO is written, and
+deliberately left in place when `genisoimage` fails, because it holds the
+exact inputs that produced the failure.
 
 `OS_VARIANT` collapses pre-baked variants onto their base OS template,
 so `rocky8-iocrunner` reuses `templates/user-data.rocky8` and
@@ -201,7 +225,7 @@ from the OS type and node identifier.
 | Rocky 8.10           | 192.168.122.100 — .149      |
 | EPICS-env Rocky 10   | 192.168.122.130 — .132      |
 | Rocky 8.10 iocrunner | 192.168.122.150 — .199      |
-| Other                | 192.168.122.200 — .254      |
+| Other node IDs       | 192.168.122.160 — .254      |
 
 The EPICS-env from-source build hosts reserve dedicated slots:
 `epics-env-debian13` at .20-.22, `epics-env-ubuntu26` at .30-.32,
@@ -213,8 +237,13 @@ The `*_IP_BASE` constants live in `bin/create_vm.bash` and partition the
 subnet so variant builds never collide with their base OS counterparts.
 
 Custom NODE_IDs (not `server`, `nodeN`, or `test`) are mapped to the
-200-254 range via a deterministic hash. `NODE_ID=test` bypasses static
-assignment and uses DHCP.
+160-254 range via a deterministic hash. The hash is taken over the OS type
+and the node identifier together, not over the node identifier alone, so
+the same custom node name on two OS types yields two different addresses
+and two different MACs. The range holds 95 slots, so distinct pairs can
+still collide; the address is checked against the network's existing
+reservations before registration and a collision is reported with the
+holding VM. `NODE_ID=test` bypasses static assignment and uses DHCP.
 
 **Offset Mapping:**
 
@@ -243,7 +272,11 @@ Host
 ```
 
 MAC addresses are generated deterministically from a fixed prefix
-(`52:54:00:00`) combined with the OS base and node offset.
+(`52:54:00:00`) combined with the OS base and node offset. A hashed
+NODE_ID uses the same prefix with the range base 160 and the hash value in
+place of those two bytes. In both cases the MAC carries the two numbers as
+separate bytes while the address carries their sum, so the MAC is derived
+from the same inputs as the address rather than containing it.
 
 ---
 
@@ -271,7 +304,7 @@ Pre-baked IOC runner variants (require section 12 bake first):
 
 | Resource | Value           |
 |----------|-----------------|
-| RAM      | 2048 MB         |
+| RAM      | 4096 MB (`-m`)  |
 | vCPUs    | 2               |
 | Disk     | 20 GB (qcow2)   |
 | Graphics | none (headless)  |
@@ -317,11 +350,12 @@ ready-to-use environment.
 ```
 [ bin/bake_iocrunner_image.bash -o <os> ]
      |
-     | 1. reject any existing build domain or source disk
+     | 1. create_vm.bash -F -o <os> -n server, rejecting any existing
+     |    build domain or source disk
      |
-     | 2. create_vm.bash -F -o <os> -n server
+     | 2. refresh known_hosts and resolve the build VM address
      |
-     | 3. resolve the source disk backing image and write the manifest header
+     | 3. resolve the source disk backing image and stamp the manifest header
      |
      | 4. ansible-playbook site.yml
      |
@@ -331,9 +365,11 @@ ready-to-use environment.
      |
      | 7. append pip provenance and strip proxy configuration
      |
-     | 8. validate /etc/iocrunner-bake.manifest inside the VM
+     | 8. validate /etc/iocrunner-bake.manifest inside the VM, then extract
+     |    it as the sidecar
      |
-     | 9. shutdown, flatten, and rename image and sidecar from .tmp siblings
+     | 9. shutdown, flatten, publish the pair to ${ARCHIVE_DIR}, refresh the
+     |    working copy, and report archive retention
      |
      | 10. clean build VM  (or keep with -k)
      |
@@ -343,12 +379,13 @@ ${IMAGE_DIR}/iocrunner-<os>.qcow2  →  base image of <os>-iocrunner variant
 
 | Step | Tool | Purpose |
 |------|------|---------|
-| 1-2 | `create_vm.bash -F` | Require a fresh build domain and source disk, then boot the build VM |
+| 1 | `create_vm.bash -F` | Require a fresh build domain and source disk, then boot the build VM |
+| 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan` | Resolve the build VM address and refresh its `known_hosts` entry |
 | 3 | `qemu-img`, `jq`, `sha256sum` | Record the observed backing-image filename and digest |
 | 4-6 | `ansible-playbook` | Apply the software stack, NFS simulator, and test users |
 | 7 | remote privileged Bash | Append `pip3 freeze` and remove site proxy configuration |
 | 8 | `validate_iocrunner_bake.bash` | Validate the manifest before any sidecar extraction or image publication |
-| 9 | `virsh`, `qemu-img`, `mv` | Quiesce, flatten, and publish only after validation and conversion succeed |
+| 9 | `virsh`, `qemu-img`, `mv`, `cp` | Quiesce, flatten, publish to the archive, then refresh the working copy |
 | 10 | `create_vm.bash -c` | Tear down the build VM unless `-k` keeps it for explicit follow-up checks |
 
 **Inputs.**
