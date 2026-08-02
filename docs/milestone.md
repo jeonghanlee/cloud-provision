@@ -57,7 +57,7 @@ Operator action: run the Rocky 8 downstream validation recorded by G1. G3 was ac
 Backlog forwarding: M4.1 · M4.2 · M4.3 · M4.4 split from M3.1 out-of-scope policy work; M4.5 split from M3.1 test-boundary review.
 Review session archive: host `Neutron`, `/data/gitsrc/cloud-provision/work/review_sessions/20260723_233903_m3_2_vm_naming_defaults`.
 
-Next session entry point: plan M8.1 — the first buildable step of `docs/IMAGE_WORKFLOW.md`.
+Next session entry point: plan M8.1 — the first buildable step of `docs/IMAGE_WORKFLOW.md`. Create a branch before any implementation, per D12.
 ```
 
 Tally: 35 tasks - ✅ 29 · 🔄 0 · ⬜ 4 · 🔒 2 / ready(▶) 2 · external gates 3 (G1 · G2 open, G3 complete)
@@ -141,6 +141,7 @@ The `Group` cell is written once per group; continuation rows are blank.
 | D9 | Golden images split into an archive of versioned entries that no VM backs onto and one working copy per platform that consumers use. The archive gets its own directory for discipline rather than correctness; entries are named from the manifest's own `bake_date`; the current and previous entry are retained; upstream base images are excluded because they are re-fetchable. Recorded in `docs/ARCHITECTURE.md` section 16. | User direction, 2026-07-31 |
 | D10 | Every source coordinate a document cites carries the commit it was read from: `` `<path>:<line>[-<line>]@<hash>` ``. A bare `file:line` is refused, because it silently stops being true the next time a line is inserted above it, and a bare `:<line>` with no file is refused because only the prose around it says which file is meant. The hash is the tree the writer actually read — the commit that introduced the sentence for a historical statement, `HEAD` for a statement about the code now, which becomes a historical statement on its own the moment the code moves. Enforced by `make check-docs`. | User direction, 2026-08-01 |
 | D11 | Image structure is settled by `docs/IMAGE_WORKFLOW.md`: a copy at every step so nothing upstream is held, identity carried by a file name and a creation record that must agree, the naming rule defined in one place, and build VMs fresh by construction. It supersedes the archive layout, the fresh-input enforcement, and the resolver plan rather than extending them; M8.1 is where it is built. | User direction, 2026-08-01 |
+| D12 | New development moves to branches: `master` takes no direct implementation work from here on, and the annotated tag `pre-image-workflow` marks the last state built that way. | User direction, 2026-08-01 |
 
 ## Conventions
 
