@@ -326,31 +326,18 @@ EOF
 set -e
 case "$1" in
     info)
-        disk="${@: -1}"
-        if [[ "$*" != *"--output=json"* ]]; then
-            printf "%s\n" "file format: qcow2"
-            exit 0
-        fi
-        if [[ "${disk}" == *"/testbed-rocky8-server.qcow2" ]]; then
-            printf '{"format":"qcow2","full-backing-filename":"%s"}\n' "${BASE_IMAGE_PATH}"
-        elif [[ "${disk}" == *"/consumer-in-use.qcow2" ]]; then
-            # Reproduces a consumer layered on the golden this bake would
-            # replace, which is what protect_output_consumers refuses.
-            printf '{"format":"qcow2","full-backing-filename":"%s"}\n' "${OUTPUT_IMAGE_PATH}"
-        else
-            printf "%s\n" '{"format":"qcow2"}'
-        fi
+        printf "%s\n" "file format: qcow2"
         ;;
     create)
         output="${@: -2:1}"
-        printf "%s\n" "layered disk" > "${output}"
+        printf "%s\n" "independent disk" > "${output}"
         ;;
     convert)
-        printf "%s\n" "convert" >> "${CALL_LOG}"
-        if [[ "${PROMOTION_MODE}" == "conversion-fail" ]]; then
+        output="${@: -1}"
+        printf "convert %s\n" "${output}" >> "${CALL_LOG}"
+        if [[ "${PROMOTION_MODE}" == "conversion-fail" && "${output}" == *"iocrunner-rocky8-"* ]]; then
             exit 1
         fi
-        output="${@: -1}"
         printf "%s\n" "converted image" > "${output}"
         ;;
     *)
@@ -490,29 +477,11 @@ EOF
     chmod +x "${fakebin}"/*
 }
 
-# What this suite cannot reach, so the next reader does not spend the day
-# finding out again.
-#
-# No case here fails AFTER Step 9's working-copy refresh, and none can be
-# written. The only step past that point is Step 10, whose do_cleanup swallows
-# every virsh failure by design (bin/create_vm.bash:349 and :353), so a fake
-# that refuses the teardown commands still lets the bake exit 0. A late-failure
-# mode was written on 2026-08-01 to try, and was withdrawn when the bake
-# completed anyway. The one other candidate, report_archive_retention, has no
-# lever either.
-#
-# The consequence: reintroducing `trap - EXIT` at the end of refresh_working_copy
-# — the M6.4 defect, which uninstalled the script's own handler mid-run — is not
-# caught by anything below. What IS caught is the handler being absent at exit:
-# remove the rc check in report_build_vm_on_failure and the three successful
-# publish cases fail, because the guidance then fires on success. That mutation
-# is the standing proof, and it only started working once the handler survived.
-#
-# Two attempts were already spent on this region. The first put the "no build
-# VM" assertion on the -r guard refusals, which die before the trap is installed
-# at all and stay silent however the trap is written; run_in_use_case replaced
-# it. Check where a failure lands relative to bake_iocrunner_image.bash:474
-# before trusting any assertion about that handler.
+# The promotion cases exercise the public bake through image publication. The
+# final VM teardown is intentionally not treated as a failure boundary because
+# create_vm.bash makes cleanup idempotent and reports teardown failures without
+# changing the bake result. The success cases still verify that the bake's
+# failure guidance is silent after a successful publication.
 function run_promotion_case {
     local mode="$1"
     local case_dir="${WORKSPACE}/promotion-${mode}"
@@ -523,33 +492,20 @@ function run_promotion_case {
     local runner_checkout="${case_dir}/runner"
     local runner_bin="${case_dir}/ioc-runner"
     local remote_manifest="${case_dir}/remote.manifest"
-    local archive_dir="${case_dir}/archive"
-    local output_image="${image_dir}/iocrunner-rocky8.qcow2"
-    local sidecar="${output_image}.manifest"
-    local before_image before_sidecar after_image after_sidecar
+    local output_image=""
+    local sidecar=""
+    local record=""
+    local image_name=""
+    local image_id=""
+    local image_stem=""
     local epics_commit runner_commit fixture_commit
     local rc=0
+    local -a images=()
 
     mkdir -p "${fakebin}" "${image_dir}" "${home_dir}/.ssh"
     printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" > "${home_dir}/.ssh/id_ed25519.pub"
     : > "${home_dir}/.ssh/known_hosts"
     printf "%s\n" "base image" > "${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
-    printf "%s\n" "prior image" > "${output_image}"
-    printf "%s\n" "prior sidecar" > "${sidecar}"
-    before_image="$(sha256sum "${output_image}")"
-    before_image="${before_image%% *}"
-    before_sidecar="$(sha256sum "${sidecar}")"
-    before_sidecar="${before_sidecar%% *}"
-
-    # Reproduce a previous golden the invoking user cannot write. libvirt claims
-    # the disk backing chain when a consumer starts and does not restore it when
-    # that consumer is undefined rather than stopped gracefully, so this is the
-    # routine state on a rebake. Only the destination mode matters; ownership
-    # cannot be changed here without privilege and is not what mv requires.
-    if [[ "${mode}" == publish-unwritable || "${mode}" == publish-pinned ]]; then
-        chmod 0444 "${output_image}"
-    fi
-
     init_checkout "${epics_checkout}" "https://github.com/jeonghanlee/EPICS-env-distribution"
     init_checkout "${runner_checkout}" "https://github.com/jeonghanlee/epics-ioc-runner"
     epics_commit="$(git -C "${epics_checkout}" rev-parse HEAD)"
@@ -561,7 +517,6 @@ function run_promotion_case {
     local -a bake_env=(
         "ANSIBLE_ARG_LOG=${case_dir}/ansible-args.log"
         "SSH_ARG_LOG=${case_dir}/ssh-args.log"
-        "ARCHIVE_DIR=${archive_dir}"
         "CASE_DIR=${case_dir}"
         "DOMAIN_STATE_FILE=${case_dir}/domain.state"
         "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
@@ -586,50 +541,52 @@ function run_promotion_case {
     if [[ -n "${CASE_RUNNER_REF:-}" ]]; then
         bake_command+=(-r "${CASE_RUNNER_REF}")
     fi
-    local bake_line
-
-    if [[ "${mode}" == publish-unwritable || "${mode}" == publish-pinned ]]; then
-        # Run the bake under a pseudo-terminal. Without one, mv overwrites an
-        # unwritable destination silently, so this case would pass even with -f
-        # removed from the publish step and would pin nothing. With a terminal a
-        # publish step lacking -f stops to ask and never returns, which the
-        # timeout converts into a failed case instead of a hung suite.
-        #
-        # The pty costs something: when the child exits, trailing writes to the
-        # session can be lost, so a message emitted from the EXIT trap does not
-        # reliably reach output.txt. publish-clean exists to assert on that
-        # message from a successful run without a terminal in the way.
-        printf -v bake_line '%q ' "${bake_command[@]}"
-        timeout 120 env "${bake_env[@]}" \
-            script -qec "${bake_line}" /dev/null \
-            > "${case_dir}/output.txt" 2>&1 || rc=$?
-    else
-        env "${bake_env[@]}" "${bake_command[@]}" \
-            > "${case_dir}/output.txt" 2>&1 || rc=$?
-    fi
-
-    after_image="$(sha256sum "${output_image}")"
-    after_image="${after_image%% *}"
-    after_sidecar="$(sha256sum "${sidecar}")"
-    after_sidecar="${after_sidecar%% *}"
+    env "${bake_env[@]}" "${bake_command[@]}" \
+        > "${case_dir}/output.txt" 2>&1 || rc=$?
 
     assert_ssh_multiplexing_off "${mode}" "${case_dir}/ssh-args.log"
 
-    if [[ "${mode}" == publish-* ]]; then
-        # The publish step must complete without a terminal to answer a prompt.
+    if [[ "${mode}" == "publish-clean" || "${mode}" == "publish-repeat" || \
+        "${mode}" == "publish-pinned" ]]; then
         if [[ "${rc}" == "0" ]]; then
             record_pass "${mode} public bake completes"
         else
             record_fail "${mode} public bake completes" "bake exited ${rc}"
         fi
 
-        if [[ "${before_image}" != "${after_image}" && "${before_sidecar}" != "${after_sidecar}" ]]; then
-            record_pass "${mode} replaces the published pair"
+        shopt -s nullglob
+        images=("${image_dir}"/iocrunner-rocky8-*.qcow2)
+        shopt -u nullglob
+        if (( ${#images[@]} == 1 )); then
+            output_image="${images[0]}"
+            sidecar="${output_image}.manifest"
+            record="${output_image}.creation-record"
+            image_name="$(grep '^image_name=' "${record}" | cut -d= -f2- || true)"
+            image_id="$(grep '^image_id=' "${record}" | cut -d= -f2- || true)"
+            image_stem="${output_image##*/}"
+            image_stem="${image_stem#iocrunner-rocky8-}"
+            image_stem="${image_stem%.qcow2}"
+            if [[ "${output_image##*/}" =~ ^iocrunner-rocky8-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}\.qcow2$ \
+                && "${image_name}" == "${output_image##*/}" \
+                && "${image_id}" == "${image_stem}" ]]; then
+                record_pass "${mode} names and records the published image"
+            else
+                record_fail "${mode} names and records the published image" \
+                    "unexpected name or creation record"
+            fi
         else
-            record_fail "${mode} replaces the published pair" "image or sidecar was not replaced"
+            record_fail "${mode} names and records the published image" \
+                "found ${#images[@]} generated images"
         fi
 
-        if [[ ! -e "${output_image}.tmp" && ! -e "${sidecar}.tmp" ]]; then
+        if (( ${#images[@]} == 1 )) && [[ -f "${sidecar}" && -f "${record}" ]]; then
+            record_pass "${mode} publishes the complete image pair"
+        else
+            record_fail "${mode} publishes the complete image pair" "sidecar or record missing"
+        fi
+
+        if ! find "${image_dir}" -maxdepth 1 -type f \
+            \( -name '*.tmp' -o -name '*.manifest.tmp' \) -print -quit | grep -q .; then
             record_pass "${mode} removes only current temporary outputs"
         else
             record_fail "${mode} removes only current temporary outputs" "temporary output remained"
@@ -645,30 +602,6 @@ function run_promotion_case {
                 "cleanup guidance printed after a successful bake"
         fi
 
-        # The publish target is the archive, not the image directory. Without
-        # this the refresh that follows would hide where the bake actually
-        # wrote, and the split could be reverted with every case still green.
-        local -a archived=()
-        shopt -s nullglob
-        archived=("${archive_dir}"/iocrunner-rocky8-*.qcow2)
-        shopt -u nullglob
-        if (( ${#archived[@]} == 1 )); then
-            record_pass "${mode} publishes one archive entry"
-        else
-            record_fail "${mode} publishes one archive entry" \
-                "found ${#archived[@]} entries in ${archive_dir}"
-        fi
-        if (( ${#archived[@]} == 1 )) && [[ -f "${archived[0]}.manifest" ]]; then
-            record_pass "${mode} archives the sidecar beside it"
-        else
-            record_fail "${mode} archives the sidecar beside it" "sidecar missing"
-        fi
-        if (( ${#archived[@]} == 1 )) && [[ "${archived[0]##*/}" =~ ^iocrunner-rocky8-[0-9]{8}T[0-9]{6}Z\.qcow2$ ]]; then
-            record_pass "${mode} names the entry from the bake timestamp"
-        else
-            record_fail "${mode} names the entry from the bake timestamp" \
-                "unexpected name: ${archived[0]##*/}"
-        fi
         # Where the version selector went, issue #26. Asserting only that the
         # bake succeeded would pass whether the selector reached site.yml, all
         # three plays, or none of them.
@@ -695,12 +628,12 @@ function run_promotion_case {
         fi
         expect_equal "${mode} site.yml ran once" "1" "${site_lines}"
 
-        # The working copy must be a real file. A symlink would satisfy every
-        # existence check above and hand the archive entry to libvirt.
+        # The published image must be a real file. A symlink would satisfy the
+        # existence check and make the image pair point outside the output.
         if [[ -f "${output_image}" && ! -L "${output_image}" ]]; then
-            record_pass "${mode} working copy is a real file"
+            record_pass "${mode} published image is a real file"
         else
-            record_fail "${mode} working copy is a real file" "not a regular file"
+            record_fail "${mode} published image is a real file" "not a regular file"
         fi
         return 0
     fi
@@ -711,27 +644,23 @@ function run_promotion_case {
         record_fail "${mode} public bake fails safely" "bake unexpectedly succeeded"
     fi
 
-    if [[ "${before_image}" == "${after_image}" && "${before_sidecar}" == "${after_sidecar}" ]]; then
-        record_pass "${mode} preserves the published pair"
-    else
-        record_fail "${mode} preserves the published pair" "published image or sidecar changed"
-    fi
-
     if [[ "${mode}" == "validator-reject" ]]; then
-        if [[ ! -e "${case_dir}/calls.log" ]] || ! grep -q '^convert$' "${case_dir}/calls.log"; then
+        if [[ ! -e "${case_dir}/calls.log" ]] || \
+           ! grep -q 'iocrunner-rocky8-' "${case_dir}/calls.log"; then
             record_pass "validator rejection prevents conversion"
         else
-            record_fail "validator rejection prevents conversion" "conversion was called"
+            record_fail "validator rejection prevents conversion" "final image conversion was called"
         fi
     else
-        if grep -q '^convert$' "${case_dir}/calls.log"; then
+        if grep -q 'iocrunner-rocky8-' "${case_dir}/calls.log"; then
             record_pass "conversion failure reaches the real conversion boundary"
         else
             record_fail "conversion failure reaches the real conversion boundary" "conversion was not called"
         fi
     fi
 
-    if [[ ! -e "${output_image}.tmp" && ! -e "${sidecar}.tmp" ]]; then
+    if ! find "${image_dir}" -maxdepth 1 -type f \( -name '*.tmp' -o -name '*.manifest.tmp' \) \
+        -print -quit | grep -q .; then
         record_pass "${mode} removes only current temporary outputs"
     else
         record_fail "${mode} removes only current temporary outputs" "temporary output remained"
@@ -746,7 +675,8 @@ function run_promotion_case {
     else
         record_fail "${mode} names the build VM left behind" "no cleanup guidance printed"
     fi
-    if grep -q 'create_vm.bash -o rocky8 -n server .* -p testbed -c' "${case_dir}/output.txt"; then
+    if grep -q 'IMAGE_WORKFLOW_RUN_ID=.*create_vm.bash -o rocky8 -n build .* -p testbed -c' \
+        "${case_dir}/output.txt"; then
         record_pass "${mode} prints a runnable clean-restart command"
     else
         record_fail "${mode} prints a runnable clean-restart command" \
@@ -761,119 +691,6 @@ function print_summary {
         printf "  %s\n" "${FAILED_DETAILS[@]}" >&2
         return 1
     fi
-}
-
-# The -r guard runs before anything is touched, so these need no fixtures.
-# A forgotten value makes getopts take the next flag as the ref (-r -k), and
-# a dash-led token would otherwise pass the character class. Each case asserts
-# the NAMED reason, not merely a non-zero exit: with the guard removed, every
-# one of these still fails later on the nonexistent image directory, and a
-# bare expect_failure would stay green over the missing guard.
-# The one place a bake fails with the EXIT trap installed and no build VM yet:
-# protect_output_consumers runs three lines after the trap and forty before
-# Step 1. Without this case the "no build VM" assertions on the ref guards are
-# hollow, because those refusals happen before the trap exists at all and stay
-# silent however the trap is written. Observed for real on 2026-08-01, when a
-# golden published before the archive split was still backed onto by its
-# consumer and refused the bake that would have created the split.
-function run_in_use_case {
-    local case_dir="${WORKSPACE}/in-use-refusal"
-    local fakebin="${case_dir}/bin"
-    local image_dir="${case_dir}/images"
-    local home_dir="${case_dir}/home"
-    local output_image="${image_dir}/iocrunner-rocky8.qcow2"
-    local output rc=0
-
-    mkdir -p "${fakebin}" "${image_dir}" "${home_dir}/.ssh"
-    printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" > "${home_dir}/.ssh/id_ed25519.pub"
-    : > "${home_dir}/.ssh/known_hosts"
-    printf "%s\n" "base image" > "${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
-    printf "%s\n" "prior image" > "${output_image}"
-    printf "%s\n" "consumer overlay" > "${image_dir}/consumer-in-use.qcow2"
-    write_fake_host_commands "${fakebin}"
-
-    output="$(env \
-        "ARCHIVE_DIR=${case_dir}/archive" \
-        "DOMAIN_STATE_FILE=${case_dir}/domain.state" \
-        "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2" \
-        "OUTPUT_IMAGE_PATH=${output_image}" \
-        "CALL_LOG=${case_dir}/calls.log" \
-        "PATH=${fakebin}:${PATH}" \
-        "HOME=${home_dir}" \
-        "REQUIRED_GROUP=$(id -gn)" \
-        "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" 2>&1)" || rc=$?
-
-    if [[ "${rc}" != "0" && "${output}" == *"is in use by qcow2 disk"* ]]; then
-        record_pass "in-use refusal names the disk holding the output"
-    else
-        record_fail "in-use refusal names the disk holding the output" \
-            "rc=${rc}, output: ${output%%$'\n'*}"
-    fi
-
-    # The refusal happens with the trap installed, so silence here is a
-    # decision the trap made by asking libvirt, not an accident of ordering.
-    if [[ "${output}" != *"was left for inspection"* ]]; then
-        record_pass "in-use refusal names no build VM"
-    else
-        record_fail "in-use refusal names no build VM" \
-            "named a build VM before Step 1 created one"
-    fi
-
-    if [[ ! -e "${case_dir}/domain.state" ]]; then
-        record_pass "in-use refusal creates no build VM"
-    else
-        record_fail "in-use refusal creates no build VM" "a domain was created"
-    fi
-
-    # Refresh-only with a domain of the build VM's name already present. -R
-    # never boots anything, so that domain is somebody else's - an earlier -k
-    # bake, or one that failed and left it standing. Observed on the real host
-    # 2026-08-01 before the guard existed: the run named a VM created by hand
-    # minutes earlier and offered the command to delete it.
-    printf "%s\n" "running" > "${case_dir}/domain.state"
-    output="$(env \
-        "ARCHIVE_DIR=${case_dir}/archive" \
-        "DOMAIN_STATE_FILE=${case_dir}/domain.state" \
-        "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2" \
-        "OUTPUT_IMAGE_PATH=${output_image}" \
-        "CALL_LOG=${case_dir}/calls.log" \
-        "PATH=${fakebin}:${PATH}" \
-        "HOME=${home_dir}" \
-        "REQUIRED_GROUP=$(id -gn)" \
-        "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" \
-        -R /nonexistent-entry.qcow2 2>&1)" || true
-
-    if [[ "${output}" != *"was left for inspection"* ]]; then
-        record_pass "refresh-only claims no build VM as its own"
-    else
-        record_fail "refresh-only claims no build VM as its own" \
-            "named a domain this run never created"
-    fi
-
-    # The same question from the third side. A plain bake refused at the in-use
-    # guard has not reached Step 1 either, so it created no VM; but the domain
-    # planted above still stands, from an earlier -k bake or a failure that left
-    # it. The first invocation of this case cannot see it - it runs with no
-    # domain at all, so its silence comes from the domain being absent rather
-    # than from any guard.
-    output="$(env \
-        "ARCHIVE_DIR=${case_dir}/archive" \
-        "DOMAIN_STATE_FILE=${case_dir}/domain.state" \
-        "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2" \
-        "OUTPUT_IMAGE_PATH=${output_image}" \
-        "CALL_LOG=${case_dir}/calls.log" \
-        "PATH=${fakebin}:${PATH}" \
-        "HOME=${home_dir}" \
-        "REQUIRED_GROUP=$(id -gn)" \
-        "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" 2>&1)" || true
-
-    if [[ "${output}" != *"was left for inspection"* ]]; then
-        record_pass "a refused bake claims no build VM it never created"
-    else
-        record_fail "a refused bake claims no build VM it never created" \
-            "named a domain this run never created"
-    fi
-    rm -f "${case_dir}/domain.state"
 }
 
 function run_ref_guard_case {
@@ -907,8 +724,6 @@ function run_ref_guard_tests {
         -o rocky8 -r -k -d /nonexistent
     run_ref_guard_case "bake rejects a ref with a space" "invalid ioc-runner ref" \
         -o rocky8 -r "one two" -d /nonexistent
-    run_ref_guard_case "bake rejects a selector alongside refresh" "cannot be combined with -R" \
-        -o rocky8 -R - -r 1.2.3 -d /nonexistent
 }
 
 WORKSPACE="$(mktemp -d /tmp/iocrunner-bake-provenance-test.XXXXXX)"
@@ -919,21 +734,19 @@ case "${1:-all}" in
         ;;
     promotion)
         run_ref_guard_tests
-        run_in_use_case
         run_promotion_case validator-reject
         run_promotion_case conversion-fail
         run_promotion_case publish-clean
-        run_promotion_case publish-unwritable
+        run_promotion_case publish-repeat
         CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
         ;;
     all)
         run_validator_tests
         run_ref_guard_tests
-        run_in_use_case
         run_promotion_case validator-reject
         run_promotion_case conversion-fail
         run_promotion_case publish-clean
-        run_promotion_case publish-unwritable
+        run_promotion_case publish-repeat
         CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
         ;;
     *)

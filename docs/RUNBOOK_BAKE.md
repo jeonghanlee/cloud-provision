@@ -42,36 +42,26 @@ Use the selector by the image you need to produce, not by the VM you will boot l
 
 | Need | Command | Output image | Later runtime selector |
 |---|---|---|---|
-| Rocky 8 ioc-runner golden | `make bake.rocky8` | `iocrunner-rocky8.qcow2` | `rocky8-iocrunner` |
-| Debian 13 ioc-runner golden | `make bake.debian13` | `iocrunner-debian13.qcow2` | `debian13-iocrunner` |
+| Rocky 8 ioc-runner golden | `make bake.rocky8` | `iocrunner-rocky8-<run-id>.qcow2` | `rocky8-iocrunner` |
+| Debian 13 ioc-runner golden | `make bake.debian13` | `iocrunner-debian13-<run-id>.qcow2` | `debian13-iocrunner` |
 | Both ioc-runner goldens | `make bake` | both ioc-runner images | both `*-iocrunner` selectors |
-| Debian 13 EtherCAT golden | `make bake.ethercat.debian13` | `ethercat-debian13.qcow2` | `debian13-ethercat` |
+| Debian 13 EtherCAT golden | `make bake.ethercat.debian13` | `ethercat-debian13-<run-id>.qcow2` | `debian13-ethercat` |
 
 To accept a production ioc-runner golden image, run the Rocky 8 and Debian 13 ioc-runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers and compare the manifests against the running systems.
 
 ## Where a bake writes
 
-`make bake.<os>` publishes the golden pair into the archive and then refreshes
-the working copy consumers back onto, so it ends where it always did.
+`make bake.<os>` creates a new independent golden pair in the image directory.
+The run ID is a UTC timestamp followed by a 12-character hash.
 
 ```bash
-ls -l ~/libvirt/archive/iocrunner-rocky8-*.qcow2
-ls -l ~/libvirt/images/iocrunner-rocky8.qcow2
+latest_iocrunner="$(ls -1t ~/libvirt/images/iocrunner-rocky8-*.qcow2 | head -n 1)"
+ls -l "${latest_iocrunner}" "${latest_iocrunner}.creation-record" "${latest_iocrunner}.manifest"
 ```
 
-The bake prints which archive entries it keeps and which are surplus. It removes
-nothing; check what a downstream pin still claims before deleting an entry.
-
-To put a platform back on an earlier golden without baking:
-
-```bash
-make refresh.rocky8
-bin/bake_iocrunner_image.bash -o rocky8 -R iocrunner-rocky8-20260729T060708Z.qcow2
-```
-
-The first form takes the newest entry, the second a named one. Provisioning
-never refreshes on its own, so a consumer always gets the environment the last
-refresh selected.
+Provisioning selects the newest valid image and creation-record pair. A missing
+or mismatched record is ignored, so an incomplete output cannot become a VM
+input.
 
 ## Pinning the ioc-runner version
 
@@ -136,8 +126,9 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo /bin/ba
 Compare the remote manifest hash against the sidecar hash on the control host:
 
 ```bash
-sha256sum /home/jeonglee/libvirt/images/iocrunner-rocky8.qcow2.manifest
-sha256sum /home/jeonglee/libvirt/images/iocrunner-debian13.qcow2.manifest
+latest_iocrunner="$(ls -1t /home/jeonglee/libvirt/images/iocrunner-rocky8-*.qcow2 | head -n 1)"
+latest_debian_iocrunner="$(ls -1t /home/jeonglee/libvirt/images/iocrunner-debian13-*.qcow2 | head -n 1)"
+sha256sum "${latest_iocrunner}.manifest" "${latest_debian_iocrunner}.manifest"
 ```
 
 ## Baking behind a site proxy
@@ -152,8 +143,8 @@ Symptoms without this procedure, in the order you will meet them:
 `dnf`/`apt` metadata stalls at 0 B/s (Step 4), then `pip` retries with
 `NewConnectionError`, then in-VM `wget`/`git` of build sources times
 out. Note the fix is per BUILD VM and per bake: the de-proxy step
-(Step 7/10 ioc-runner, 5/7 ethercat) strips every layer again before
-flatten, so goldens never carry the values.
+(Step 7/9 ioc-runner, 5/7 ethercat) strips every layer again before
+the independent copy, so goldens never carry the values.
 
 Inject all layers into the booted build VM (as vmadmin):
 
@@ -245,25 +236,14 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var
 
 `set -e` aborts the script; know what state remains:
 
-- The build VM SURVIVES, running and half-provisioned. Re-running the
-  same `make bake.<os>` now fails early because ioc-runner bakes require
-  fresh build inputs. Inspect the VM, then run the clean-restart command
-  when a clean retry is intended.
-- A bake that fails after the build VM exists prints that command itself,
-  naming the VM it left. A refresh-only run never prints it: it boots
-  nothing, so a build VM of that name belongs to an earlier run. The
-  command is written out below in either case.
-- An archived golden is NEVER at risk: every bake writes a new entry named
-  from its own timestamp and refuses a name that already exists, so no
-  failure can overwrite an earlier pair.
-- The working copy consumers back onto is NEVER at risk either: it is
-  replaced only by the refresh at the end of Step 9, which runs after
-  validation, sidecar extraction, conversion, and the archive publish have
-  all succeeded. A failure at any earlier step leaves consumers on the
-  golden they already had. Empty or failed `.tmp` and `.refresh.tmp` files
-  are removed by the script trap, and each refresh temporary is released as
-  its own move completes, so a half-done refresh never removes the file it
-  has just put in place.
+- The build VM survives, running and half-provisioned. Its name includes the
+  current run ID, so a later bake creates a different build VM. Inspect the
+  failed VM, then run the printed cleanup command when a clean retry is intended.
+- A bake that fails after the build VM exists prints a cleanup command containing
+  the same run ID. The unique image name is never reused, and a failed `.tmp`
+  output is removed by the script trap.
+- An earlier image pair is never overwritten. Each bake creates a new image,
+  manifest sidecar, and creation record only after validation succeeds.
 - `-k` keeps the build VM after a successful bake for debugging.
 - To restart truly clean:
   `bin/create_vm.bash -o <os> -n server -d <IMAGE_DIR> -p testbed -c`
@@ -282,53 +262,35 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var
   provisioning or cleanup (default `libvirt`).
 - `IMAGE_DIR`, `ANSIBLE_PROVISION_DIR` — as before.
 
-## ioc-runner bake contract
+## Image pair contract
 
-ioc-runner bakes are fresh-input only. The build domain
-`testbed-<os>-server` and its source disk must not exist before the bake.
-If either exists, `bin/bake_iocrunner_image.bash` stops through
-`create_vm.bash -F` and prints the cleanup command instead of removing
-anything automatically.
+Both bake entry points use `bin/image_workflow.bash`. The shared path creates
+an independent qcow2 copy, writes a `.creation-record`, rejects a non-empty
+backing file, and validates the image and record together. The bake also writes
+its provenance manifest beside the image.
 
-The bake scans defined libvirt domains and qcow2 files in the selected
-`IMAGE_DIR` for a disk that resolves through the working copy as its backing
-file. The scan runs at two points, for two different reasons. It runs once at
-the start, before the build VM is booted, so a run that could never finish is
-refused before it spends the build; it runs again immediately before the
-working copy is replaced, which is the moment a consumer still depending on
-the old image would lose the file underneath it. A `-R` refresh-only run
-reaches both, in that order: the startup scan comes before the refresh block,
-and the refresh scan comes immediately before the copy is put in place. Either
-refusal stops the run. An archive entry is never the subject of the scan,
-because nothing ever backs onto one.
+The image name is `<kind>-<platform>-<run-id>.qcow2`, where `<run-id>` is a UTC
+timestamp followed by a 12-character hash. The provisioner selects the newest
+valid pair for `rocky8-iocrunner`, `debian13-iocrunner`, and
+`debian13-ethercat`; it does not select by a static filename.
 
-The ioc-runner bake publishes the validated pair into the archive beside the
-image directory, under a name taken from the bake timestamp:
+To inspect a pair after a bake:
 
-- `${IMAGE_DIR}/../archive/iocrunner-rocky8-<timestamp>.qcow2` with its `.manifest` sidecar
-- `${IMAGE_DIR}/../archive/iocrunner-debian13-<timestamp>.qcow2` with its `.manifest` sidecar
-
-The working copy consumers back onto is `${IMAGE_DIR}/iocrunner-<os>.qcow2`
-with `${IMAGE_DIR}/iocrunner-<os>.qcow2.manifest`. It changes only when the
-refresh step runs: at the end of a successful bake, or on a `-R` refresh-only
-run. It is always a real copy of an archive entry, never a symlink.
-
-The image and sidecar are first created as `.tmp` siblings of the working
-copy, then moved into the archive once conversion and extraction succeed; the
-refresh copies them back through `.refresh.tmp` siblings. Empty or failed
-outputs are removed by the script trap. An archive entry is never overwritten
-— the bake refuses a name that already exists — and the working copy is
-replaced only after the archive pair is in place.
+```bash
+latest_iocrunner="$(ls -1t ~/libvirt/images/iocrunner-rocky8-*.qcow2 | head -n 1)"
+cat "${latest_iocrunner}.creation-record"
+qemu-img info --force-share "${latest_iocrunner}"
+```
 
 ## ioc-runner bake provenance
 
-Each ioc-runner bake stamps `/etc/iocrunner-bake.manifest` inside the
-image and publishes the image together with its `.manifest` sidecar into
-the archive. The sidecar next to the working copy consumers back onto is
-the copy the refresh step makes. The manifest records:
+Each ioc-runner bake stamps `/etc/iocrunner-bake.manifest` inside the build VM
+and publishes the image together with its `.manifest` sidecar in `${IMAGE_DIR}`.
+The `.creation-record` beside the image records the image identity. The
+manifest records:
 
 - bake date, OS selector, both repository identities, and EPICS selectors;
-- actual base-image filename and SHA-256 digest from the source disk backing file;
+- actual base-image filename and SHA-256 digest from the source image pair;
 - one record for each fixed application: `app_con`, `app_procserv`, `app_conserver`, `app_epics`, and `app_ioc_runner`;
 - one or more `pip3` lines from a successful non-empty `pip3 freeze`.
 
@@ -360,7 +322,7 @@ requires exact clean 40-hex repository identities.
 
 | Manifest record | Compared with | Result required |
 |---|---|---|
-| `base_image` | Source disk backing file | Filename and SHA-256 match the observed backing image |
+| `base_image` | Source image named by the source-disk creation record | Filename and SHA-256 match the observed source image |
 | `app_con` | Build-time checkout record | Exactly one valid source record |
 | `app_procserv` | Build-time checkout record | Exactly one valid source record |
 | `app_conserver` | Build-time checkout record | Exactly one valid source record |

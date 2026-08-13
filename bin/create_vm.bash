@@ -11,13 +11,13 @@ declare -g SC_TOP
 SC_RPATH="$(realpath "$0")"
 SC_TOP="${SC_RPATH%/*}/.."
 SC_TOP="$(realpath "${SC_TOP}")"
+source "${SC_TOP}/bin/image_workflow.bash"
 
 # --- Global Configuration ---
 declare -g VM_PREFIX="testbed"
 declare -g VM_NAME
 declare -g VM_RAM=4096
 declare -g VM_VCPUS=2
-declare -g VM_DISK_SIZE="20G"
 declare -g IMAGE_DIR
 declare -g OS_TYPE
 declare -g OS_VARIANT
@@ -26,7 +26,6 @@ declare -g OS_VARIANT
 # database the nearest known id stands in for device-default selection.
 declare -g OSINFO_VARIANT=""
 declare -g NODE_ID
-declare -g BACKING_FORMAT="qcow2"
 declare -g LIBVIRT_URI="qemu:///system"
 declare -g LIBVIRT_NETWORK="default"
 declare -g VM_BOOT_FIRMWARE=""
@@ -55,6 +54,9 @@ declare -g BASE_IMAGE_NAME
 declare -g BASE_IMAGE_FULL_PATH
 declare -g TARGET_DISK
 declare -g CLOUD_INIT_ISO
+declare -g BASE_IMAGE_KIND=""
+declare -g BASE_IMAGE_PLATFORM=""
+declare -g IMAGE_WORKFLOW_RUN_ID="${IMAGE_WORKFLOW_RUN_ID:-}"
 
 # Action flags
 declare -g DO_CLEANUP=false
@@ -141,17 +143,20 @@ elif [[ "${OS_TYPE}" == "debian13" ]]; then
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "rocky8-iocrunner" ]]; then
     OS_VARIANT="rocky8"
-    BASE_IMAGE_NAME="iocrunner-rocky8.qcow2"
+    BASE_IMAGE_KIND="iocrunner"
+    BASE_IMAGE_PLATFORM="rocky8"
     BASE_URL=""
 elif [[ "${OS_TYPE}" == "debian13-iocrunner" ]]; then
     OS_VARIANT="debian13"
     VM_BOOT_FIRMWARE="uefi"
-    BASE_IMAGE_NAME="iocrunner-debian13.qcow2"
+    BASE_IMAGE_KIND="iocrunner"
+    BASE_IMAGE_PLATFORM="debian13"
     BASE_URL=""
 elif [[ "${OS_TYPE}" == "debian13-ethercat" ]]; then
     OS_VARIANT="debian13"
     VM_BOOT_FIRMWARE="uefi"
-    BASE_IMAGE_NAME="ethercat-debian13.qcow2"
+    BASE_IMAGE_KIND="ethercat"
+    BASE_IMAGE_PLATFORM="debian13"
     BASE_URL=""
 elif [[ "${OS_TYPE}" == "debian13-rtbase" ]]; then
     # Pinned Debian 13 genericcloud RELEASE image used as the EtherCAT/RT bake
@@ -214,9 +219,31 @@ if [[ ! -d "${IMAGE_DIR}" ]]; then
 fi
 IMAGE_DIR="$(realpath "${IMAGE_DIR}")"
 
-VM_NAME="${VM_PREFIX}-${OS_TYPE}-${NODE_ID}"
+if [[ -n "${IMAGE_WORKFLOW_RUN_ID}" ]] && \
+   ! image_workflow_validate_run_id "${IMAGE_WORKFLOW_RUN_ID}"; then
+    printf "Error: IMAGE_WORKFLOW_RUN_ID must match YYYYMMDDTHHMMSSZ-<12 lowercase hex>\n" >&2
+    exit 1
+fi
+if ! VM_NAME="$(image_workflow_vm_name \
+    "${VM_PREFIX}" "${OS_TYPE}" "${NODE_ID}" "${IMAGE_WORKFLOW_RUN_ID}")"; then
+    printf "Error: failed to resolve VM name\n" >&2
+    exit 1
+fi
+if [[ -n "${BASE_IMAGE_KIND}" ]]; then
+    if ! BASE_IMAGE_NAME="$(image_workflow_select_latest_image \
+        "${IMAGE_DIR}" "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}")"; then
+        printf "Error: no valid %s image found for %s in %s\n" \
+            "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}" "${IMAGE_DIR}" >&2
+        exit 1
+    fi
+fi
 BASE_IMAGE_FULL_PATH="${IMAGE_DIR}/${BASE_IMAGE_NAME}"
-TARGET_DISK="${IMAGE_DIR}/${VM_NAME}.qcow2"
+if ! TARGET_DISK="$(image_workflow_vm_disk_path \
+    "${IMAGE_DIR}" "${VM_PREFIX}" "${OS_TYPE}" "${NODE_ID}" \
+    "${IMAGE_WORKFLOW_RUN_ID}")"; then
+    printf "Error: failed to resolve VM disk path\n" >&2
+    exit 1
+fi
 CLOUD_INIT_ISO="${IMAGE_DIR}/${VM_NAME}-seed.iso"
 
 # --- Network Resolution ---
@@ -487,10 +514,8 @@ function verify_base_image {
     if [[ -z "${BASE_URL}" ]]; then
         printf "Error: Base image %s not found and no download URL.\n" \
             "${BASE_IMAGE_FULL_PATH}" >&2
-        # Provisioning never refreshes the working copy on its own: which
-        # environment a consumer receives must be the result of an explicit
-        # action, not a side effect of asking for a VM.
-        printf "Hint: if an archive entry exists, run 'make refresh.<os>'.\n" >&2
+        # Provisioning never creates a missing baked pair on its own: the
+        # selected environment must come from an existing valid image pair.
         printf "Hint: otherwise run the matching bin/bake_*_image.bash first.\n" >&2
         exit 1
     fi
@@ -506,9 +531,15 @@ function prepare_disk {
         rm -f "${TARGET_DISK}"
     fi
 
-    printf "Disk: creating layered qcow2... "
-    qemu-img create -f qcow2 -b "${BASE_IMAGE_FULL_PATH}" -F "${BACKING_FORMAT}" \
-        "${TARGET_DISK}" "${VM_DISK_SIZE}" > /dev/null
+    if ! IMAGE_WORKFLOW_RUN_ID="$(image_workflow_resolve_run_id \
+        "${IMAGE_WORKFLOW_RUN_ID}")"; then
+        printf "Error: failed to resolve image workflow run ID\n" >&2
+        exit 1
+    fi
+    printf "Disk: copying independent qcow2... "
+    image_workflow_copy_qcow2 "${BASE_IMAGE_FULL_PATH}" "${TARGET_DISK}" \
+        "vm-disk" "${OS_TYPE}" "${IMAGE_WORKFLOW_RUN_ID}" "${BASE_IMAGE_NAME}" \
+        || { printf "[FAILED]\n" >&2; exit 1; }
     printf "[OK]\n"
 }
 

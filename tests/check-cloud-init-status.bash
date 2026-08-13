@@ -210,11 +210,11 @@ fi
 exit 0
 EOF
 
-    cat > "${FAKEBIN}/qemu-img" <<'EOF'
+cat > "${FAKEBIN}/qemu-img" <<'EOF'
 #!/usr/bin/env bash
-# Only "info" is used by the selection path under test. FAKE_QEMU_IMG_FAIL
-# reproduces an inspection that cannot describe the image - a lock held by a
-# running consumer looks exactly like this - without corrupting a fixture.
+# The public path uses qemu-img for image inspection and for the independent
+# copy. FAKE_QEMU_IMG_FAIL reproduces an inspection that cannot describe the
+# image without corrupting a fixture.
 set -e
 if [[ "$1" == "info" ]]; then
     if [[ "${FAKE_QEMU_IMG_FAIL:-}" == "1" ]]; then
@@ -222,6 +222,11 @@ if [[ "$1" == "info" ]]; then
         exit 1
     fi
     printf "file format: qcow2\n"
+    exit 0
+fi
+if [[ "$1" == "convert" ]]; then
+    target="${@: -1}"
+    printf "%s\n" "qcow2 fixture" > "${target}"
     exit 0
 fi
 exit 0
@@ -259,6 +264,25 @@ EOF
 
     chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh" "${FAKEBIN}/sleep" \
         "${FAKEBIN}/qemu-img" "${FAKEBIN}/genisoimage" "${FAKEBIN}/virt-install"
+}
+
+function write_baked_image_fixture {
+    local kind="$1"
+    local platform="$2"
+    local run_id="20260812T000000Z-abcdef123456"
+    local image_name="${kind}-${platform}-${run_id}.qcow2"
+    local image_path="${WORKSPACE}/images/${image_name}"
+    local record_path="${image_path}.creation-record"
+
+    mkdir -p "${WORKSPACE}/images"
+    printf "%s\n" "golden fixture" > "${image_path}"
+    printf "%s\n" \
+        "schema=1" \
+        "image_name=${image_name}" \
+        "image_kind=${kind}" \
+        "image_platform=${platform}" \
+        "image_id=${run_id}" \
+        "source_image=source.qcow2" > "${record_path}"
 }
 
 function run_create_vm {
@@ -303,6 +327,7 @@ function run_create_vm {
     FAKE_SEED_META_COPY="${WORKSPACE}/seed-meta.txt" \
     FAKE_SLEEP_LOG="${SLEEP_LOG}" \
     FAKE_SSH_ARG_LOG="${SSH_ARG_LOG}" \
+    IMAGE_WORKFLOW_RUN_ID="${CASE_RUN_ID:-}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
     REQUIRED_GROUP="$(id -gn)" \
@@ -451,25 +476,61 @@ function run_selection_case {
     local want_line="$2"
     local result output
 
+    if [[ "${os_type}" == "rocky8-iocrunner" ]]; then
+        write_baked_image_fixture "iocrunner" "rocky8"
+    fi
     reset_sleep_log
     result=$(CASE_OS_TYPE="${os_type}" run_create_vm $'status: done\n' "status")
     output="${result#*$'\n'}"
     expect_contains "select ${os_type}" "${output}" "${want_line}"
 }
 
-# A bake output name and the consumer input name that reads it are one pair,
-# spelled in two files. This derives the bake's name and asserts a consumer
-# selects exactly it, so a divergence introduced in either file fails here.
+# A bake output and the consumer input that reads it are one valid pair. This
+# derives the run-specific name and asserts a consumer selects exactly it,
+# including the matching creation record.
 function run_bake_pair_case {
     local bake_os="$1"
     local consumer_os="$2"
     local derived result output
 
-    derived="iocrunner-${bake_os}.qcow2"
+    write_baked_image_fixture "iocrunner" "${bake_os}"
+    derived="iocrunner-${bake_os}-20260812T000000Z-abcdef123456.qcow2"
     reset_sleep_log
     result=$(CASE_OS_TYPE="${consumer_os}" run_create_vm $'status: done\n' "status")
     output="${result#*$'\n'}"
     expect_contains "bake pair ${bake_os}" "${output}" "Base image : ${derived}"
+}
+
+function run_pair_rejection_case {
+    local name="$1"
+    local mutation="$2"
+    local image_path="${WORKSPACE}/images/iocrunner-rocky8-20260812T000000Z-abcdef123456.qcow2"
+    local result rc output
+
+    write_baked_image_fixture "iocrunner" "rocky8"
+    if [[ "${mutation}" == "missing" ]]; then
+        rm -f -- "${image_path}.creation-record"
+    else
+        sed -i 's/^image_platform=rocky8$/image_platform=debian13/' \
+            "${image_path}.creation-record"
+    fi
+    result=$(CASE_OS_TYPE="rocky8-iocrunner" run_create_vm $'status: done\n' "status")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    expect_exit "${name} exit" "1" "${rc}"
+    expect_contains "${name} rejects the pair" "${output}" \
+        "no valid iocrunner image found for rocky8"
+}
+
+function run_invalid_run_id_case {
+    local result rc output
+
+    result=$(CASE_RUN_ID="manual-run" run_create_vm $'status: done\n' "status")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    expect_exit "invalid run ID exit" "1" "${rc}"
+    expect_contains "invalid run ID rejection" "${output}" \
+        "IMAGE_WORKFLOW_RUN_ID must match"
 }
 
 # The provisioner must never delete a base image it cannot fetch back. The
@@ -484,6 +545,13 @@ function run_no_delete_case {
 
     mkdir -p "${WORKSPACE}/images"
     printf "%s\n" "golden fixture" > "${image_path}"
+    printf "%s\n" \
+        "schema=1" \
+        "image_name=${image_name}" \
+        "image_kind=iocrunner" \
+        "image_platform=rocky8" \
+        "image_id=20260812T000000Z-abcdef123456" \
+        "source_image=source.qcow2" > "${image_path}.creation-record"
     reset_sleep_log
     # dominfo must fail so the dispatch falls through to the fresh-provision
     # path; that is the only route that reaches verify_base_image.
@@ -585,6 +653,15 @@ function run_address_case {
     local want_last="$4"
     local result output got
 
+    if [[ "${os_type}" == *-iocrunner || "${os_type}" == "debian13-ethercat" ]]; then
+        if [[ "${os_type}" == "rocky8-iocrunner" ]]; then
+            write_baked_image_fixture "iocrunner" "rocky8"
+        elif [[ "${os_type}" == "debian13-iocrunner" ]]; then
+            write_baked_image_fixture "iocrunner" "debian13"
+        else
+            write_baked_image_fixture "ethercat" "debian13"
+        fi
+    fi
     reset_sleep_log
     result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
         run_create_vm $'status: done\n' "status")
@@ -605,6 +682,13 @@ function run_address_distinct_case {
     local unique
 
     for os_type in "$@"; do
+        if [[ "${os_type}" == "rocky8-iocrunner" ]]; then
+            write_baked_image_fixture "iocrunner" "rocky8"
+        elif [[ "${os_type}" == "debian13-iocrunner" ]]; then
+            write_baked_image_fixture "iocrunner" "debian13"
+        elif [[ "${os_type}" == "debian13-ethercat" ]]; then
+            write_baked_image_fixture "ethercat" "debian13"
+        fi
         reset_sleep_log
         result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
             run_create_vm $'status: done\n' "status")
@@ -634,7 +718,7 @@ function run_reservation_case {
     mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
     printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" \
         > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
-    printf "%s\n" "golden" > "${WORKSPACE}/images/iocrunner-rocky8.qcow2"
+    write_baked_image_fixture "iocrunner" "rocky8"
 
     reset_sleep_log
     result=$(CASE_OS_TYPE="rocky8-iocrunner" CASE_DOMINFO_RC=1 \
@@ -740,11 +824,16 @@ run_outage_case "provision outage" "provision" 1 "nothing was created"
 # Image selection, ARCHITECTURE section 15.
 run_selection_case "rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
 run_selection_case "debian13-rtbase" "debian-13-genericcloud-amd64-20260601-2496.qcow2 (upstream, pinned)"
-run_selection_case "rocky8-iocrunner" "iocrunner-rocky8.qcow2 (baked locally, not downloadable)"
+run_selection_case "rocky8-iocrunner" \
+    "iocrunner-rocky8-20260812T000000Z-abcdef123456.qcow2 (baked locally, not downloadable)"
 run_selection_case "epics-env-rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
 run_bake_pair_case "rocky8" "rocky8-iocrunner"
 run_bake_pair_case "debian13" "debian13-iocrunner"
-run_no_delete_case "unusable golden" "rocky8-iocrunner" "iocrunner-rocky8.qcow2"
+run_pair_rejection_case "missing creation record" "missing"
+run_pair_rejection_case "mismatched creation record" "mismatched"
+run_invalid_run_id_case
+run_no_delete_case "unusable golden" "rocky8-iocrunner" \
+    "iocrunner-rocky8-20260812T000000Z-abcdef123456.qcow2"
 
 # Seed staging, issue #22.
 run_seed_case "seed"

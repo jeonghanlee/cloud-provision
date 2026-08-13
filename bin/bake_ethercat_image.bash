@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
 # Bake an EtherCAT/RT base image from a standard cloud-provision VM.
-# Boots a fresh testbed-<os>-server, applies ansible-provision's
+# Boots a run-specific testbed build VM, applies ansible-provision's
 # 05_ethercat_base.yml (build toolchain, kernel headers, dkms, RT kernel +
-# headers installed but NOT made the boot default), then captures the layered
-# qcow2 disk into a flat ${IMAGE_DIR}/ethercat-<os>.qcow2 ready to back the
-# debian13-ethercat OS variant in cloud-provision.
+# headers installed but NOT made the boot default), then converts the
+# independent VM disk into ${IMAGE_DIR}/ethercat-<platform>-<run-id>.qcow2
+# ready for the debian13-ethercat OS variant in cloud-provision.
 #
 # The RT kernel is installed but never selected as the boot default here: the
 # ethercat-env repository treats kernel selection (rt.kernel.select) and
@@ -21,6 +21,7 @@ declare -g SC_TOP
 SC_RPATH="$(realpath "$0")"
 SC_TOP="${SC_RPATH%/*}/.."
 SC_TOP="$(realpath "${SC_TOP}")"
+source "${SC_TOP}/bin/image_workflow.bash"
 
 declare -g OS_TYPE=""
 declare -g IMAGE_DIR="${IMAGE_DIR:-${HOME}/libvirt/images}"
@@ -28,9 +29,20 @@ declare -g ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${SC_TOP}/../ansible-provision}
 declare -g KEEP_VM=false
 declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
 declare -g NODE_ID="server"
+declare -g IMAGE_WORKFLOW_RUN_ID="${IMAGE_WORKFLOW_RUN_ID:-}"
 declare -g LIBVIRT_URI="qemu:///system"
 # Ansible inventory for the playbook call; env-overridable per site.
 declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
+declare -g MANIFEST_TEMP=""
+
+function cleanup_output_temps {
+    local rc=$?
+
+    if [[ -n "${MANIFEST_TEMP}" ]]; then
+        rm -f -- "${MANIFEST_TEMP}"
+    fi
+    return "${rc}"
+}
 
 # Connection multiplexing is refused for every ssh this bake makes. An operator
 # ssh_config that sets ControlMaster/ControlPath under Host * names its socket
@@ -88,15 +100,39 @@ esac
 
 # The build VM is created from a PINNED Debian release base (create_vm.bash
 # debian13-rtbase), not the moving shared "debian13" daily image, so kernel
-# headers resolve at build time. The flattened OUTPUT keeps the variant-facing
-# ethercat-<os> name that create_vm.bash debian13-ethercat reads.
+# headers resolve at build time. The output name is selected by the shared
+# image workflow and is resolved by create_vm.bash through its creation record.
 declare -g BUILD_OS_TYPE="${OS_TYPE}-rtbase"
-declare -g VM_NAME="${VM_PREFIX}-${BUILD_OS_TYPE}-${NODE_ID}"
-declare -g SOURCE_DISK="${IMAGE_DIR}/${VM_NAME}.qcow2"
-declare -g OUTPUT_IMAGE="${IMAGE_DIR}/ethercat-${OS_TYPE}.qcow2"
 declare -g CREATE_VM="${SC_TOP}/bin/create_vm.bash"
 declare -g ETHERCAT_BASE_PLAYBOOK="playbooks/05_ethercat_base.yml"
 declare -g ANSIBLE_PLAYBOOK_BIN
+
+if ! IMAGE_WORKFLOW_RUN_ID="$(image_workflow_resolve_run_id \
+    "${IMAGE_WORKFLOW_RUN_ID}")"; then
+    printf "Error: IMAGE_WORKFLOW_RUN_ID must match YYYYMMDDTHHMMSSZ-<12 lowercase hex>\n" >&2
+    exit 1
+fi
+NODE_ID="build"
+export IMAGE_WORKFLOW_RUN_ID
+if ! VM_NAME="$(image_workflow_vm_name \
+    "${VM_PREFIX}" "${BUILD_OS_TYPE}" "${NODE_ID}" \
+    "${IMAGE_WORKFLOW_RUN_ID}")"; then
+    printf "Error: failed to resolve build VM name\n" >&2
+    exit 1
+fi
+if ! SOURCE_DISK="$(image_workflow_vm_disk_path \
+    "${IMAGE_DIR}" "${VM_PREFIX}" "${BUILD_OS_TYPE}" "${NODE_ID}" \
+    "${IMAGE_WORKFLOW_RUN_ID}")"; then
+    printf "Error: failed to resolve build VM disk path\n" >&2
+    exit 1
+fi
+declare -g OUTPUT_IMAGE
+if ! OUTPUT_IMAGE="${IMAGE_DIR}/$(image_workflow_image_name \
+    "ethercat" "${OS_TYPE}" "${IMAGE_WORKFLOW_RUN_ID}")"; then
+    printf "Error: failed to resolve EtherCAT image name\n" >&2
+    exit 1
+fi
+trap cleanup_output_temps EXIT
 
 ANSIBLE_PLAYBOOK_BIN="$(command -v ansible-playbook || true)"
 
@@ -126,8 +162,8 @@ printf "  Ansible    : %s\n" "${ANSIBLE_DIR}"
 printf "  Playbook   : %s\n" "${ETHERCAT_BASE_PLAYBOOK}"
 printf "%s\n" "------------------------------------------------------------"
 
-# Step 1: create_vm.bash is idempotent — handles not-defined / shut off /
-# running and polls until SSH + cloud-init are ready before returning.
+# Step 1: create_vm.bash creates a run-specific build VM and polls until SSH
+# and cloud-init are ready before returning.
 printf "\nStep 1/7: Boot %s\n" "${VM_NAME}"
 "${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
 
@@ -149,6 +185,7 @@ CLOUD_HEAD="$(git -C "${SC_TOP}" rev-parse HEAD 2>/dev/null || printf unknown)"
 [[ -n "$(git -C "${SC_TOP}" status --porcelain 2>/dev/null)" ]] && CLOUD_HEAD="${CLOUD_HEAD}-dirty"
 ANSIBLE_HEAD="$(git -C "${ANSIBLE_DIR}" rev-parse HEAD 2>/dev/null || printf unknown)"
 [[ -n "$(git -C "${ANSIBLE_DIR}" status --porcelain 2>/dev/null)" ]] && ANSIBLE_HEAD="${ANSIBLE_HEAD}-dirty"
+# shellcheck disable=SC2087
 ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" "sudo tee /etc/ethercat-bake.manifest >/dev/null" <<MANIFEST
 # ethercat golden bake manifest
 bake_date $(date -u +%FT%TZ)
@@ -189,10 +226,11 @@ else
     printf "Error: proxy remnants survived the de-proxy step\n" >&2
     exit 1
 fi
-ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo cat /etc/ethercat-bake.manifest' > "${OUTPUT_IMAGE}.manifest.tmp"
+MANIFEST_TEMP="${OUTPUT_IMAGE}.manifest.tmp"
+ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo cat /etc/ethercat-bake.manifest' > "${MANIFEST_TEMP}"
 printf "  manifest copied to sidecar [OK]\n"
 
-printf "\nStep 6/7: Shutdown and flatten qcow2\n"
+printf "\nStep 6/7: Shutdown and copy qcow2\n"
 virsh --connect "${LIBVIRT_URI}" shutdown "${VM_NAME}" >/dev/null
 
 declare -g attempt=0
@@ -217,10 +255,12 @@ if [[ ! -f "${SOURCE_DISK}" ]]; then
     exit 1
 fi
 
-printf "  qemu-img convert (flatten layered qcow2)...\n"
-qemu-img convert -p -O qcow2 "${SOURCE_DISK}" "${OUTPUT_IMAGE}.tmp"
-mv "${OUTPUT_IMAGE}.tmp" "${OUTPUT_IMAGE}"
-mv "${OUTPUT_IMAGE}.manifest.tmp" "${OUTPUT_IMAGE}.manifest"
+printf "  qemu-img convert (independent copy)...\n"
+image_workflow_copy_qcow2 "${SOURCE_DISK}" "${OUTPUT_IMAGE}" \
+    "ethercat" "${OS_TYPE}" "${IMAGE_WORKFLOW_RUN_ID}" "${SOURCE_DISK##*/}" \
+    || { printf "Error: failed to publish image copy: %s\n" "${OUTPUT_IMAGE}" >&2; exit 1; }
+mv "${MANIFEST_TEMP}" "${OUTPUT_IMAGE}.manifest"
+MANIFEST_TEMP=""
 printf "  Output: %s (%s)\n" "${OUTPUT_IMAGE}" "$(du -h "${OUTPUT_IMAGE}" | awk '{print $1}')"
 printf "  Manifest sidecar: %s\n" "${OUTPUT_IMAGE}.manifest"
 

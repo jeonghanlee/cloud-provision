@@ -13,7 +13,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: plan M1.1 - the first buildable step of `docs/IMAGE_WORKFLOW.md`. Create a branch before any implementation, per D2.
+Next session entry point: run the two delivered bake entry points on a supported Libvirt/KVM host, inspect the produced image pairs, add the deferred EtherCAT consumer-selection check, then close M1.1 if the runtime and external gates pass.
 
 ## Milestone
 
@@ -21,9 +21,7 @@ Next session entry point: plan M1.1 - the first buildable step of `docs/IMAGE_WO
 
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| M1 Image workflow adoption | M1.1 | Adopt the image workflow recorded in `docs/IMAGE_WORKFLOW.md` | Milestone | Not started | Yes | D1, D2 | Implement the copy-based image workflow, shared bake path, single naming rule, and matching creation record pair; [M1.1 detail](#m11). |
-| M2 EtherCAT bake alignment | M2.1 | Bring the EtherCAT bake onto the shared image structure | Milestone | Deferred | No | M1.1 | EtherCAT publication uses the image structure implemented by M1.1; [M2.1 detail](#m21). |
-| M2 EtherCAT bake alignment | M2.2 | Bring the EtherCAT bake onto the shared VM creation path | Milestone | Not started | No | M1.1 | Both bakes use the same build-VM creation policy and the EtherCAT path has a real check; [M2.2 detail](#m22). |
+| M1 Image workflow adoption | M1.1 | Adopt the image workflow recorded in `docs/IMAGE_WORKFLOW.md` | Milestone | In progress | No | D1, D2 | Implement the copy-based image workflow, shared bake path, single naming rule, and matching creation record pair; [M1.1 detail](#m11). |
 | M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | Not started | Yes |  | Treat all readiness and shutdown budgets as one documented and verified policy; [M3.1 detail](#m31). |
 | M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | Blocked | No | M3.1, G1 | Decide and verify the shared or explicitly separate shutdown path after M3.1 and G1 complete; [M3.2 detail](#m32). |
 | M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Blocked | No | G2 | Run downstream validation against the real Rocky 8 golden after G2 completes; [M4.1 detail](#m41). |
@@ -36,6 +34,7 @@ Next session entry point: plan M1.1 - the first buildable step of `docs/IMAGE_WO
 | --- | --- | --- |
 | D1 | Image structure is settled by `docs/IMAGE_WORKFLOW.md`: a copy at every step so nothing upstream is held, identity carried by a file name and a creation record that must agree, the naming rule defined in one place, and build VMs fresh by construction. | User direction, 2026-08-01 |
 | D2 | New development moves to branches: `master` takes no direct implementation work from this generation onward, and the annotated tag `pre-image-workflow` marks the last state built that way. | User direction, 2026-08-01 |
+| D3 | GitHub issue #30 is the owning scope for image workflow adoption. EtherCAT image structure and build-VM creation work formerly split into M2.1 and M2.2 are absorbed into M1.1 rather than tracked as separate work. | Owner direction based on issue #30, 2026-08-12 |
 
 ### Milestone Details
 
@@ -45,20 +44,22 @@ Next session entry point: plan M1.1 - the first buildable step of `docs/IMAGE_WO
 Origin: 579a8f3 / M1.1
 Identity History: none
 GitHub Issue: #30 - https://github.com/jeonghanlee/cloud-provision/issues/30
-Status: Not started
+Status: In progress
 
 ##### Summary
 
-Build the image structure recorded in `docs/IMAGE_WORKFLOW.md`. This is the first implementation item in the reset generation and is not complete because the design document alone is not implementation evidence.
+Implement GitHub issue #30 against the structure recorded in `docs/IMAGE_WORKFLOW.md`. The issue removes the two roots that caused most of the earlier image work: the backing chain and the assumption that an existing name proves ownership. This is the first implementation item in the reset generation and is not complete because the design document or the issue body alone is not implementation evidence.
 
 ##### Scope
 
 - Use a copy at every image step so no VM disk holds an upstream image.
-- Produce both bake families through one shared path.
+- Produce both ioc-runner and EtherCAT bake families through one shared path.
 - Define image names in one place with the run timestamp and hash.
-- Write a creation record beside every image and require the name and record to agree.
+- Write a creation record beside every produced image and require the name and record to agree.
+- Include the EtherCAT image structure and build-VM creation behavior formerly tracked by M2.1 and M2.2.
+- After implementation and verification, align `docs/ARCHITECTURE.md` and `docs/RUNBOOK_BAKE.md` with the delivered workflow.
 
-Out of scope: The disk cost of full copies and the time cost of purpose work running per VM instead of once per bake remain deferred by owner direction.
+Out of scope: Wait budgets (#19), stop behavior (#11), and Rocky 8 downstream validation (#4) remain separate work. The disk cost of full copies and the time cost of purpose work running per VM instead of once per bake remain deferred by owner direction.
 
 ##### Completion Criteria
 
@@ -67,6 +68,7 @@ Out of scope: The disk cost of full copies and the time cost of purpose work run
 - Names come from one rule and carry the run timestamp and hash.
 - Every produced image has a matching creation record, and a check rejects a missing or mismatched pair.
 - The archive split, in-use guard, symlink ban, forced publish, flattening, and name-existence ownership assumptions are not required as separate mechanisms under this workflow.
+- `docs/ARCHITECTURE.md` and `docs/RUNBOOK_BAKE.md` describe the delivered image paths, names, records, and verification commands.
 
 ##### Dependencies And Decisions
 
@@ -75,28 +77,33 @@ Out of scope: The disk cost of full copies and the time cost of purpose work run
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: Owner direction in current session, 2026-08-12
+Implementation Authorization: Owner direction in current session, 2026-08-12
 Superseded Plan Artifacts: none
 
-1. Plan the first buildable change against `docs/IMAGE_WORKFLOW.md`.
-2. Create a branch from `master` before implementation.
-3. Implement the shared copy, naming, and creation-record path for the shipped bake entry points.
-4. Add checks for the copy chain and matching image and creation-record pair.
-5. Run the real bake paths and record the observed results.
+1. Implement the shared copy, naming, and creation-record path for the shipped ioc-runner and EtherCAT bake entry points.
+2. Add checks for the copy chain and matching image and creation-record pair.
+3. Run the real bake paths and record the observed results.
+4. Update `docs/ARCHITECTURE.md` and `docs/RUNBOOK_BAKE.md` to match the verified workflow.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
 | M1.1 / T1 | Integration | Run the shipped ioc-runner and EtherCAT bake paths and inspect the produced copy chain, names, and creation records | Libvirt/KVM bake host with supported OS inputs | Both paths use the shared workflow and every image has a matching creation record |
+| M1.1 / T2 | Documentation | Run the repository documentation checks and compare the architecture and runbook commands with the verified bake outputs | Repository checkout containing the delivered workflow | The architecture and runbook describe the same paths, names, records, and checks |
+
+##### Deferred Verification
+
+- EtherCAT consumer selection through `create_vm.bash -o debian13-ethercat` is deferred by owner direction on 2026-08-13. The current verification covers EtherCAT bake completion and its image and creation-record pair; add the consumer-selection check before M1.1 closure.
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| M1.1 / T1 | 2026-08-06 canonicalization evidence | As recorded in the prior generation | Not rerun during reset; the design is recorded but implementation remains pending | `docs/IMAGE_WORKFLOW.md` and prior canonical state at commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0` |
+| M1.1 / T1 | 2026-08-13 | Local checkout; real shipped scripts and fixtures with only virsh, ssh, ansible-playbook, qemu-img, virt-install, and clock or host-key boundaries replaced | Local public-path contract passed: `make check-cloud-init-status` 87/87, `make check-bake` passed fresh-input 7/7, ioc-runner provenance 62/62, and EtherCAT workflow 8/8. The checks produced unique names and matching creation records for both bake entry points, rejected missing and mismatched pairs, and rejected an invalid run ID. A real Libvirt/KVM bake remains to be run. | `tests/check-cloud-init-status.bash`, `tests/check-iocrunner-bake-provenance.bash`, `tests/check-ethercat-bake-workflow.bash` |
+| M1.1 / T2 | 2026-08-13 | Local checkout | `make check-docs` passed 51/51; `git diff --check` and shellcheck for the changed scripts and tests passed. `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, and `docs/IMAGE_WORKFLOW.md` now describe the same centralized naming, unique image, creation-record, and shared-copy paths. | `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, `docs/IMAGE_WORKFLOW.md`, `configure/RULES_BAKE` |
 
 ##### Closure Evidence
 
@@ -111,122 +118,6 @@ Observed State: open
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
 Last Compared: 2026-08-12; issue updated 2026-08-02T05:59:41Z
-
-<a id="m21"></a>
-#### M2.1 - Bring the EtherCAT bake onto the shared image structure
-
-Origin: 579a8f3 / M2.1
-Identity History: none
-GitHub Issue: none
-Status: Deferred
-
-##### Summary
-
-Align EtherCAT image publication with the shared image structure after M1.1 establishes that structure. The owner deferred this work on 2026-07-31 until the ioc-runner layout settles in real use.
-
-##### Scope
-
-- Replace the EtherCAT direct publication layout with the image structure implemented by M1.1.
-- Keep the image and its creation record consistent with the shared naming and publication rules.
-
-Out of scope: Choosing whether shared archive and refresh logic is extracted into one file or copied remains open until the implementation shape is known.
-
-##### Completion Criteria
-
-- EtherCAT publication uses the shared image structure rather than a plain `mv` directly into the image directory.
-- The image and creation record are published according to the same observable pair rule as the ioc-runner path.
-- A check covers the EtherCAT publication path.
-
-##### Dependencies And Decisions
-
-- M1.1
-
-##### Implementation Plan
-
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
-
-1. Wait for M1.1 to establish the shared image structure.
-2. Select and record the shared implementation shape.
-3. Update the EtherCAT publication path and its check.
-
-##### Test Plan
-
-| Label | Layer | Method | Environment | Expected Result |
-| --- | --- | --- | --- | --- |
-| M2.1 / T1 | Integration | Run the shipped EtherCAT bake path and inspect its image and creation record publication | Libvirt/KVM bake host with the Debian 13 EtherCAT input | EtherCAT uses the shared structure and the pair rule passes |
-
-##### Verification Results
-
-| Label | Observed At | Environment | Result | Evidence |
-| --- | --- | --- | --- | --- |
-| M2.1 / T1 | 2026-08-06 canonicalization evidence | As recorded in the prior generation | Not rerun during reset; the EtherCAT path remains deferred | Prior canonical state at commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0`; the direct publication path is recorded there |
-
-##### Closure Evidence
-
-- Owner deferral dated 2026-07-31 is preserved; no closure evidence is claimed.
-
-<a id="m22"></a>
-#### M2.2 - Bring the EtherCAT bake onto the shared VM creation path
-
-Origin: 579a8f3 / M2.2
-Identity History: none
-GitHub Issue: none
-Status: Not started
-
-##### Summary
-
-Make the EtherCAT bake use the same build-VM creation policy as the ioc-runner bake. The current paths make opposite reuse assumptions, and the EtherCAT side has not been verified against the shared creation policy.
-
-##### Scope
-
-- Make both bakes agree on whether a build VM may be reused.
-- Apply the shared creation path to the EtherCAT bake.
-- Add a real check for the EtherCAT behavior.
-
-Out of scope: The image publication layout is tracked separately by M2.1.
-
-##### Completion Criteria
-
-- Both bakes agree on the build-VM reuse policy.
-- The EtherCAT bake uses the shared creation path after M1.1 lands.
-- A check covers the EtherCAT side and rejects a stale or reused build input when the workflow requires a fresh run.
-- The decision is documented for whichever implementation path is selected.
-
-The current evidence shows that the ioc-runner bake uses `-F` and `require_fresh_input`, while the EtherCAT bake omits `-F` and treats `create_vm.bash` as idempotent. That divergence can allow a previous build VM to supply the manifest for a later bake. The workflow's unique naming rule reduces reuse risk, but the EtherCAT path still has to adopt and verify the shared creation path.
-
-##### Dependencies And Decisions
-
-- M1.1
-
-##### Implementation Plan
-
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
-
-1. Define the shared build-VM creation contract in the M1.1 implementation.
-2. Apply that contract to the EtherCAT bake.
-3. Add a real EtherCAT check for stale or reused build input.
-
-##### Test Plan
-
-| Label | Layer | Method | Environment | Expected Result |
-| --- | --- | --- | --- | --- |
-| M2.2 / T1 | Integration | Run the EtherCAT bake with an existing domain or disk and inspect the refusal and manifest path | Libvirt/KVM bake host with a controlled prior build-VM state | The path follows the shared creation policy and does not publish an image from an unintended prior build |
-
-##### Verification Results
-
-| Label | Observed At | Environment | Result | Evidence |
-| --- | --- | --- | --- | --- |
-| M2.2 / T1 | 2026-08-06 canonicalization evidence | As recorded in the prior generation | Not rerun during reset; the divergence remains an implementation item | Prior canonical state at commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0`; source reading identified the opposite `-F` assumptions |
-
-##### Closure Evidence
-
-- none
 
 <a id="m31"></a>
 #### M3.1 - Review VM readiness and shutdown wait budgets

@@ -15,7 +15,7 @@ OS installation.
      |
      | 1. Acquire base image (download + integrity check)
      |
-     | 2. Create layered disk (qcow2 backing file, no base image mutation)
+     | 2. Copy the selected image to an independent qcow2 VM disk
      |
      | 3. Generate seed ISO
      |    - meta-data: instance-id, hostname (from VM_NAME)
@@ -61,13 +61,7 @@ indicators in a single pass (domain state, IP, SSH reachability,
 cloud-init completion) so partial-progress diagnostics survive any
 failed stage.
 
-**Reset to baseline.** A successive `clean` then provision returns a
-node to fresh OS state in roughly one minute per VM. The base cloud
-image is preserved as a read-only backing file; only the layered qcow2
-delta and seed ISO are discarded, then rebuilt from scratch with a
-fresh cloud-init run. Downstream provisioners can rely on this
-guarantee — software-side residue is not the responsibility of this
-layer.
+**Reset to baseline.** A successive `clean` then provision returns a node to fresh OS state in roughly one minute per VM. The selected image is copied to an independent VM disk; only that VM disk and seed ISO are discarded, then rebuilt from scratch with a fresh cloud-init run. Downstream provisioners can rely on this guarantee - software-side residue is not the responsibility of this layer.
 
 ---
 
@@ -77,48 +71,36 @@ layer.
 ${IMAGE_DIR}/
 ├── Rocky-8-GenericCloud-Base.latest.x86_64.qcow2   (base, read-only, shared)
 ├── debian-13-genericcloud-amd64-daily.qcow2        (base, read-only, shared)
-├── iocrunner-<os>.qcow2                            (golden working copy, shared)
-├── iocrunner-<os>.qcow2.manifest                   (provenance sidecar)
-├── ethercat-<os>.qcow2                             (golden, shared)
-├── ethercat-<os>.qcow2.manifest                    (provenance sidecar)
-├── ${VM_NAME}.qcow2                                (layered, per-VM)
+├── iocrunner-<platform>-<run-id>.qcow2             (golden, independent)
+├── iocrunner-<platform>-<run-id>.qcow2.manifest    (provenance sidecar)
+├── iocrunner-<platform>-<run-id>.qcow2.creation-record
+├── ethercat-<platform>-<run-id>.qcow2              (golden, independent)
+├── ethercat-<platform>-<run-id>.qcow2.manifest     (provenance sidecar)
+├── ethercat-<platform>-<run-id>.qcow2.creation-record
+├── ${VM_NAME}.qcow2                                (independent, per-VM)
+├── ${VM_NAME}.qcow2.creation-record                (image identity)
 ├── ${VM_NAME}-seed.iso                             (cloud-init, per-VM)
 └── ${VM_NAME}.seed_staging/                        (transient, per-VM)
 
-${ARCHIVE_DIR}/                                     (sibling of ${IMAGE_DIR})
-├── iocrunner-<os>-<bake timestamp>.qcow2           (published golden)
-└── iocrunner-<os>-<bake timestamp>.qcow2.manifest  (provenance sidecar)
 ```
 
-Base images are downloaded once and shared across VMs as backing files.
-Each VM disk is a thin-provisioned qcow2 layer that stores only the delta
-from the base image.
-
-Golden images are flat, not layered, and back the pre-baked variants. The
-IOC runner bake publishes its image and manifest pair into `${ARCHIVE_DIR}`
-and copies the chosen entry to the working copy in `${IMAGE_DIR}` (section
-16); the EtherCAT bake writes its pair directly into `${IMAGE_DIR}`. Both
-bakes flatten into a `.tmp` file in `${IMAGE_DIR}` and rename only after the
-conversion succeeds, but the destination differs: the IOC runner rename
-lands in `${ARCHIVE_DIR}`, and only after the converted file is confirmed
-non-empty, while the EtherCAT rename lands on the final name in
-`${IMAGE_DIR}` with no such check.
+Base images are downloaded once and remain read-only inputs. Every VM disk and baked image is an independent qcow2 copy with a creation record beside it. No produced image is used as another image's backing file.
 
 ---
 
 ## 5. VM Naming Convention
 
 ```
-${VM_PREFIX}-${OS_TYPE}-${NODE_ID}
+${VM_PREFIX}-${OS_TYPE}-${NODE_ID}-${run-id}
 ```
 
 | Component   | Default    | Example Values           |
 |-------------|------------|--------------------------|
 | `VM_PREFIX` | `testbed`  | configurable via `-p`    |
 | `OS_TYPE`   | `rocky8`   | `rocky8`, `debian13`     |
-| `NODE_ID`   | `test`     | `server`, `node1`, `node2` |
+| `NODE_ID`   | `test`     | `server`, `node1`, `node2`, `build` |
 
-Example: `testbed-rocky8-server`, `testbed-debian13-node1`
+Ordinary VMs keep the stable name. Bake entry points set `NODE_ID=build` and append the shared run ID, for example `testbed-debian13-rtbase-build-20260812T000000Z-a1b2c3d4e5f6`.
 
 ---
 
@@ -172,9 +154,9 @@ Selector sets are intentionally different:
 |---|---|---|---|---|
 | rocky8 | rocky8 | download.rockylinux.org | dnf | Plain base test VM |
 | debian13 | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | Plain base test VM |
-| rocky8-iocrunner | rocky8 | local: `${IMAGE_DIR}/iocrunner-rocky8.qcow2` | dnf | IOC runner runtime VM |
-| debian13-iocrunner | debian13 | local: `${IMAGE_DIR}/iocrunner-debian13.qcow2` | apt | IOC runner runtime VM |
-| debian13-ethercat | debian13 | local: `${IMAGE_DIR}/ethercat-debian13.qcow2` | apt | EtherCAT runtime VM |
+| rocky8-iocrunner | rocky8 | latest valid `${IMAGE_DIR}/iocrunner-rocky8-<run-id>.qcow2` pair | dnf | IOC runner runtime VM |
+| debian13-iocrunner | debian13 | latest valid `${IMAGE_DIR}/iocrunner-debian13-<run-id>.qcow2` pair | apt | IOC runner runtime VM |
+| debian13-ethercat | debian13 | latest valid `${IMAGE_DIR}/ethercat-debian13-<run-id>.qcow2` pair | apt | EtherCAT runtime VM |
 | debian13-rtbase | debian13 | pinned Debian 13 release cloud image | apt | EtherCAT bake source VM |
 | epics-env-rocky8 | rocky8 | download.rockylinux.org | dnf | EPICS-env source-build host |
 | epics-env-debian13 | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | EPICS-env source-build host |
@@ -343,19 +325,19 @@ software-ready VMs for `epics-ioc-runner` integration tests.
 
 The `epics-ioc-runner` project consumes this repository as its test
 substrate. To shorten the feedback loop, `bin/bake_iocrunner_image.bash`
-produces a flat golden qcow2 per OS that already contains the full
+produces an independent golden qcow2 per OS that already contains the full
 software stack, so iocrunner integration tests boot directly into a
 ready-to-use environment.
 
 ```
 [ bin/bake_iocrunner_image.bash -o <os> ]
      |
-     | 1. create_vm.bash -F -o <os> -n server, rejecting any existing
-     |    build domain or source disk
+     | 1. create_vm.bash -o <os> -n build with the shared run ID
      |
      | 2. refresh known_hosts and resolve the build VM address
      |
-     | 3. resolve the source disk backing image and stamp the manifest header
+     | 3. resolve the source image from the source-disk creation record and
+     |    stamp the manifest header
      |
      | 4. ansible-playbook site.yml
      |
@@ -368,24 +350,23 @@ ready-to-use environment.
      | 8. validate /etc/iocrunner-bake.manifest inside the VM, then extract
      |    it as the sidecar
      |
-     | 9. shutdown, flatten, publish the pair to ${ARCHIVE_DIR}, refresh the
-     |    working copy, and report archive retention
+     | 9. shutdown, copy the validated disk to a unique image pair, and publish
      |
      | 10. clean build VM  (or keep with -k)
      |
      V
-${IMAGE_DIR}/iocrunner-<os>.qcow2  →  base image of <os>-iocrunner variant
+${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-iocrunner variant
 ```
 
 | Step | Tool | Purpose |
 |------|------|---------|
-| 1 | `create_vm.bash -F` | Require a fresh build domain and source disk, then boot the build VM |
+| 1 | `create_vm.bash` | Boot a run-specific build VM and independent VM disk |
 | 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan` | Resolve the build VM address and refresh its `known_hosts` entry |
-| 3 | `qemu-img`, `jq`, `sha256sum` | Record the observed backing-image filename and digest |
+| 3 | `qemu-img`, `sha256sum` | Record the selected source-image filename and digest |
 | 4-6 | `ansible-playbook` | Apply the software stack, NFS simulator, and test users |
 | 7 | remote privileged Bash | Append `pip3 freeze` and remove site proxy configuration |
 | 8 | `validate_iocrunner_bake.bash` | Validate the manifest before any sidecar extraction or image publication |
-| 9 | `virsh`, `qemu-img`, `mv`, `cp` | Quiesce, flatten, publish to the archive, then refresh the working copy |
+| 9 | `virsh`, `qemu-img`, `mv` | Quiesce and publish an independent image with its creation record |
 | 10 | `create_vm.bash -c` | Tear down the build VM unless `-k` keeps it for explicit follow-up checks |
 
 **Inputs.**
@@ -393,26 +374,16 @@ ${IMAGE_DIR}/iocrunner-<os>.qcow2  →  base image of <os>-iocrunner variant
 | Variable                  | Default                  | Override                          |
 |---------------------------|--------------------------|-----------------------------------|
 | `IMAGE_DIR`               | `~/libvirt/images`       | `-d` flag                         |
-| `ARCHIVE_DIR`             | `${IMAGE_DIR}/../archive` | env var                          |
 | `ANSIBLE_PROVISION_DIR`   | `${SC_TOP}/../ansible-provision` | `-a` flag or env var      |
 | `OS_TYPE`                 | (required)               | `-o rocky8` / `-o debian13`       |
 
-The bake script never mutates the upstream cloud base image. The
-flattened output is independent and self-contained. Re-running the bake
-publishes a new archive entry only after non-empty `.tmp` siblings have
-passed validation and conversion; the working copy at
-`${IMAGE_DIR}/iocrunner-<os>.qcow2` changes only when the refresh step
-replaces it, and the refresh refuses while a defined domain or qcow2
-file in the selected `IMAGE_DIR` resolves through the working copy as a
-backing file (section 16).
+The bake script never mutates the upstream cloud base image. The output is an independent copy with a unique name, manifest sidecar, and creation record. Re-running the bake creates a new pair; an existing image is never overwritten.
 
 **Provenance manifest.** Each IOC runner bake writes
 `/etc/iocrunner-bake.manifest` inside the build VM and, after validation,
-publishes it as the sidecar of the archive entry in `${ARCHIVE_DIR}`. The
-sidecar beside the working copy at
-`${IMAGE_DIR}/iocrunner-<os>.qcow2.manifest` is the copy the refresh step
-makes together with the working copy (section 16). The
-manifest contains exactly one header, schema, bake date, OS selector,
+publishes it as the `.manifest` sidecar beside the unique image. The
+creation record beside the image carries the image name, kind, platform,
+run ID, and source image. The manifest contains exactly one header, schema, bake date, OS selector,
 repository identity for `cloud-provision` and `ansible-provision`, EPICS
 selectors, observed base image identity, five application records, and
 one or more `pip3` records. Application records use:
@@ -450,7 +421,7 @@ calling the real validator before publication.
 
 | Manifest record | Runtime comparison | Acceptance rule |
 |---|---|---|
-| `base_image` | Source disk `full-backing-filename` and backing-file SHA-256 | Filename and digest are observed, not inferred from OS selector |
+| `base_image` | Source image filename and SHA-256 recorded from the source disk pair | Filename and digest are observed, not inferred from OS selector |
 | `app_con` | Build-time source record | Exactly one valid record is required |
 | `app_procserv` | Build-time source record | Exactly one valid record is required |
 | `app_conserver` | Build-time source record | Exactly one valid record is required |
@@ -462,12 +433,12 @@ The build-time records cover tools whose source trees are removed after
 installation. Retained-source records are checked against the live checkout
 that remains in the image.
 
-**Consumption.** The flat image is referenced by the
-`<os>-iocrunner` branch of `bin/create_vm.bash`, which sets
-`BASE_URL=""` and emits a clear hint when the file is absent:
+**Consumption.** The baked image is selected by the
+`<os>-iocrunner` or `debian13-ethercat` branch of `bin/create_vm.bash`, which
+accepts only the newest image whose creation record matches its name:
 
 ```
-Error: Base image .../iocrunner-rocky8.qcow2 not found and no download URL.
+Error: no valid iocrunner image found for rocky8 in .../images
 Hint: run bin/bake_iocrunner_image.bash to build it first.
 ```
 
@@ -612,80 +583,44 @@ was never buying anything. The inspection uses `qemu-img info --force-share`,
 matching the bake: without that flag an image a running consumer holds is
 refused rather than described, which says nothing about the image being bad.
 
-**A bake output name and a consumer input name are one pair.**
-`bin/bake_iocrunner_image.bash` composes `iocrunner-<os>.qcow2` from its own
-`OS_TYPE`, and the consumer type `<os>-iocrunner` selects that same name as a
-literal. The two are spelled in different files and agree only by convention, so
-a check asserts the pair rather than a comment asking for care.
+**A bake output and a consumer input are one valid pair.**
+`bin/image_workflow.bash` composes the image name from kind, platform, and run
+ID. The consumer type selects the newest pair whose creation record agrees with
+the name, kind, and platform.
 
 Two types may share one image — `rocky8` and `epics-env-rocky8` select the same
 Rocky 8 base, as do `debian13` and `epics-env-debian13`. That is intended: the
 EPICS-env hosts are the same base with a different build applied on top.
 
-## 16. Golden Image Archive and Working Copy
+## 16. Image Pair and Selection Rules
 
-Golden images live in two places with different jobs.
+Every produced golden image is an independent qcow2 file. Its name has the form
+`<kind>-<platform>-<run-id>.qcow2`, where the run ID is a UTC timestamp followed
+by a 12-character hash. The image has two sidecars: `.manifest` for bake
+provenance and `.creation-record` for image identity.
 
-```
-/data/libvirt/archive/iocrunner-rocky8-20260729T060708Z.qcow2
-/data/libvirt/archive/iocrunner-rocky8-20260729T060708Z.qcow2.manifest
-/data/libvirt/images/iocrunner-rocky8.qcow2          <- consumers back onto this
-```
+Ordinary runtime VM disks are also independent qcow2 copies, but retain the
+stable `${VM_PREFIX}-${OS_TYPE}-${NODE_ID}.qcow2` name required by lifecycle
+selectors. Their creation record carries the generated run ID for provenance;
+they are not selected by the golden image pair resolver.
 
-The **archive** holds every published pair. No VM ever backs onto an entry, so
-libvirt never claims one and it stays owned by the baking account. This is what
-lets a downstream release gate keep pointing at an older environment.
-
-The **working copy** is what consumers back onto. It is refreshed from a chosen
-archive entry, and libvirt may claim it freely because it is reproducible.
-
-`make bake.<os>` publishes to the archive and then refreshes the working copy, so
-it ends where it always did. `make refresh.<os>` points the working copy at the
-newest entry without baking; `-R <entry>` on the bake script names a specific one,
-which is how a platform is rolled back.
+`bin/image_workflow.bash` is the single implementation of naming, copying,
+record writing, pair validation, and no-backing inspection. Both bake entry
+points call its copy function. `create_vm.bash` calls its selector and accepts
+only the newest valid image and creation-record pair.
 
 ### The rules that make it work
 
-**The working copy is a real file, never a symlink.** libvirt resolves the
-backing chain by path, so a symlink here would resolve through and hand the
-archive entry to `libvirt-qemu` on the first consumer start — the outcome the
-archive exists to prevent, on the copy meant to be permanent. This says nothing
-about symlinks elsewhere on the path: `~/libvirt -> /data/libvirt` exists for
-capacity reasons and is unaffected, because resolution ends at a real file and
-libvirt chowns per file. Observed on this host — a golden is owned by
-`libvirt-qemu` while its sidecar manifest beside it is still owned by the
-invoking user.
+**The pair is a real file and record, never a symlink.** Pair validation rejects
+either symlink, requires the record name to equal the image basename, and checks
+the kind, platform, and run ID. A missing or mismatched record is ignored.
 
-**The working copy keeps the path and name consumers already resolve.** Every
-per-VM overlay records it as an absolute backing path. The archive is the new
-thing; nothing consumers see moved, which is why no other repository needed a
-coordinated change.
-
-**The backing-chain guard runs on refresh, not on publish.** Nothing backs onto
-an archive entry, so a guard there could never fire while still reading as
-protection. Replacing a working copy while a consumer runs is the real hazard,
-and that is where `protect_output_consumers` is called.
-
-**Provisioning never refreshes on its own.** A missing working copy is refused
-with a hint naming `make refresh.<os>`. Refreshing implicitly would hand an
-operator the previous environment with nothing reported, which is worse than an
-error because the run looks correct.
-
-**Entries are named from the bake timestamp** the manifest already records, so
-the name and the contents cannot disagree and a plain listing orders by time. A
-source hash was rejected because the manifest holds several and choosing one
-leaves the others free to change without changing the name; a serial was
-rejected because it carries no information.
-
-**Retention keeps the current and the previous entry** per platform. The bake
-reports which entries are surplus and removes nothing: retention is manual, and
-the operator needs to see which entry a downstream pin still claims first.
+**The image name is unique per run.** A second bake creates a second pair and
+does not overwrite an existing image. The current consumer selector chooses the
+newest valid pair by the lexicographic run ID.
 
 ### Not covered here
 
-Upstream base images are excluded deliberately. They migrate ownership by the
-same mechanism, but they are re-fetchable and the provisioner no longer deletes
-one on a failed inspection, so the loss is cheap.
-
-The EtherCAT bake still publishes directly into the image directory. Bringing it
-onto this layout is tracked separately.
+Upstream base images are excluded deliberately. They are re-fetchable inputs and
+their identity remains their source filename and qemu image inspection. Disk and
+time costs of independent copies remain outside this design.

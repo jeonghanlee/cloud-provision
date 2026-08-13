@@ -51,7 +51,8 @@ this design round.
 
 ## Identity by pair (settled 2026-08-01)
 
-Every image we produce carries its identity in two places made together:
+Every produced golden image and run-specific build VM disk carries its identity
+in two places made together:
 
 - the file name holds a unique timestamp / hash;
 - a creation-record file sits beside the image with the same values.
@@ -59,8 +60,11 @@ Every image we produce carries its identity in two places made together:
 Verification is the pair agreeing. If either half is missing, or the values disagree, the image is ignored. Neither half
 alone can lie, so forgetting to delete one is safe — a stale record points at nothing that matches it.
 
-The pair rule applies only to images we make (B, VM disks). A (fetched upstream) is out of scope: its identity is its
-source and checksum.
+The pair rule applies to images we make (B and run-specific build VM disks).
+Ordinary runtime VM disks are the deliberate exception: they keep the stable
+`${VM_PREFIX}-${OS_TYPE}-${NODE_ID}.qcow2` name required by lifecycle selectors,
+while their creation record carries the generated run ID for provenance. A
+(fetched upstream) is out of scope: its identity is its source and checksum.
 
 This covers the two problems left open above:
 
@@ -71,8 +75,10 @@ This covers the two problems left open above:
 
 ## Naming is defined once (settled 2026-08-01)
 
-The design renames everything we produce (timestamp / hash in the file name), so the naming rule is being redefined
-anyway. It is defined in ONE place from the start, and every consumer — provisioning and bake alike — calls that one
+The naming rule has two deliberate modes: ordinary runtime VMs keep their
+stable `${VM_PREFIX}-${OS_TYPE}-${NODE_ID}` name, while golden images and bake
+build VMs carry the run timestamp / hash. The rule is defined in ONE place from
+the start, and every consumer — provisioning and bake alike — calls that one
 place.
 
 This absorbs #7 (M3.2): today `create_vm.bash` and the bake scripts each compute `VM_NAME` and disk paths on their own,
@@ -86,20 +92,30 @@ timestamp / hash. Names never collide across runs, so a leftover VM from an earl
 — every run creates its own fresh VM.
 
 Fresh-input enforcement (`-F` / `require_fresh_input`) becomes unnecessary: there is nothing to force when reuse is
-structurally impossible. The two bakes' opposite assumptions are carried by M2.2 in the work register; the naming rule
-removes reuse as a correctness risk once the workflow lands, but the EtherCAT path still has to adopt and verify the
-shared creation path. What remains after that is housekeeping - when to remove leftover VMs - not correctness.
+structurally impossible. Both bake entry points use the shared build-VM creation path delivered by M1.1; the naming rule
+removes reuse as a correctness risk once the workflow lands. What remains after that is housekeeping - when to remove
+leftover VMs - not correctness.
 
 ## A is kept (settled 2026-08-01)
 
 A stays after B exists. Deleting A once B was built was raised by the assistant and rejected by the owner. A is read-
 only ground; nothing we make ever writes to it.
 
-## Current code, for contrast
+## Delivered workflow
 
-No B exists today. `rocky8`, `debian13`, and the five `epics-env-*` types boot straight from A. The only baked images
-are `iocrunner-<os>.qcow2` and `ethercat-<os>.qcow2`, and both are produced by layering onto A and then flattening with
-`qemu-img convert`, not by copying.
+`bin/image_workflow.bash` owns image and VM naming, VM disk paths, independent
+qcow2 copying, creation-record writing, pair validation, and no-backing
+inspection. The ioc-runner and EtherCAT bake entry points use the same naming
+and copy functions. Each golden image has the form
+`<kind>-<platform>-<run-id>.qcow2` and a matching `.creation-record`; ioc-runner
+images also carry the validated `.manifest` sidecar. Bake build VM disks use
+the same run-specific naming and independent copy path and carry their own
+creation record. Ordinary runtime VM disks retain stable names and remain
+independent copies.
+
+`create_vm.bash` selects the newest valid pair for each baked runtime selector.
+The upstream base image remains a read-only input, and no produced image is
+used as another image's backing file.
 
 ## Physics reading (2026-08-01, shared shorthand)
 

@@ -36,10 +36,18 @@ The repository has several selectors that look similar but operate at different 
 |---|---|---|---|
 | `DEFAULT_OS_TYPES` | `rocky8`, `debian13` | `make all`, `make status`, `make stop` | Plain base test VMs. |
 | `OS_TYPES` | all values accepted by `create_vm.bash -o` | per-OS targets, `make clean` | Every provisionable VM type, including baked variants and EPICS-env build hosts. |
-| `BAKE_OS_TYPES` | `rocky8`, `debian13` | `make bake`, `make bake.<os>`, `make refresh.<os>` | Base OS inputs used to produce IOC runner golden images. |
+| `BAKE_OS_TYPES` | `rocky8`, `debian13` | `make bake`, `make bake.<os>` | Base OS inputs used to produce IOC runner golden image pairs. |
 | `ETHERCAT_BAKE_OS_TYPES` | `debian13` | `make bake.ethercat`, `make bake.ethercat.<os>` | Base OS input used to produce the EtherCAT golden image. |
 
 Operational rule: bake commands create golden images; provision commands boot VMs from either a public cloud image or a local golden image.
+
+Each golden image has a unique UTC timestamp and hash in its filename, a
+`.manifest` sidecar when the bake supplies provenance, and a `.creation-record`
+sidecar. Bake build VM disks use the same run-specific naming and creation
+record path. Provisioning selects the newest golden image whose creation record
+matches the filename, kind, and platform. Ordinary runtime VM disks keep stable
+names but remain independent copies; no produced image is used as another
+image's backing file.
 
 ### Provision
 
@@ -115,7 +123,7 @@ make rocky8.clean rocky8                    # one OS group
 make clean all                              # every VM type, then the 6 base VMs
 ```
 
-`clean` removes the VM domain, layered qcow2 disk, and seed ISO. The
+`clean` removes the VM domain, independent qcow2 disk, and seed ISO. The
 follow-up provision rebuilds from the cached base image and re-runs
 cloud-init from scratch. Per-VM time is roughly one minute.
 
@@ -153,21 +161,6 @@ Bake script options:
 | `-a` | ansible-provision directory                                                            | `../ansible-provision`    |
 | `-k` | Keep build VM after bake                                                               | destroy                   |
 | `-r` | Pin the epics-ioc-runner ref baked into the image                                      | resolved by the inventory |
-| `-R` | Refresh the working copy from an archive entry and exit; no bake. `-` picks the newest |                           |
-
-### Refresh the working copy
-
-A bake publishes the golden pair into the archive and then refreshes the
-working copy that VMs back onto. `make refresh.<os>` points the working
-copy at the newest archive entry without baking, which is how a platform
-is returned to a previously published environment; provisioning never
-refreshes on its own.
-
-```bash
-make refresh.rocky8
-make refresh.debian13
-```
-
 ### Bake EtherCAT variant
 
 The EtherCAT path is separate from IOC runner. It bakes from the Debian 13 RT base selector and produces the local image consumed by `debian13-ethercat`.
