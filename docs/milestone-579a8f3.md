@@ -396,14 +396,14 @@ Run downstream validation on the 2026-06-03 Rocky 8 golden image. This external 
 
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| M2 Deferred EtherCAT acceptance | M2.1 | Validate EtherCAT use of the shared image workflow | Verification | Deferred | No | D3 | Run the shipped EtherCAT bake and consumer on supported Libvirt/KVM, inspect the image, manifest, and creation-record pair, and confirm actual consumer selection; [M2.1 detail](#m21). |
+| M2 Deferred EtherCAT acceptance | M2.1 | Validate EtherCAT use of the shared image workflow | Carry-forward | Deferred | No | D3 | Run the shipped EtherCAT bake and consumer on supported Libvirt/KVM, inspect the image, manifest, and creation-record pair, and confirm actual consumer selection; [M2.1 detail](#m21). |
 
 ### Backlog Details
 
 <a id="m21"></a>
 #### M2.1 - Validate EtherCAT use of the shared image workflow
 
-Origin: 2026-08-13 split from 579a8f3 / M1.1; carries prior-state M1.7 and M1.8 from commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0`.
+Origin: 579a8f3 / M2.1
 Identity History: 2026-08-13: split from M1.1; carries runtime acceptance that followed prior-generation M1.7 and M1.8.
 GitHub Issue: none
 Status: Deferred
