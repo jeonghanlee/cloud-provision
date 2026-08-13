@@ -86,8 +86,9 @@ timestamp / hash. Names never collide across runs, so a leftover VM from an earl
 — every run creates its own fresh VM.
 
 Fresh-input enforcement (`-F` / `require_fresh_input`) becomes unnecessary: there is nothing to force when reuse is
-structurally impossible. The two bakes' opposite assumptions (M1.8) disappear with it; M1.8 closes as superseded by this
-design. What remains of it is housekeeping — when to remove leftover VMs — not correctness.
+structurally impossible. The two bakes' opposite assumptions are carried by M2.2 in the work register; the naming rule
+removes reuse as a correctness risk once the workflow lands, but the EtherCAT path still has to adopt and verify the
+shared creation path. What remains after that is housekeeping - when to remove leftover VMs - not correctness.
 
 ## A is kept (settled 2026-08-01)
 
