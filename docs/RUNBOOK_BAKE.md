@@ -247,15 +247,19 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var
 - `-k` keeps the build VM after a successful bake for debugging.
 - To restart truly clean:
   `bin/create_vm.bash -o <os> -n server -d <IMAGE_DIR> -p testbed -c`
-  then re-run the bake (re-downloads nothing; base images are cached).
+  then re-run the bake. Cleanup removes the build VM disk and its creation
+  record together; base images remain cached.
 - The nfs_sim role is order-sensitive on a partially-applied VM; when
   a failure happened inside `04_nfs_sim`, prefer the clean restart
   over a resume.
 
 ## Site overrides honored by the bake scripts
 
-- `BAKE_INVENTORY` — ansible inventory path passed to every playbook
-  call (default `inventory/testbed.ini`; relative to ansible-provision).
+- `BAKE_INVENTORY` — maintained ansible inventory path passed to every
+  playbook call (default `inventory/testbed.ini`; relative to
+  ansible-provision). The bake also passes a temporary inventory containing
+  its run-specific host, resolved address, OS group, and `nfs_sim_nodes`
+  membership; that file is removed when the bake exits.
 - `VM_PREFIX` — build-VM name prefix (default `testbed`), now a single
   source shared with the make targets when exported.
 - `REQUIRED_GROUP` — host group required by `create_vm.bash` before
@@ -279,8 +283,12 @@ To inspect a pair after a bake:
 ```bash
 latest_iocrunner="$(ls -1t ~/libvirt/images/iocrunner-rocky8-*.qcow2 | head -n 1)"
 cat "${latest_iocrunner}.creation-record"
-qemu-img info --force-share "${latest_iocrunner}"
+qemu-img info --output=json --force-share "${latest_iocrunner}"
 ```
+
+The image is ready for acceptance when `virtual-size` is `21474836480`
+(20 GiB), no `backing-filename` is present, and the creation record names the
+same image and run ID.
 
 ## ioc-runner bake provenance
 

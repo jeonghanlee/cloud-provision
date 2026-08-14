@@ -108,6 +108,11 @@ case "$1" in
         printf "convert %s\n" "${output}" >> "${FAKE_CALL_LOG}"
         printf "%s\n" "qcow2 fixture" > "${output}"
         ;;
+    resize)
+        output="$2"
+        [[ -f "${output}" && "$3" == "20G" ]] || exit 1
+        printf "resize %s %s\n" "${output}" "$3" >> "${FAKE_CALL_LOG}"
+        ;;
     *)
         printf "unexpected qemu-img command: %s\n" "$*" >&2
         exit 2

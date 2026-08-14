@@ -123,9 +123,9 @@ make rocky8.clean rocky8                    # one OS group
 make clean all                              # every VM type, then the 6 base VMs
 ```
 
-`clean` removes the VM domain, independent qcow2 disk, and seed ISO. The
-follow-up provision rebuilds from the cached base image and re-runs
-cloud-init from scratch. Per-VM time is roughly one minute.
+`clean` removes the VM domain, independent qcow2 disk, matching creation
+record, and seed ISO. The follow-up provision rebuilds from the cached base
+image and re-runs cloud-init from scratch. Per-VM time is roughly one minute.
 
 ### Bake IOC runner variants
 

@@ -112,6 +112,49 @@ function assert_ssh_multiplexing_off {
     expect_equal "${label} every ssh refuses multiplexing" "0" "${offenders}"
 }
 
+function assert_runtime_inventory {
+    local label="$1"
+    local path_log="$2"
+    local snapshot="$3"
+    local invocation_count=0
+    local path_count=0
+    local runtime_path=""
+    local runtime_host=""
+
+    if [[ -s "${path_log}" ]]; then
+        invocation_count="$(wc -l < "${path_log}")"
+        path_count="$(sort -u "${path_log}" | wc -l)"
+        runtime_path="$(head -n 1 "${path_log}")"
+    fi
+    if [[ "${invocation_count}" == "3" && "${path_count}" == "1" ]]; then
+        record_pass "${label} passes one runtime inventory to every play"
+    else
+        record_fail "${label} passes one runtime inventory to every play" \
+            "invocations=${invocation_count}, paths=${path_count}"
+    fi
+
+    runtime_host="$(awk \
+        '$1 ~ /^testbed-rocky8-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$/ && \
+         $2 == "ansible_host=192.168.122.198" && $3 == "ansible_user=vmadmin" \
+         {print $1; exit}' "${snapshot}" 2>/dev/null || true)"
+    if [[ -n "${runtime_host}" ]] && \
+       grep -Fxq '[rocky8]' "${snapshot}" && \
+       grep -Fxq '[nfs_sim_nodes]' "${snapshot}" && \
+       grep -Fxq "${runtime_host}" "${snapshot}"; then
+        record_pass "${label} assigns the run-specific host to required groups"
+    else
+        record_fail "${label} assigns the run-specific host to required groups" \
+            "runtime inventory did not contain the expected host and groups"
+    fi
+
+    if [[ -n "${runtime_path}" && ! -e "${runtime_path}" ]]; then
+        record_pass "${label} removes the runtime inventory"
+    else
+        record_fail "${label} removes the runtime inventory" \
+            "runtime inventory remains or its path was not recorded"
+    fi
+}
+
 function init_checkout {
     local checkout="$1"
     local repo_url="$2"
@@ -340,6 +383,11 @@ case "$1" in
         fi
         printf "%s\n" "converted image" > "${output}"
         ;;
+    resize)
+        output="$2"
+        [[ -f "${output}" && "$3" == "20G" ]] || exit 1
+        printf "resize %s %s\n" "${output}" "$3" >> "${CALL_LOG}"
+        ;;
     *)
         printf "unexpected qemu-img command: %s\n" "$*" >&2
         exit 2
@@ -390,6 +438,30 @@ EOF
     cat > "${fakebin}/ansible-playbook" <<'EOF'
 #!/usr/bin/env bash
 set -e
+runtime_inventory=""
+expect_inventory_path=false
+for argument in "$@"; do
+    if [[ "${expect_inventory_path}" == true ]]; then
+        expect_inventory_path=false
+        if [[ -f "${argument}" ]] && \
+           grep -Eq '^testbed-rocky8-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\.168\.122\.198 ansible_user=vmadmin$' \
+               "${argument}" && \
+           grep -Fxq '[rocky8]' "${argument}" && \
+           grep -Fxq '[nfs_sim_nodes]' "${argument}"; then
+            runtime_inventory="${argument}"
+        fi
+    elif [[ "${argument}" == "-i" ]]; then
+        expect_inventory_path=true
+    fi
+done
+[[ -n "${runtime_inventory}" ]] || {
+    printf "%s\n" "runtime inventory was not passed to ansible-playbook" >&2
+    exit 3
+}
+printf "%s\n" "${runtime_inventory}" >> "${RUNTIME_INVENTORY_ARG_LOG}"
+if [[ ! -s "${RUNTIME_INVENTORY_SNAPSHOT}" ]]; then
+    cat "${runtime_inventory}" > "${RUNTIME_INVENTORY_SNAPSHOT}"
+fi
 # Every invocation is recorded so a case can assert which play received the
 # version selector. The selector belongs to site.yml alone; the other two plays
 # have nothing to do with the runner version.
@@ -516,6 +588,8 @@ function run_promotion_case {
 
     local -a bake_env=(
         "ANSIBLE_ARG_LOG=${case_dir}/ansible-args.log"
+        "RUNTIME_INVENTORY_ARG_LOG=${case_dir}/runtime-inventory-args.log"
+        "RUNTIME_INVENTORY_SNAPSHOT=${case_dir}/runtime-inventory.ini"
         "SSH_ARG_LOG=${case_dir}/ssh-args.log"
         "CASE_DIR=${case_dir}"
         "DOMAIN_STATE_FILE=${case_dir}/domain.state"
@@ -544,6 +618,8 @@ function run_promotion_case {
     env "${bake_env[@]}" "${bake_command[@]}" \
         > "${case_dir}/output.txt" 2>&1 || rc=$?
 
+    assert_runtime_inventory "${mode}" \
+        "${case_dir}/runtime-inventory-args.log" "${case_dir}/runtime-inventory.ini"
     assert_ssh_multiplexing_off "${mode}" "${case_dir}/ssh-args.log"
 
     if [[ "${mode}" == "publish-clean" || "${mode}" == "publish-repeat" || \

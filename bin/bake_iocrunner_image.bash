@@ -22,8 +22,10 @@ declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
 declare -g NODE_ID="server"
 declare -g IMAGE_WORKFLOW_RUN_ID="${IMAGE_WORKFLOW_RUN_ID:-}"
 declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
+declare -g ANSIBLE_USER="vmadmin"
 declare -g LIBVIRT_URI="qemu:///system"
 declare -g VM_IP=""
+declare -g RUNTIME_INVENTORY=""
 declare -g OUTPUT_TEMP_CREATED=false
 declare -g SIDECAR_TEMP_CREATED=false
 
@@ -96,6 +98,9 @@ function report_build_vm_on_failure {
 function cleanup_output_temps {
     local rc=$?
 
+    if [[ -n "${RUNTIME_INVENTORY}" ]]; then
+        rm -f -- "${RUNTIME_INVENTORY}"
+    fi
     if [[ "${OUTPUT_TEMP_CREATED}" == true ]]; then
         rm -f -- "${OUTPUT_TEMP}"
     fi
@@ -104,6 +109,26 @@ function cleanup_output_temps {
     fi
     report_build_vm_on_failure "${rc}"
     return "${rc}"
+}
+
+function write_runtime_inventory {
+    local runtime_host_line
+
+    [[ "${VM_NAME}" =~ ^[A-Za-z0-9._-]+$ ]] \
+        || die "generated VM name is not inventory-safe: ${VM_NAME}"
+    [[ "${VM_IP}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] \
+        || die "resolved VM address is not inventory-safe: ${VM_IP}"
+
+    RUNTIME_INVENTORY="$(mktemp /tmp/cloud-provision-iocrunner-inventory.XXXXXX)" \
+        || die "failed to create runtime inventory"
+    runtime_host_line="${VM_NAME} ansible_host=${VM_IP} ansible_user=${ANSIBLE_USER}"
+    printf "%s\n" \
+        "[${OS_TYPE}]" \
+        "${runtime_host_line}" \
+        "" \
+        "[nfs_sim_nodes]" \
+        "${VM_NAME}" > "${RUNTIME_INVENTORY}"
+    [[ -s "${RUNTIME_INVENTORY}" ]] || die "runtime inventory is empty"
 }
 
 function repository_identity {
@@ -264,7 +289,7 @@ case "${OS_TYPE}" in
     *) die "-o must be rocky8 or debian13 (got: ${OS_TYPE})" ;;
 esac
 
-for command_name in ansible-playbook awk du git mv qemu-img realpath sed \
+for command_name in ansible-playbook awk du git mktemp mv qemu-img realpath sed \
                     sha256sum ssh ssh-keygen ssh-keyscan virsh; do
     require_command "${command_name}"
 done
@@ -361,6 +386,8 @@ VM_IP="$(
 ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "${VM_IP}" 2>/dev/null || true
 ssh-keyscan -H "${VM_IP}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null
 printf "  VM_IP=%s [OK]\n" "${VM_IP}"
+write_runtime_inventory
+printf "  runtime inventory for %s [OK]\n" "${VM_NAME}"
 
 printf "\nStep 3/9: Resolve base identity and stamp the manifest\n"
 declare -g BASE_NAME
@@ -398,23 +425,27 @@ printf "\nStep 4/9: Apply ansible site.yml on %s\n" "${VM_NAME}"
     # runner keeps the precedent narrow; 04_nfs_sim and 07_test_users have
     # nothing to do with the runner version.
     if [[ -n "${IOC_RUNNER_VERSION}" ]]; then
-        ansible-playbook -i "${INVENTORY_PATH}" --limit "${VM_NAME}" \
+        ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
+            --limit "${VM_NAME}" \
             -e ioc_runner_version="${IOC_RUNNER_VERSION}" site.yml
     else
-        ansible-playbook -i "${INVENTORY_PATH}" --limit "${VM_NAME}" site.yml
+        ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
+            --limit "${VM_NAME}" site.yml
     fi
 )
 
 printf "\nStep 5/9: Apply 04_nfs_sim.yml on %s\n" "${VM_NAME}"
 (
     cd "${ANSIBLE_DIR}"
-    ansible-playbook -i "${INVENTORY_PATH}" --limit "${VM_NAME}" playbooks/04_nfs_sim.yml
+    ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
+        --limit "${VM_NAME}" playbooks/04_nfs_sim.yml
 )
 
 printf "\nStep 6/9: Apply 07_test_users.yml on %s\n" "${VM_NAME}"
 (
     cd "${ANSIBLE_DIR}"
-    ansible-playbook -i "${INVENTORY_PATH}" --limit "${VM_NAME}" playbooks/07_test_users.yml
+    ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
+        --limit "${VM_NAME}" playbooks/07_test_users.yml
 )
 
 printf "\nStep 7/9: Finalize provenance and remove proxy configuration\n"

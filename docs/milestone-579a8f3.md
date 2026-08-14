@@ -13,7 +13,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: run the Rocky 8 and Debian 13 ioc-runner bake entry points on a supported Libvirt/KVM host, inspect each image, manifest, and creation-record pair for an independent qcow2 with no backing file, then boot fresh ioc-runner consumers and confirm that each selects the matching valid pair.
+Next session entry point: complete the local M1.1 checks and commit the accepted implementation. From clean committed `cloud-provision` and `ansible-provision` trees, remove the retained failed Debian 13 build run `20260813T222930Z-2fe3be828125`, run the Debian 13 bake and consumer checks, reconfirm both trees are clean, then run the Rocky 8 bake and consumer checks. Both final manifests must record exact clean 40-character repository identities.
 
 ## Milestone
 
@@ -25,6 +25,7 @@ Next session entry point: run the Rocky 8 and Debian 13 ioc-runner bake entry po
 | M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | Not started | Yes |  | Treat all readiness and shutdown budgets as one documented and verified policy; [M3.1 detail](#m31). |
 | M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | Blocked | No | M3.1, G1 | Decide and verify the shared or explicitly separate shutdown path after M3.1 and G1 complete; [M3.2 detail](#m32). |
 | M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Blocked | No | G2 | Run downstream validation against the real Rocky 8 golden after G2 completes; [M4.1 detail](#m41). |
+| M5 Dynamic Ansible inventory | M5.1 | Replace fixed Ansible host inventory with VM-derived inventory | Milestone | Not started | Yes |  | Provision and configure every supported VM type without adding its exact host name to a static inventory file; [M5.1 detail](#m51). |
 | External gate | G1 | Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance | External gate | Open | No |  | Owner accepts a measured shutdown policy for the bake and provisioner paths; [G1 detail](#g1). |
 | External gate | G2 | Run downstream validation on the 2026-06-03 Rocky 8 golden image | External gate | Open | No |  | The real Rocky 8 golden and downstream validation environment produce recorded results; [G2 detail](#g2). |
 
@@ -48,25 +49,32 @@ Status: In progress
 
 ##### Summary
 
-Implement GitHub issue #30 against the structure recorded in `docs/IMAGE_WORKFLOW.md`. The issue removes two root causes: qcow2 backing chains that made runtime disks retain published images, and stable-name existence checks that treated an existing domain or file as proof of ownership. Commit `304291b` contains the local implementation. M1.1 remains In progress because real ioc-runner bake and consumer acceptance has not run on supported Libvirt/KVM hosts.
+Implement GitHub issue #30 against the structure recorded in `docs/IMAGE_WORKFLOW.md`. The issue removes two root causes: qcow2 backing chains that made runtime disks retain published images, and stable-name existence checks that treated an existing domain or file as proof of ownership. Commit `304291b` contains the shared workflow base; the current branch also supplies run-specific Ansible inventory, paired cleanup, and the restored 20 GiB VM disk size. M1.1 remains In progress because Debian 13 runtime acceptance and clean-tree final provenance evidence remain incomplete.
 
 ##### Scope
 
 - Create VM runtime disks as independent full copies so no VM disk retains an upstream image.
+- Preserve the configured 20 GiB VM disk size after making each independent copy.
 - Publish each ioc-runner bake under a run-specific immutable image name through the shared image workflow.
 - Centralize ioc-runner build VM names, image names, disk paths, and run identifiers.
 - Write a creation record for each produced ioc-runner golden image and VM disk.
+- Remove a VM disk and its creation record together during cleanup.
+- Add each run-specific ioc-runner build VM to the required Ansible groups without a maintained exact-name host row.
 - Select only the newest valid ioc-runner image-plus-record pair for stable-name consumers.
 - Reject missing or mismatched ioc-runner golden creation records before VM definition or start.
-- Keep `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, and `docs/IMAGE_WORKFLOW.md` aligned with the delivered workflow.
+- Keep `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, `docs/IMAGE_WORKFLOW.md`, and `docs/VIRSH_CLI.md` aligned with the delivered workflow.
 
-Out of scope: Actual EtherCAT bake and consumer validation is tracked as Backlog M2.1. Wait budgets (#19), stop behavior (#11), Rocky 8 downstream validation (#4), disk-space policy, and elapsed-time policy remain separate work.
+Out of scope: Actual EtherCAT bake and consumer validation is tracked as Backlog M2.1. Full replacement of maintained fixed-name Ansible inventory is tracked as M5.1 and #31. Wait budgets (#19), stop behavior (#11), Rocky 8 downstream validation (#4), general disk-space policy beyond restoring the existing 20 GiB VM disk size, and elapsed-time policy remain separate work.
 
 ##### Completion Criteria
 
 - The public VM-creation path makes a full source-image copy and the resulting qcow2 has no backing file.
+- The public VM-creation path resizes each independent VM disk to the configured 20 GiB capacity.
 - Real Rocky 8 and Debian 13 ioc-runner bakes produce run-specific image, manifest, and creation-record pairs through the shared workflow.
+- Both final bake manifests record exact clean 40-character `cloud-provision` and `ansible-provision` commit identities without a `-dirty` suffix.
 - Build VM names, golden image names, and VM disk paths come from centralized workflow functions.
+- Run-specific ioc-runner build VMs reach the required Ansible plays without a maintained exact-name inventory row.
+- Cleanup removes each VM disk, matching creation record, and seed ISO together.
 - Stable-name ioc-runner consumers select the newest valid image-plus-record pair and reject missing or mismatched records.
 - Each produced ioc-runner golden image name and its creation record agree on run identifier and artifact identity.
 - Fresh Rocky 8 and Debian 13 ioc-runner consumers select the exact verified golden pair.
@@ -82,32 +90,38 @@ Out of scope: Actual EtherCAT bake and consumer validation is tracked as Backlog
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: Owner direction in current session, 2026-08-12
-Implementation Authorization: Owner direction in current session, 2026-08-12
+Plan Acceptance: Owner direction in current sessions, 2026-08-12 and 2026-08-13
+Implementation Authorization: Owner direction in current sessions, 2026-08-12 and 2026-08-13
 Superseded Plan Artifacts: none
 
 1. Implement shared run identifiers, naming, paths, independent-copy handling, creation records, and pair validation.
-2. Route the ioc-runner bake and consumer scripts through the shared functions.
-3. Replace stable single-image refresh with run-specific published artifacts and latest-valid-pair selection.
-4. Verify the public paths locally with only external command boundaries replaced.
-5. Align the maintained image-workflow documentation with the shipped paths.
-6. Run real Rocky 8 and Debian 13 ioc-runner bakes on a supported Libvirt/KVM host.
-7. Inspect each output pair and no-backing state, boot fresh ioc-runner consumers, and record the runtime evidence.
+2. Restore the configured 20 GiB capacity after each independent VM disk copy.
+3. Route the ioc-runner bake and consumer scripts through the shared functions.
+4. Supply each run-specific ioc-runner build VM to the existing Ansible groups through a temporary inventory source.
+5. Remove each VM disk and its creation record together during cleanup.
+6. Replace stable single-image refresh with run-specific published artifacts and latest-valid-pair selection.
+7. Verify the public paths locally with only external command boundaries replaced.
+8. Align the maintained image-workflow documentation with the shipped paths.
+9. Commit the accepted implementation before runtime acceptance, then confirm the `cloud-provision` and `ansible-provision` working trees are clean and capture their exact 40-character HEAD identities.
+10. Remove the retained failed Debian 13 build run, run the Debian 13 bake, inspect its output pair, no-backing state, and 20 GiB capacity, then boot a fresh Debian 13 consumer.
+11. Reconfirm both repository trees are clean, run the Rocky 8 bake, inspect its output pair, no-backing state, and 20 GiB capacity, then boot a fresh Rocky 8 consumer.
+12. Confirm both manifests record the captured clean repository identities and record the final runtime evidence.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
-| M1.1 / T1 | Local integration | Run `make check-cloud-init-status` and the ioc-runner portions of `make check-bake` through the public script entry points with only external command boundaries replaced | Repository checkout containing the delivered workflow | Independent copies have no backing file; ioc-runner bakes use centralized names and creation records; consumers reject missing or mismatched records |
-| M1.1 / T2 | Runtime acceptance | Run the Rocky 8 and Debian 13 ioc-runner bake entry points, inspect outputs with `qemu-img info --output=json`, then boot fresh ioc-runner consumers | Supported Libvirt/KVM bake hosts with supported OS inputs | Each bake produces an independent matching image, manifest, and creation record, and each consumer selects the exact verified pair |
-| M1.1 / T3 | Documentation | Run the repository documentation checks and compare the architecture and runbook commands with the shipped paths | Repository checkout containing the delivered workflow | The architecture and runbook describe the same paths, names, records, and checks |
+| M1.1 / T1 | Local integration | Run `make check-cloud-init-status` and the ioc-runner portions of `make check-bake` through the public script entry points with only external command boundaries replaced | Repository checkout containing the delivered workflow | Independent copies have no backing file and retain the configured 20 GiB capacity; ioc-runner bakes use centralized names, temporary inventory, and creation records; cleanup removes VM disk pairs; consumers reject missing or mismatched records |
+| M1.1 / T2 | Runtime acceptance | After the implementation commit, confirm both repository trees are clean; run the Debian 13 bake and consumer checks; reconfirm clean trees; run the Rocky 8 bake and consumer checks; inspect both outputs with `qemu-img info --output=json` | Supported Libvirt/KVM bake hosts with supported OS inputs and clean committed `cloud-provision` and `ansible-provision` trees | Each bake produces an independent 20 GiB image with no backing file, a matching manifest and creation record with exact clean 40-character repository identities, and a consumer that selects the exact verified pair |
+| M1.1 / T3 | Documentation | Run the repository documentation checks and compare the architecture, image workflow, runbook, and CLI commands with the shipped paths | Repository checkout containing the delivered workflow | The maintained documents describe independent copies, 20 GiB virtual capacity, names, records, and checks without recommending a backing chain |
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| M1.1 / T1 | 2026-08-13 | Local checkout; real shipped scripts and fixtures with only virsh, ssh, ansible-playbook, qemu-img, virt-install, and clock or host-key boundaries replaced | Local public-path contract passed: `make check-cloud-init-status` 87/87; the M1.1 portions of `make check-bake` passed fresh-input 7/7 and ioc-runner provenance 62/62. The checks verified independent copies, unique names, matching creation records, pair rejection, and invalid run-ID rejection. A real Libvirt/KVM bake remains to be run. | `tests/check-cloud-init-status.bash`, `tests/check-iocrunner-bake-provenance.bash` |
-| M1.1 / T3 | 2026-08-13 | Local checkout | `make check-docs` passed 51/51. `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, and `docs/IMAGE_WORKFLOW.md` describe the centralized naming, unique-image, creation-record, and shared-copy paths. | `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, `docs/IMAGE_WORKFLOW.md`, `configure/RULES_BAKE` |
+| M1.1 / T1 | 2026-08-13 | Local checkout; real shipped scripts and fixtures with only virsh, ssh, ansible-playbook, qemu-img, virt-install, and clock or host-key boundaries replaced; real cleanup rerun on host `top` | Local public-path contract passed: `make check-cloud-init-status` 91/91; the M1.1 portions of `make check-bake` passed fresh-input 7/7 and ioc-runner provenance 77/77. The checks verified independent copies, the restored 20 GiB VM disk resize, unique names, matching creation records, temporary inventory membership and removal, cleanup of VM disk pairs, pair rejection, and invalid run-ID rejection. The first real cleanup of run `20260813T195453Z-1dbbd75082f9` left the disk creation record after removing the domain, disk, seed, and DHCP entry. After the cleanup fix, the same public command removed the orphan and no artifact for that run remained. `shellcheck -x bin/create_vm.bash tests/check-cloud-init-status.bash` and `git diff --check` also passed. | `tests/check-cloud-init-status.bash`, `tests/check-iocrunner-bake-provenance.bash`; `bin/create_vm.bash -o rocky8 -n build -d /home/jeonglee/libvirt/images -p testbed -c` with the recorded run ID |
+| M1.1 / T2 | 2026-08-13 | Host `top`; real Libvirt/KVM; `feature/image-workflow` at `0d685d7` with the working tree marked dirty in bake provenance; `ansible-provision` clean on `master` at `5c52419` | The first Rocky 8 run `20260813T195453Z-1dbbd75082f9` exposed the missing run-specific Ansible host and published nothing. After the temporary inventory correction, Rocky 8 run `20260813T222046Z-6bef3d59b3ac` completed all bake steps, published a no-backing image, manifest, and matching creation record, and a fresh consumer selected that exact golden pair and passed the in-image validator. Debian 13 run `20260813T222930Z-2fe3be828125` passed the inventory boundary but failed during real package installation because its copied daily base remained 3 GiB; `apt` required 2,061 MB with 1,430 MB available and `dpkg` reported no space left. History confirmed that `304291b` removed the prior `VM_DISK_SIZE=20G` setting during the copy-workflow conversion. The setting and public-path regression check are restored locally; the Debian bake has not yet been rerun. | `make bake.rocky8`; `iocrunner-rocky8-20260813T222046Z-6bef3d59b3ac.qcow2` and sidecars; fresh `testbed-rocky8-iocrunner-server`; `make bake.debian13`; retained Debian build run `20260813T222930Z-2fe3be828125` |
+| M1.1 / T3 | 2026-08-14 | Local checkout; reader-seat command check using the cached Debian 13 upstream image and real `qemu-img` in a temporary directory | `make check-docs` passed 51/51. The maintained workflow documents describe centralized naming, unique images, creation records, independent copies, and the 20 GiB virtual-capacity step; the CLI reference no longer recommends a backing-chain command. Running its independent `convert`, `resize 20G`, and JSON `info` sequence produced qcow2 with `virtual-size=21474836480` and no `backing-filename`. This checks the documented command sequence, not the pending Libvirt/KVM runtime acceptance. | `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, `docs/IMAGE_WORKFLOW.md`, `docs/VIRSH_CLI.md`, `configure/RULES_BAKE` |
 
 ##### Closure Evidence
 
@@ -121,7 +135,7 @@ GitHub Milestone: Nimbus - Cloud Provisioning Reliability
 Observed State: open
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-13; issue updated 2026-08-13T08:02:59Z
+Last Compared: 2026-08-14; issue updated 2026-08-14T16:42:55Z
 
 <a id="m31"></a>
 #### M3.1 - Review VM readiness and shutdown wait budgets
@@ -327,6 +341,82 @@ Observed State: open
 Observed Labels: none
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
 Last Compared: 2026-08-12; issue updated 2026-07-23T08:36:44Z
+
+<a id="m51"></a>
+#### M5.1 - Replace fixed Ansible host inventory with VM-derived inventory
+
+Origin: 579a8f3 / M5.1
+Identity History: none
+GitHub Issue: #31 - https://github.com/jeonghanlee/cloud-provision/issues/31
+Status: Not started
+
+##### Summary
+
+Replace hand-maintained per-VM host entries with inventory derived from the VM identity and address resolved by the provisioning path. `create_vm.bash` supports eleven OS selectors, three standard node IDs, arbitrary node IDs, and run-specific bake build names, while `ansible-provision/inventory/testbed.ini` names only a fixed subset. A real Rocky 8 bake demonstrated that the static inventory rejects a valid run-specific build VM before any play runs.
+
+M1.1 supplies its run-specific ioc-runner build host through a temporary second inventory so image-workflow acceptance can continue. That narrow bake path does not replace the maintained inventory for all supported VM types and does not satisfy this work unit.
+
+##### Scope
+
+- Derive each Ansible host entry from the actual VM name, address, OS selector, and intended role groups.
+- Cover ordinary VMs, ioc-runner consumers, EtherCAT consumers and build VMs, EPICS-env build VMs, and run-specific ioc-runner bake VMs.
+- Preserve the intended `all_nodes`, `ioc_nodes`, `nfs_sim_nodes`, `ethercat_nodes`, `ethercat_build`, and `epics_env_build` group selection without requiring an exact host name in a maintained inventory file.
+- Remove script, test, and maintained-document assumptions that a supported VM must already have a fixed inventory row.
+
+Out of scope: Image artifact naming, qcow2 selection, DHCP and MAC allocation policy, and Ansible role behavior.
+
+##### Completion Criteria
+
+- No supported VM or bake build host requires its exact name to be added to `inventory/testbed.ini` before Ansible can target it.
+- Run-specific Rocky 8 and Debian 13 ioc-runner build VMs enter the correct OS, IOC, and NFS simulation groups.
+- EtherCAT and EPICS-env paths enter only their intended groups.
+- Checks reject missing or incorrect group membership and detect a return to fixed-name inventory dependence.
+- Maintained architecture and runbook documents describe the same inventory source and group-selection behavior as the scripts.
+
+##### Dependencies And Decisions
+
+- none
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Define one generated inventory interface from resolved VM identity, address, OS selector, and workload role.
+2. Route provisioning and bake Ansible calls through that interface while retaining the existing group variables.
+3. Remove fixed host rows once every supported path has a generated equivalent.
+4. Add local group-membership checks and run representative real VM and bake paths.
+5. Align the maintained architecture and runbook with the delivered inventory model.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M5.1 / T1 | Inventory contract | Generate inventory for every supported OS selector and representative standard, arbitrary, and run-specific node IDs, then inspect the merged Ansible graph | Repository checkouts with the real inventory generator and Ansible inventory parser | Every generated host appears once and belongs only to the groups required by its VM role |
+| M5.1 / T2 | Runtime acceptance | Provision representative ordinary, ioc-runner, EtherCAT, EPICS-env, and run-specific bake VMs through their shipped entry points | Supported Libvirt/KVM host | Each Ansible play targets the actual VM without a maintained fixed-name host row |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M5.1 / T1 | 2026-08-13 | Code and inventory inspection | Not satisfied: `configure/CONFIG_SITE` defines eleven OS selectors and `create_vm.bash` accepts arbitrary node IDs, but `inventory/testbed.ini` contains only fixed host entries for a subset. | `configure/CONFIG_SITE`, `bin/create_vm.bash`, `ansible-provision/inventory/testbed.ini` |
+| M5.1 / T2 | 2026-08-13 | Host `top`; real Rocky 8 ioc-runner bake | Not satisfied: Ansible rejected the valid run-specific build VM because its exact name was absent from the static inventory. | `make bake.rocky8`; run `20260813T195453Z-1dbbd75082f9` |
+
+##### Closure Evidence
+
+- none
+
+##### GitHub Projection
+
+Title: Replace fixed Ansible host inventory with VM-derived inventory
+Labels: enhancement
+GitHub Milestone: Nimbus - Cloud Provisioning Reliability
+Observed State: open
+Observed Labels: enhancement
+Observed Milestone: Nimbus - Cloud Provisioning Reliability
+Last Compared: 2026-08-13; issue updated 2026-08-13T20:42:09Z
 
 <a id="g1"></a>
 #### G1 - Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance

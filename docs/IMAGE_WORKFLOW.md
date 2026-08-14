@@ -111,7 +111,9 @@ and copy functions. Each golden image has the form
 images also carry the validated `.manifest` sidecar. Bake build VM disks use
 the same run-specific naming and independent copy path and carry their own
 creation record. Ordinary runtime VM disks retain stable names and remain
-independent copies.
+independent copies. `create_vm.bash` sets every copied VM disk's virtual
+capacity to 20 GiB before first boot; a golden image published from a build VM
+retains that capacity.
 
 `create_vm.bash` selects the newest valid pair for each baked runtime selector.
 The upstream base image remains a read-only input, and no produced image is
@@ -131,7 +133,7 @@ stands on the plain terms above; this section is how the two of us recall it.
   answer for unlabeled VMs, which was the root of this month's loop (#29, the in-use misreport). The pair rule breaks
   exchange symmetry with labels: timestamp / hash plus creation record make the particles distinguishable.
 - Each C evolves its own history from birth (an excited state); the record captures only the birth conditions, never the
-  later state. Annihilation (clean) returns it to vacuum, leaving the record.
+  later state. Annihilation (clean) returns the disk and its identity record to vacuum together.
 - The purpose work is a set of operators applied to the particle, classified as packages (what was installed) and
   configuration (what was changed) — today's manifest already records that operator list.
 - The old backing chain was entanglement: a local operation on a consumer (starting it) changed the base's state
@@ -147,7 +149,7 @@ P         = Π_k O_k                  O_k ∈ {pkg, cfg}; the operator product t
 |C_i⟩     = W_i |B⟩                  purpose work W on the copy B'
 i         = (t_i, h_i)               the label that makes identical particles distinguishable
 valid(X)  ⟺ name(X) ≡ record(X)      the pair rule; either half alone is ignored
-a |C_i⟩   = |0⟩ + record_i           clean returns it to vacuum and the record survives
+a |C_i⟩   = |0⟩                      clean removes the disk and its identity record
 
 old       |golden, C_1, C_2, …⟩      entangled: one file shared, not separable
 new       |B⟩ ⊗ |C_1⟩ ⊗ |C_2⟩ ⊗ …    product state: local stays local

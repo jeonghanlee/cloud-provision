@@ -26,6 +26,7 @@ declare -g WORKSPACE
 declare -g FAKEBIN
 declare -g SLEEP_LOG
 declare -g SSH_ARG_LOG
+declare -g QEMU_IMG_LOG
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
 declare -g TEST_FAILED=0
@@ -212,10 +213,13 @@ EOF
 
 cat > "${FAKEBIN}/qemu-img" <<'EOF'
 #!/usr/bin/env bash
-# The public path uses qemu-img for image inspection and for the independent
-# copy. FAKE_QEMU_IMG_FAIL reproduces an inspection that cannot describe the
-# image without corrupting a fixture.
+# The public path uses qemu-img for image inspection, the independent copy,
+# and the VM disk resize. FAKE_QEMU_IMG_FAIL reproduces an inspection that
+# cannot describe the image without corrupting a fixture.
 set -e
+if [[ -n "${FAKE_QEMU_IMG_LOG:-}" ]]; then
+    printf "%s\n" "$*" >> "${FAKE_QEMU_IMG_LOG}"
+fi
 if [[ "$1" == "info" ]]; then
     if [[ "${FAKE_QEMU_IMG_FAIL:-}" == "1" ]]; then
         printf "qemu-img: Failed to get shared write lock\n" >&2
@@ -327,6 +331,7 @@ function run_create_vm {
     FAKE_SEED_META_COPY="${WORKSPACE}/seed-meta.txt" \
     FAKE_SLEEP_LOG="${SLEEP_LOG}" \
     FAKE_SSH_ARG_LOG="${SSH_ARG_LOG}" \
+    FAKE_QEMU_IMG_LOG="${QEMU_IMG_LOG}" \
     IMAGE_WORKFLOW_RUN_ID="${CASE_RUN_ID:-}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
@@ -501,6 +506,31 @@ function run_bake_pair_case {
     expect_contains "bake pair ${bake_os}" "${output}" "Base image : ${derived}"
 }
 
+function run_cleanup_pair_case {
+    local disk="${WORKSPACE}/images/testbed-rocky8-server.qcow2"
+    local record="${disk}.creation-record"
+    local seed="${WORKSPACE}/images/testbed-rocky8-server-seed.iso"
+    local result rc output
+
+    printf "%s\n" "disk fixture" > "${disk}"
+    printf "%s\n" "record fixture" > "${record}"
+    printf "%s\n" "seed fixture" > "${seed}"
+    result=$(run_create_vm "" "cleanup")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    expect_exit "cleanup pair exit" "0" "${rc}"
+    expect_contains "cleanup pair output" "${output}" "Removing disk pair"
+    if [[ ! -e "${disk}" && ! -L "${disk}" && \
+          ! -e "${record}" && ! -L "${record}" && \
+          ! -e "${seed}" && ! -L "${seed}" ]]; then
+        record_pass "cleanup removes disk, creation record, and seed"
+    else
+        record_fail "cleanup removes disk, creation record, and seed" \
+            "one or more VM artifacts remained"
+    fi
+}
+
 function run_pair_rejection_case {
     local name="$1"
     local mutation="$2"
@@ -580,7 +610,7 @@ function run_no_delete_case {
 # it.
 function run_seed_case {
     local name="$1"
-    local result rc output staged_path staged_meta hostname_count
+    local result rc output staged_path staged_meta hostname_count resize_line
 
     mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
     printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" \
@@ -615,6 +645,11 @@ function run_seed_case {
     # not reach the operator: the success line stays one line.
     expect_not_contains "${name} no genisoimage noise" "${output}" "extents written"
     expect_contains "${name} reports OK" "${output}" "cloud-init ISO... [OK]"
+
+    resize_line="$(grep '^resize ' "${QEMU_IMG_LOG}" | tail -n 1 || true)"
+    expect_equal "${name} resizes the VM disk" \
+        "resize ${WORKSPACE}/images/testbed-rocky8-server.qcow2 20G" \
+        "${resize_line}"
 }
 
 # A failing genisoimage must stop the run and say why. It already stopped, by
@@ -791,8 +826,10 @@ function print_summary {
 WORKSPACE="$(mktemp -d /tmp/cloud-init-status-test.XXXXXX)"
 FAKEBIN="${WORKSPACE}/bin"
 SSH_ARG_LOG="${WORKSPACE}/ssh-args.log"
+QEMU_IMG_LOG="${WORKSPACE}/qemu-img.log"
 mkdir -p "${FAKEBIN}"
 : > "${SSH_ARG_LOG}"
+: > "${QEMU_IMG_LOG}"
 write_fake_commands
 
 run_case "status done" $'status: done\n' "status" 0 "cloud-init : done"
@@ -816,7 +853,8 @@ run_lifecycle_case "stop paused" "stop" "paused" 1 "unexpected state: paused"
 run_lifecycle_case "stop paused hints cleanup" "stop" "paused" 1 ".clean' then re-run"
 run_lifecycle_case "status paused hints cleanup" "status" "paused" 1 ".clean' then re-run"
 run_lifecycle_case "cleanup running" "cleanup" "running" 0 "Undefining VM"
-run_lifecycle_case "cleanup absent" "cleanup" "absent" 0 "Removing disk"
+run_lifecycle_case "cleanup absent" "cleanup" "absent" 0 "Removing disk pair"
+run_cleanup_pair_case
 run_outage_case "status outage" "status" 1 "libvirt did not answer"
 run_outage_case "stop outage" "stop" 1 "was not checked"
 run_outage_case "provision outage" "provision" 1 "nothing was created"

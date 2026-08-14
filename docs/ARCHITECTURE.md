@@ -16,6 +16,7 @@ OS installation.
      | 1. Acquire base image (download + integrity check)
      |
      | 2. Copy the selected image to an independent qcow2 VM disk
+     |    and set its virtual capacity to 20 GiB
      |
      | 3. Generate seed ISO
      |    - meta-data: instance-id, hostname (from VM_NAME)
@@ -54,14 +55,14 @@ any state   ───clean───>     not defined
 | `provision` | Build disk, seed, virt-install, readiness check | Re-run on existing domain auto-routes to start (shut off) or no-op (running) |
 | `start` | libvirt domain start, readiness check | Routed automatically by `provision` re-run; not exposed as a separate target |
 | `stop` | ACPI shutdown plus 60-second poll | No-op for not-defined and shut off domains |
-| `clean` | destroy + undefine + remove disk + remove seed + remove DHCP reservation | Safe on missing domain |
+| `clean` | destroy + undefine + remove disk and creation record + remove seed + remove DHCP reservation | Safe on missing domain |
 
 **Status reporting** is a separate read-only operation. It reports four
 indicators in a single pass (domain state, IP, SSH reachability,
 cloud-init completion) so partial-progress diagnostics survive any
 failed stage.
 
-**Reset to baseline.** A successive `clean` then provision returns a node to fresh OS state in roughly one minute per VM. The selected image is copied to an independent VM disk; only that VM disk and seed ISO are discarded, then rebuilt from scratch with a fresh cloud-init run. Downstream provisioners can rely on this guarantee - software-side residue is not the responsibility of this layer.
+**Reset to baseline.** A successive `clean` then provision returns a node to fresh OS state in roughly one minute per VM. The selected image is copied to an independent VM disk and its virtual capacity is set to 20 GiB before first boot; that VM disk, its creation record, and seed ISO are discarded, then rebuilt from scratch with a fresh cloud-init run. Downstream provisioners can rely on this guarantee - software-side residue is not the responsibility of this layer.
 
 ---
 
@@ -84,7 +85,7 @@ ${IMAGE_DIR}/
 
 ```
 
-Base images are downloaded once and remain read-only inputs. Every VM disk and baked image is an independent qcow2 copy with a creation record beside it. No produced image is used as another image's backing file.
+Base images are downloaded once and remain read-only inputs. Every VM disk and baked image is an independent qcow2 copy with a creation record beside it. `create_vm.bash` sets each copied VM disk's virtual capacity to 20 GiB before first boot, and the baked image retains that capacity when it is published. No produced image is used as another image's backing file.
 
 ---
 
@@ -334,7 +335,8 @@ ready-to-use environment.
      |
      | 1. create_vm.bash -o <os> -n build with the shared run ID
      |
-     | 2. refresh known_hosts and resolve the build VM address
+     | 2. refresh known_hosts, resolve the build VM address, and generate a
+     |    temporary inventory entry for the run-specific host
      |
      | 3. resolve the source image from the source-disk creation record and
      |    stamp the manifest header
@@ -361,7 +363,7 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 | Step | Tool | Purpose |
 |------|------|---------|
 | 1 | `create_vm.bash` | Boot a run-specific build VM and independent VM disk |
-| 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan` | Resolve the build VM address and refresh its `known_hosts` entry |
+| 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan`, `mktemp` | Resolve the build VM address, refresh its `known_hosts` entry, and generate its temporary Ansible inventory entry |
 | 3 | `qemu-img`, `sha256sum` | Record the selected source-image filename and digest |
 | 4-6 | `ansible-playbook` | Apply the software stack, NFS simulator, and test users |
 | 7 | remote privileged Bash | Append `pip3 freeze` and remove site proxy configuration |
@@ -378,6 +380,8 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 | `OS_TYPE`                 | (required)               | `-o rocky8` / `-o debian13`       |
 
 The bake script never mutates the upstream cloud base image. The output is an independent copy with a unique name, manifest sidecar, and creation record. Re-running the bake creates a new pair; an existing image is never overwritten.
+
+The maintained Ansible inventory supplies group relationships and group variables. The bake adds its run-specific host and resolved address through a temporary second inventory source, assigning it to the matching OS group and `nfs_sim_nodes`. Every bake play receives both inventory sources, and the temporary source is removed when the bake exits.
 
 **Provenance manifest.** Each IOC runner bake writes
 `/etc/iocrunner-bake.manifest` inside the build VM and, after validation,
@@ -601,8 +605,9 @@ provenance and `.creation-record` for image identity.
 
 Ordinary runtime VM disks are also independent qcow2 copies, but retain the
 stable `${VM_PREFIX}-${OS_TYPE}-${NODE_ID}.qcow2` name required by lifecycle
-selectors. Their creation record carries the generated run ID for provenance;
-they are not selected by the golden image pair resolver.
+selectors. `create_vm.bash` sets every copied VM disk's virtual capacity to
+20 GiB before first boot. Their creation record carries the generated run ID
+for provenance; they are not selected by the golden image pair resolver.
 
 `bin/image_workflow.bash` is the single implementation of naming, copying,
 record writing, pair validation, and no-backing inspection. Both bake entry

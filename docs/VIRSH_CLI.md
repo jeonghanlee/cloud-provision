@@ -61,8 +61,9 @@ virsh --connect qemu:///system domifaddr <vm>
 # Inspect image format, virtual/disk size, backing file
 qemu-img info <image.qcow2>
 
-# Create a thin-provisioned qcow2 layer over a backing image
-qemu-img create -f qcow2 -b <base.qcow2> -F qcow2 <target.qcow2> 20G
+# Create an independent qcow2 copy and set its virtual capacity
+qemu-img convert -p -O qcow2 <base.qcow2> <target.qcow2>
+qemu-img resize <target.qcow2> 20G
 ```
 
 ---

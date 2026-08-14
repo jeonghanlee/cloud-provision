@@ -18,6 +18,7 @@ declare -g VM_PREFIX="testbed"
 declare -g VM_NAME
 declare -g VM_RAM=4096
 declare -g VM_VCPUS=2
+declare -g VM_DISK_SIZE="20G"
 declare -g IMAGE_DIR
 declare -g OS_TYPE
 declare -g OS_VARIANT
@@ -77,7 +78,7 @@ function print_usage {
     printf "  -d <image_dir> Image storage directory (default: ~/libvirt/images)\n"
     printf "  -p <prefix>    VM name prefix (default: testbed)\n"
     printf "  -m <mb>        VM memory in MB (default: 4096)\n"
-    printf "  -c             Remove VM domain, target disk, and seed ISO\n"
+    printf "  -c             Remove VM domain, disk pair, and seed ISO\n"
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
     printf "  -S             Graceful shutdown of running VM (ACPI, polls until shut off)\n"
     printf "  -F             Require a new domain and disk (provisioning only)\n"
@@ -370,6 +371,9 @@ resolve_network || true
 
 # --- Cleanup ---
 function do_cleanup {
+    local target_record
+
+    target_record="$(image_workflow_record_path "${TARGET_DISK}")"
     printf "Cleanup: %s\n" "${VM_NAME}"
 
     printf "  Stopping VM... "
@@ -380,8 +384,9 @@ function do_cleanup {
     virsh --connect "${LIBVIRT_URI}" undefine "${VM_NAME}" --nvram 2>/dev/null \
         && printf "[OK]\n" || printf "[not defined]\n"
 
-    printf "  Removing disk... "
-    rm -f "${TARGET_DISK}" && printf "[OK]\n" || printf "[not found]\n"
+    printf "  Removing disk pair... "
+    rm -f -- "${TARGET_DISK}" "${target_record}" \
+        && printf "[OK]\n" || printf "[not found]\n"
 
     printf "  Removing seed ISO... "
     rm -f "${CLOUD_INIT_ISO}" && printf "[OK]\n" || printf "[not found]\n"
@@ -539,6 +544,11 @@ function prepare_disk {
     printf "Disk: copying independent qcow2... "
     image_workflow_copy_qcow2 "${BASE_IMAGE_FULL_PATH}" "${TARGET_DISK}" \
         "vm-disk" "${OS_TYPE}" "${IMAGE_WORKFLOW_RUN_ID}" "${BASE_IMAGE_NAME}" \
+        || { printf "[FAILED]\n" >&2; exit 1; }
+    printf "[OK]\n"
+
+    printf "Disk: resizing independent qcow2 to %s... " "${VM_DISK_SIZE}"
+    qemu-img resize "${TARGET_DISK}" "${VM_DISK_SIZE}" > /dev/null \
         || { printf "[FAILED]\n" >&2; exit 1; }
     printf "[OK]\n"
 }
