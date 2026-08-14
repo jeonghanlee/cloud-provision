@@ -13,7 +13,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: complete the local M1.1 checks and commit the accepted implementation. From clean committed `cloud-provision` and `ansible-provision` trees, remove the retained failed Debian 13 build run `20260813T222930Z-2fe3be828125`, run the Debian 13 bake and consumer checks, reconfirm both trees are clean, then run the Rocky 8 bake and consumer checks. Both final manifests must record exact clean 40-character repository identities.
+Next session entry point: begin M3.1 by measuring the real IP discovery, SSH readiness, cloud-init completion, and shutdown paths on supported Rocky 8 and Debian 13 VM environments.
 
 ## Milestone
 
@@ -21,7 +21,7 @@ Next session entry point: complete the local M1.1 checks and commit the accepted
 
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| M1 Image workflow adoption | M1.1 | Adopt the image workflow recorded in `docs/IMAGE_WORKFLOW.md` | Milestone | In progress | No | D1, D2, D3 | Verify that the ioc-runner workflow produces independent run-specific golden pairs through shared naming, copy, and record code on real supported hosts; [M1.1 detail](#m11). |
+| M1 Image workflow adoption | M1.1 | Adopt the image workflow recorded in `docs/IMAGE_WORKFLOW.md` | Milestone | Complete | No | D1, D2, D3 | Verify that the ioc-runner workflow produces independent run-specific golden pairs through shared naming, copy, and record code on real supported hosts; [M1.1 detail](#m11). |
 | M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | Not started | Yes |  | Treat all readiness and shutdown budgets as one documented and verified policy; [M3.1 detail](#m31). |
 | M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | Blocked | No | M3.1, G1 | Decide and verify the shared or explicitly separate shutdown path after M3.1 and G1 complete; [M3.2 detail](#m32). |
 | M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Blocked | No | G2 | Run downstream validation against the real Rocky 8 golden after G2 completes; [M4.1 detail](#m41). |
@@ -45,11 +45,11 @@ Next session entry point: complete the local M1.1 checks and commit the accepted
 Origin: 579a8f3 / M1.1
 Identity History: 2026-08-13: EtherCAT runtime acceptance split to Backlog M2.1; shared implementation evidence remains here.
 GitHub Issue: #30 - https://github.com/jeonghanlee/cloud-provision/issues/30
-Status: In progress
+Status: Complete
 
 ##### Summary
 
-Implement GitHub issue #30 against the structure recorded in `docs/IMAGE_WORKFLOW.md`. The issue removes two root causes: qcow2 backing chains that made runtime disks retain published images, and stable-name existence checks that treated an existing domain or file as proof of ownership. Commit `304291b` contains the shared workflow base; the current branch also supplies run-specific Ansible inventory, paired cleanup, and the restored 20 GiB VM disk size. M1.1 remains In progress because Debian 13 runtime acceptance and clean-tree final provenance evidence remain incomplete.
+Implement GitHub issue #30 against the structure recorded in `docs/IMAGE_WORKFLOW.md`. The issue removes two root causes: qcow2 backing chains that made runtime disks retain published images, and stable-name existence checks that treated an existing domain or file as proof of ownership. Commit `304291b` contains the shared workflow base; commit `fcf206b` supplies run-specific Ansible inventory, paired cleanup, and the restored 20 GiB VM disk size. Local and runtime acceptance are complete and owner-accepted, and GitHub issue #30 is closed.
 
 ##### Scope
 
@@ -120,22 +120,22 @@ Superseded Plan Artifacts: none
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | M1.1 / T1 | 2026-08-13 | Local checkout; real shipped scripts and fixtures with only virsh, ssh, ansible-playbook, qemu-img, virt-install, and clock or host-key boundaries replaced; real cleanup rerun on host `top` | Local public-path contract passed: `make check-cloud-init-status` 91/91; the M1.1 portions of `make check-bake` passed fresh-input 7/7 and ioc-runner provenance 77/77. The checks verified independent copies, the restored 20 GiB VM disk resize, unique names, matching creation records, temporary inventory membership and removal, cleanup of VM disk pairs, pair rejection, and invalid run-ID rejection. The first real cleanup of run `20260813T195453Z-1dbbd75082f9` left the disk creation record after removing the domain, disk, seed, and DHCP entry. After the cleanup fix, the same public command removed the orphan and no artifact for that run remained. `shellcheck -x bin/create_vm.bash tests/check-cloud-init-status.bash` and `git diff --check` also passed. | `tests/check-cloud-init-status.bash`, `tests/check-iocrunner-bake-provenance.bash`; `bin/create_vm.bash -o rocky8 -n build -d /home/jeonglee/libvirt/images -p testbed -c` with the recorded run ID |
-| M1.1 / T2 | 2026-08-13 | Host `top`; real Libvirt/KVM; `feature/image-workflow` at `0d685d7` with the working tree marked dirty in bake provenance; `ansible-provision` clean on `master` at `5c52419` | The first Rocky 8 run `20260813T195453Z-1dbbd75082f9` exposed the missing run-specific Ansible host and published nothing. After the temporary inventory correction, Rocky 8 run `20260813T222046Z-6bef3d59b3ac` completed all bake steps, published a no-backing image, manifest, and matching creation record, and a fresh consumer selected that exact golden pair and passed the in-image validator. Debian 13 run `20260813T222930Z-2fe3be828125` passed the inventory boundary but failed during real package installation because its copied daily base remained 3 GiB; `apt` required 2,061 MB with 1,430 MB available and `dpkg` reported no space left. History confirmed that `304291b` removed the prior `VM_DISK_SIZE=20G` setting during the copy-workflow conversion. The setting and public-path regression check are restored locally; the Debian bake has not yet been rerun. | `make bake.rocky8`; `iocrunner-rocky8-20260813T222046Z-6bef3d59b3ac.qcow2` and sidecars; fresh `testbed-rocky8-iocrunner-server`; `make bake.debian13`; retained Debian build run `20260813T222930Z-2fe3be828125` |
-| M1.1 / T3 | 2026-08-14 | Local checkout; reader-seat command check using the cached Debian 13 upstream image and real `qemu-img` in a temporary directory | `make check-docs` passed 51/51. The maintained workflow documents describe centralized naming, unique images, creation records, independent copies, and the 20 GiB virtual-capacity step; the CLI reference no longer recommends a backing-chain command. Running its independent `convert`, `resize 20G`, and JSON `info` sequence produced qcow2 with `virtual-size=21474836480` and no `backing-filename`. This checks the documented command sequence, not the pending Libvirt/KVM runtime acceptance. | `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, `docs/IMAGE_WORKFLOW.md`, `docs/VIRSH_CLI.md`, `configure/RULES_BAKE` |
+| M1.1 / T2 | 2026-08-14 11:59 PDT | Host `top`; real Libvirt/KVM; clean `cloud-provision` commit `fcf206bc9771545b02c69608bd7f5f5a799c0621`; clean `ansible-provision` commit `5c52419bf3be795780abdc64cec7732d424fede4` | Runtime acceptance passed. Debian run `20260814T183016Z-d6ba836a6368` and Rocky run `20260814T184022Z-d83582600cba` completed all nine bake steps and passed the real in-image validator. Both published qcow2 images report `virtual-size=21474836480` and no backing file; both manifests contain the exact clean repository identities. Fresh consumer runs `20260814T183831Z-157be32edd31` and `20260814T185737Z-3e7886fd1f5e` selected the matching golden names in their creation records and reached `READY`. Each in-image manifest SHA-256 matched its published sidecar, and both consumers report `epics-ioc-runner version 1.2.3 (e357210)`. Both build VMs and their disk pairs were removed after publication; the fresh consumers remain running. | `make bake.debian13`; `iocrunner-debian13-20260814T183016Z-d6ba836a6368.qcow2` and sidecars; `make debian13-iocrunner.server`; manifest SHA-256 `ef57b6d01885ffd282349fd9919f7add2461b1c27ee3932b6755becf768e162c`; `make bake.rocky8`; `iocrunner-rocky8-20260814T184022Z-d83582600cba.qcow2` and sidecars; `make rocky8-iocrunner.server`; manifest SHA-256 `d2d6f88832e5e6799c79aaa8c5e4aa686d843da9ded0196134502be5a28cf519` |
+| M1.1 / T3 | 2026-08-14 | Local checkout; reader-seat command check using the cached Debian 13 upstream image and real `qemu-img` in a temporary directory | `make check-docs` passed 51/51. The maintained workflow documents describe centralized naming, unique images, creation records, independent copies, and the 20 GiB virtual-capacity step; the CLI reference no longer recommends a backing-chain command. Running its independent `convert`, `resize 20G`, and JSON `info` sequence produced qcow2 with `virtual-size=21474836480` and no `backing-filename`. This result checks the documented command sequence; M1.1 / T2 records final Libvirt/KVM runtime acceptance. | `docs/ARCHITECTURE.md`, `docs/RUNBOOK_BAKE.md`, `docs/IMAGE_WORKFLOW.md`, `docs/VIRSH_CLI.md`, `configure/RULES_BAKE` |
 
 ##### Closure Evidence
 
-- none
+- Deliverable and M1.1 / T1 through T3 verification are complete. The owner accepted the final third-person review evidence in the current session on 2026-08-14. GitHub issue #30 was observed closed at 2026-08-14T19:40:43Z.
 
 ##### GitHub Projection
 
 Title: Adopt the image workflow
 Labels: enhancement
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-14; issue updated 2026-08-14T16:42:55Z
+Last Compared: 2026-08-14; issue updated 2026-08-14T19:40:43Z
 
 <a id="m31"></a>
 #### M3.1 - Review VM readiness and shutdown wait budgets
