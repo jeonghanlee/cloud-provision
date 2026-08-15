@@ -13,7 +13,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: review the M3.1 and M3.2 implementation and verification, then reconcile GitHub issues #19 and #11 after owner acceptance.
+Next session entry point: review and accept the M5.1 generated-inventory implementation plan before starting code changes.
 
 ## Milestone
 
@@ -22,8 +22,8 @@ Next session entry point: review the M3.1 and M3.2 implementation and verificati
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 Image workflow adoption | M1.1 | Adopt the image workflow recorded in `docs/IMAGE_WORKFLOW.md` | Milestone | Complete | No | D1, D2, D3 | Verify that the ioc-runner workflow produces independent run-specific golden pairs through shared naming, copy, and record code on real supported hosts; [M1.1 detail](#m11). |
-| M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | In progress | No | D4 | Treat all readiness and shutdown budgets as one documented and verified policy; [M3.1 detail](#m31). |
-| M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | In progress | No | D4, G1 | Route the bake through the shared public stop path and verify the required shutdown states; [M3.2 detail](#m32). |
+| M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | Complete | No | D4 | Commit `986d410` records and verifies the shared policy; GitHub issue #19 is closed; [M3.1 detail](#m31). |
+| M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | Complete | No | D4, G1 | Commit `986d410` routes the bake through the shared public stop path; GitHub issue #11 is closed; [M3.2 detail](#m32). |
 | M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Blocked | No | G2 | Run downstream validation against the real Rocky 8 golden after G2 completes; [M4.1 detail](#m41). |
 | M5 Dynamic Ansible inventory | M5.1 | Replace fixed Ansible host inventory with VM-derived inventory | Milestone | Not started | Yes |  | Provision and configure every supported VM type without adding its exact host name to a static inventory file; [M5.1 detail](#m51). |
 | External gate | G1 | Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance | External gate | Complete | No |  | Owner accepts a measured shutdown policy for the bake and provisioner paths; [G1 detail](#g1). |
@@ -144,11 +144,11 @@ Last Compared: 2026-08-14; issue updated 2026-08-14T19:40:43Z
 Origin: 579a8f3 / M3.1
 Identity History: none
 GitHub Issue: #19 - https://github.com/jeonghanlee/cloud-provision/issues/19
-Status: In progress
+Status: Complete
 
 ##### Summary
 
-Review the VM readiness and shutdown wait budgets as one policy. D4 records the accepted values, and implementation and verification are in progress.
+Commit `986d410` implements the D4 wait policy, records it in the architecture and runbook, and verifies timeout, eventual-success, override, and invalid-input behavior. GitHub issue #19 is closed.
 
 ##### Scope
 
@@ -202,17 +202,17 @@ Superseded Plan Artifacts: none
 
 ##### Closure Evidence
 
-- 2026-08-15 third-person findings and the first second-person finding were corrected; the repeated second-person pass found no additional issue. GitHub issue #19 remains open, so M3.1 remains In progress.
+- Complete on 2026-08-15. Commit `986d410` is present on `origin/feature/image-workflow`; third-person and second-person findings were corrected; GitHub issue #19 was observed closed at 2026-08-15T08:44:52Z.
 
 ##### GitHub Projection
 
 Title: Review VM readiness retry durations
 Labels: enhancement
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-14; issue updated 2026-07-31T09:37:09Z
+Last Compared: 2026-08-15; issue updated 2026-08-15T08:44:52Z
 
 <a id="m32"></a>
 #### M3.2 - Reuse VM stop behavior in the ioc-runner bake
@@ -220,11 +220,11 @@ Last Compared: 2026-08-14; issue updated 2026-07-31T09:37:09Z
 Origin: 579a8f3 / M3.2
 Identity History: none
 GitHub Issue: #11 - https://github.com/jeonghanlee/cloud-provision/issues/11
-Status: In progress
+Status: Complete
 
 ##### Summary
 
-Reuse the shared VM stop behavior in the ioc-runner bake. D4 selects the public `create_vm.bash -S` path with the same validated shutdown settings used by ordinary VM operations.
+Commit `986d410` routes ioc-runner publication through `create_vm.bash -S` with the same validated shutdown settings used by ordinary VM operations. GitHub issue #11 is closed.
 
 ##### Scope
 
@@ -271,17 +271,17 @@ Superseded Plan Artifacts: none
 
 ##### Closure Evidence
 
-- 2026-08-15 third-person findings and the first second-person finding were corrected; the repeated second-person pass found no additional issue. GitHub issue #11 remains open, so M3.2 remains In progress.
+- Complete on 2026-08-15. Commit `986d410` is present on `origin/feature/image-workflow`; third-person and second-person findings were corrected; GitHub issue #11 was observed closed at 2026-08-15T08:44:56Z.
 
 ##### GitHub Projection
 
 Title: Reuse VM stop behavior in the iocrunner bake
 Labels: enhancement
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-14; issue updated 2026-07-23T08:37:27Z
+Last Compared: 2026-08-15; issue updated 2026-08-15T08:44:56Z
 
 <a id="m41"></a>
 #### M4.1 - Validate the Rocky 8 golden after the sudoers fix
