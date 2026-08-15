@@ -32,6 +32,19 @@ declare -g LIBVIRT_NETWORK="default"
 declare -g VM_BOOT_FIRMWARE=""
 declare -g REQUIRED_GROUP="${REQUIRED_GROUP:-libvirt}"
 
+# Wait settings are positive integer counts or seconds. Environment values
+# override the measured defaults for one execution without changing the
+# readiness or lifecycle semantics.
+declare -g VM_WAIT_IP_ATTEMPTS="${VM_WAIT_IP_ATTEMPTS:-6}"
+declare -g VM_WAIT_IP_INTERVAL_SECONDS="${VM_WAIT_IP_INTERVAL_SECONDS:-10}"
+declare -g VM_WAIT_SSH_ATTEMPTS="${VM_WAIT_SSH_ATTEMPTS:-6}"
+declare -g VM_WAIT_SSH_INTERVAL_SECONDS="${VM_WAIT_SSH_INTERVAL_SECONDS:-10}"
+declare -g VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS="${VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS:-5}"
+declare -g VM_WAIT_CLOUD_INIT_ATTEMPTS="${VM_WAIT_CLOUD_INIT_ATTEMPTS:-61}"
+declare -g VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS="${VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS:-30}"
+declare -g VM_WAIT_SHUTDOWN_ATTEMPTS="${VM_WAIT_SHUTDOWN_ATTEMPTS:-12}"
+declare -g VM_WAIT_SHUTDOWN_INTERVAL_SECONDS="${VM_WAIT_SHUTDOWN_INTERVAL_SECONDS:-5}"
+
 # Network configuration: static IP via libvirt DHCP reservation
 declare -g NETWORK_SUBNET="192.168.122"
 declare -g MAC_PREFIX="52:54:00:00"
@@ -131,6 +144,33 @@ if [[ ! "${VM_RAM}" =~ ^[1-9][0-9]*$ ]]; then
     printf "Error: -m memory must be a positive integer in MB, got: %s\n" "${VM_RAM}"
     exit 1
 fi
+
+function validate_wait_settings {
+    local name
+    local value
+    local -a names=(
+        VM_WAIT_IP_ATTEMPTS
+        VM_WAIT_IP_INTERVAL_SECONDS
+        VM_WAIT_SSH_ATTEMPTS
+        VM_WAIT_SSH_INTERVAL_SECONDS
+        VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS
+        VM_WAIT_CLOUD_INIT_ATTEMPTS
+        VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS
+        VM_WAIT_SHUTDOWN_ATTEMPTS
+        VM_WAIT_SHUTDOWN_INTERVAL_SECONDS
+    )
+
+    for name in "${names[@]}"; do
+        value="${!name}"
+        if [[ ! "${value}" =~ ^[1-9][0-9]*$ ]]; then
+            printf "Error: %s must be a positive integer, got: %s\n" \
+                "${name}" "${value}" >&2
+            return 1
+        fi
+    done
+}
+
+validate_wait_settings || exit 1
 
 # --- OS-Specific Configuration ---
 if [[ "${OS_TYPE}" == "rocky8" ]]; then
@@ -402,8 +442,8 @@ function do_cleanup {
 #   - other (paused, etc.)    -> reported as unexpected, exit 1
 function do_stop {
     local state
-    local max_retry=12
-    local interval=5
+    local max_retry="${VM_WAIT_SHUTDOWN_ATTEMPTS}"
+    local interval="${VM_WAIT_SHUTDOWN_INTERVAL_SECONDS}"
     local attempt=0
 
     state=$(get_domain_state)
@@ -710,7 +750,7 @@ function resolve_runtime_ip {
 declare -g SSH_USER="vmadmin"
 declare -ag SSH_PROBE_OPTIONS=(
     -o StrictHostKeyChecking=no
-    -o ConnectTimeout=5
+    -o "ConnectTimeout=${VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS}"
     -o BatchMode=yes
     -o ControlMaster=no
     -o ControlPath=none
@@ -865,8 +905,8 @@ function wait_for_vm {
     fi
 
     # DHCP fallback: poll for IP
-    local max_retry=3
-    local interval=10
+    local max_retry="${VM_WAIT_IP_ATTEMPTS}"
+    local interval="${VM_WAIT_IP_INTERVAL_SECONDS}"
     local attempt=0
 
     printf "Status: retrieving IP for %s...\n" "${VM_NAME}"
@@ -901,13 +941,14 @@ function wait_for_vm {
     done
 
     printf "Status: IP not available. Check manually: %s -s\n" "$(basename "$0")"
+    return 1
 }
 
 function wait_for_ssh {
     local ip_addr="$1"
     local mode="${2:-retry}"
-    local max_retry=6
-    local interval=10
+    local max_retry="${VM_WAIT_SSH_ATTEMPTS}"
+    local interval="${VM_WAIT_SSH_INTERVAL_SECONDS}"
     local attempt=0
     local probe_rc
 
@@ -945,10 +986,10 @@ function wait_for_ssh {
 function wait_for_cloud_init {
     local ip_addr="$1"
     local mode="${2:-retry}"
-    # Budget covers a package-installing cloud-init: Rocky 8 spends its final
-    # stage on dnf (gcc, make, openssl-devel) and has been measured at ~490s.
-    local max_retry=20
-    local interval=30
+    # The default spans 30 minutes between the first and final polls so a
+    # healthy package-installing boot is not failed by a short fixed window.
+    local max_retry="${VM_WAIT_CLOUD_INIT_ATTEMPTS}"
+    local interval="${VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS}"
     local attempt=0
     local status
     local ci_status

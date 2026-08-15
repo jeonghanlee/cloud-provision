@@ -177,6 +177,30 @@ The control host itself also needs its own proxy environment for the
 base-image download and any galaxy-free ansible fetches — that is host
 policy, out of scope here.
 
+## VM wait policy
+
+The provisioner and ioc-runner bake use the same validated wait settings. Each
+setting is a positive integer environment value, and an override applies only
+to the command that receives it.
+
+| Path | Default settings | Effective wait structure |
+| --- | --- | --- |
+| DHCP IP discovery | `VM_WAIT_IP_ATTEMPTS=6`, `VM_WAIT_IP_INTERVAL_SECONDS=10` | Six polls with five 10-second sleeps |
+| SSH readiness | `VM_WAIT_SSH_ATTEMPTS=6`, `VM_WAIT_SSH_INTERVAL_SECONDS=10`, `VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS=5` | Six probes with five 10-second sleeps and up to 5 seconds per connection attempt |
+| `cloud-init` completion | `VM_WAIT_CLOUD_INIT_ATTEMPTS=61`, `VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS=30` | Sixty-one polls with 30 minutes between the first and final polls |
+| Domain shutdown | `VM_WAIT_SHUTDOWN_ATTEMPTS=12`, `VM_WAIT_SHUTDOWN_INTERVAL_SECONDS=5` | Twelve polls after the ACPI request, up to 60 seconds |
+
+For a known slow package-installing boot, extend only that execution. This
+example allows 40 minutes between the first and final `cloud-init` polls:
+
+```bash
+VM_WAIT_CLOUD_INIT_ATTEMPTS=81 make bake.rocky8
+```
+
+The ioc-runner bake calls `create_vm.bash -S` at publication step 9, so it uses
+the same 60-second shutdown default as `make <os>.<node>.stop`. Zero, negative,
+and non-integer settings are rejected before a VM action begins.
+
 ## Slow boot and package-manager diagnosis
 
 Long waits are not automatically bake failures. Use the following read-only
@@ -192,10 +216,10 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> systemctl --no-pager
 ```
 
 If cloud-init reports `status: running`, `Running in stage: modules-final`, no
-errors, and no failed systemd units, continue waiting until the bake script's
-own retry limit is reached. Treat it as a failure only when cloud-init reports
-an error, SSH becomes unavailable, the VM has failed systemd units relevant to
-boot or networking, or the bake script exits non-zero.
+errors, and no failed systemd units, continue waiting until the shared
+`cloud-init` limit is reached. Treat it as a failure only when cloud-init
+reports an error, SSH becomes unavailable, the VM has failed systemd units
+relevant to boot or networking, or the bake script exits non-zero.
 
 During Rocky 8 package installation, Ansible can be quiet while `dnf` downloads
 or runs the RPM transaction. Check the package manager process and logs:

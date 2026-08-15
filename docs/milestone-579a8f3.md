@@ -13,7 +13,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: begin M3.1 by measuring the real IP discovery, SSH readiness, cloud-init completion, and shutdown paths on supported Rocky 8 and Debian 13 VM environments.
+Next session entry point: review the M3.1 and M3.2 implementation and verification, then reconcile GitHub issues #19 and #11 after owner acceptance.
 
 ## Milestone
 
@@ -22,11 +22,11 @@ Next session entry point: begin M3.1 by measuring the real IP discovery, SSH rea
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 Image workflow adoption | M1.1 | Adopt the image workflow recorded in `docs/IMAGE_WORKFLOW.md` | Milestone | Complete | No | D1, D2, D3 | Verify that the ioc-runner workflow produces independent run-specific golden pairs through shared naming, copy, and record code on real supported hosts; [M1.1 detail](#m11). |
-| M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | Not started | Yes |  | Treat all readiness and shutdown budgets as one documented and verified policy; [M3.1 detail](#m31). |
-| M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | Blocked | No | M3.1, G1 | Decide and verify the shared or explicitly separate shutdown path after M3.1 and G1 complete; [M3.2 detail](#m32). |
+| M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | In progress | No | D4 | Treat all readiness and shutdown budgets as one documented and verified policy; [M3.1 detail](#m31). |
+| M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | In progress | No | D4, G1 | Route the bake through the shared public stop path and verify the required shutdown states; [M3.2 detail](#m32). |
 | M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Blocked | No | G2 | Run downstream validation against the real Rocky 8 golden after G2 completes; [M4.1 detail](#m41). |
 | M5 Dynamic Ansible inventory | M5.1 | Replace fixed Ansible host inventory with VM-derived inventory | Milestone | Not started | Yes |  | Provision and configure every supported VM type without adding its exact host name to a static inventory file; [M5.1 detail](#m51). |
-| External gate | G1 | Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance | External gate | Open | No |  | Owner accepts a measured shutdown policy for the bake and provisioner paths; [G1 detail](#g1). |
+| External gate | G1 | Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance | External gate | Complete | No |  | Owner accepts a measured shutdown policy for the bake and provisioner paths; [G1 detail](#g1). |
 | External gate | G2 | Run downstream validation on the 2026-06-03 Rocky 8 golden image | External gate | Open | No |  | The real Rocky 8 golden and downstream validation environment produce recorded results; [G2 detail](#g2). |
 
 ### Decisions
@@ -36,6 +36,7 @@ Next session entry point: begin M3.1 by measuring the real IP discovery, SSH rea
 | D1 | Image structure is settled by `docs/IMAGE_WORKFLOW.md`: a copy at every step so nothing upstream is held, identity carried by a file name and a creation record that must agree, the naming rule defined in one place, and build VMs fresh by construction. | User direction, 2026-08-01 |
 | D2 | New development moves to branches: `master` takes no direct implementation work from this generation onward, and the annotated tag `pre-image-workflow` marks the last state built that way. | User direction, 2026-08-01 |
 | D3 | GitHub issue #30 owns ioc-runner acceptance of the copy-based image workflow. Shared code delivered in commit `304291b` also integrates EtherCAT, but actual EtherCAT bake and consumer validation is deferred to Backlog M2.1 and does not block M1.1. The earlier claim that the old EtherCAT rows were M2.1 and M2.2 was incorrect; the prior-generation EtherCAT rows were M1.7 and M1.8. | Owner direction, 2026-08-13 |
+| D4 | Centralize the VM wait settings with validated execution-time overrides. Use six IP polls at 10-second intervals, six SSH probes at 10-second intervals with a 5-second connection timeout, sixty-one cloud-init polls at 30-second intervals, and twelve shutdown polls at 5-second intervals. The ioc-runner bake uses the same public 60-second shutdown path instead of a separate 120-second loop. | Owner selection of option 1, 2026-08-14 |
 
 ### Milestone Details
 
@@ -143,11 +144,11 @@ Last Compared: 2026-08-14; issue updated 2026-08-14T19:40:43Z
 Origin: 579a8f3 / M3.1
 Identity History: none
 GitHub Issue: #19 - https://github.com/jeonghanlee/cloud-provision/issues/19
-Status: Not started
+Status: In progress
 
 ##### Summary
 
-Review the VM readiness and shutdown wait budgets as one policy. The current evidence shows that the `cloud-init` budget ended a healthy production bake before the build VM finished.
+Review the VM readiness and shutdown wait budgets as one policy. D4 records the accepted values, and implementation and verification are in progress.
 
 ##### Scope
 
@@ -159,28 +160,31 @@ Out of scope: Changing `cloud-init` status parsing, SSH readiness semantics, VM 
 
 ##### Completion Criteria
 
-- The four wait budgets are documented together with the measurements that justify them: IP discovery at 3 x 10s, SSH readiness at 6 x 10s, `cloud-init` completion at 20 x 30s, and domain shutdown at 12 x 5s in `do_stop` versus 24 x 5s in the bake.
+- The four wait policies are documented together with the measurements that justify them: IP discovery at six polls with 10-second intervals, SSH readiness at six probes with 10-second intervals and a 5-second connection timeout, `cloud-init` completion at sixty-one polls with 30-second intervals, and domain shutdown at twelve polls with 5-second intervals through one shared path.
 - The runbook's diagnosis guidance and the script limits agree.
 - Verification covers timeout and eventual-success behavior through the public script path, replacing only external command boundaries where isolation is required.
 - The measured basis answers G1's shutdown allowance question.
 
 Observed 2026-07-31 during a production bake: the `cloud-init` budget expired while the build VM was healthy and still working. `cloud-init status --long` reported `status: running`, `Running in stage: modules-final`, and `errors: []`; `systemctl --failed` listed nothing; and `dnf` had logged `Total download size: 97 M`. The budget, not the boot, ended the run.
 
+Pre-change code inspection on 2026-08-14 confirmed that the readiness values are poll counts rather than exact elapsed-time budgets. IP discovery made three polls with two 10-second sleeps. SSH made six probes with five 10-second sleeps and each probe could spend up to the configured 5-second connection timeout. Cloud-init made twenty polls with nineteen 30-second sleeps. The shutdown paths slept before every poll, so their twelve and twenty-four 5-second waits were actual 60-second and 120-second limits.
+
 ##### Dependencies And Decisions
 
-- none
+- D4
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: Owner approved the isolated measurement plan and selected D4 option 1 in the current session, 2026-08-14
+Implementation Authorization: Owner authorized the accepted measurement and D4 implementation plan in the current session, 2026-08-14
 Superseded Plan Artifacts: none
 
-1. Measure the four wait paths on real supported VM environments.
-2. Decide the policy and record the owner acceptance.
-3. Update the implementation and runbook where the policy changes behavior.
-4. Verify timeout and eventual-success behavior through the public paths.
+1. Confirm that isolated `m31-rocky8-test` and `m31-debian13-test` DHCP VM names do not collide with existing domains.
+2. Provision both isolated VMs through the shipped public path and record IP discovery, SSH readiness, and cloud-init completion timings without replacing an internal function.
+3. Stop both isolated VMs through the shipped public stop path, record graceful-shutdown timings, and clean only the two isolated domains and their artifacts.
+4. Analyze the measurements and propose the intended budgets. Do not change production values until the owner accepts the policy decision.
+5. Implement D4, update the runbook, and verify timeout and eventual-success behavior through the public paths.
 
 ##### Test Plan
 
@@ -193,10 +197,12 @@ Superseded Plan Artifacts: none
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | M3.1 / T1 | 2026-07-31 | Production bake on host `Neutron` | Observed the `cloud-init` budget expire while the VM remained healthy and active; the full policy has not yet been decided | GitHub issue #19 evidence and prior canonical state at commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0` |
+| M3.1 / T1 | 2026-08-14 17:10 PDT | Host `top`; real Libvirt/KVM; isolated `m31-rocky8-test` and `m31-debian13-test` DHCP VMs; shipped `bin/create_vm.bash` provision, stop, and cleanup paths with an outer UTC timestamp recorder | Both provisioning runs reached `READY` and both public stop runs succeeded. Rocky 8 obtained an address on the third DHCP poll after about 21 seconds, passed SSH on the first probe, and reported cloud-init complete on the third status poll 61 seconds after the first status check. Debian 13 obtained an address on the second DHCP poll after about 10 seconds, passed SSH on the first probe, and reported cloud-init complete on the third status poll 61 seconds after the first status check. Each VM reached `shut off` on the first 5-second stop poll. Cleanup removed both isolated domains, disk pairs, and seed ISOs; no matching domain, file, or DHCP reservation remained. This base-image sample does not replace the prior package-installing bake observation. | `bin/create_vm.bash -o <os> -n test -d /home/jeonglee/libvirt/images -p m31 -F`; the same command with `-S` and `-c`; UTC observation window 2026-08-15T00:06:19Z through 2026-08-15T00:10:11Z |
+| M3.1 / T1 | 2026-08-15 01:31 PDT | Local checkout; shipped `bin/create_vm.bash` with only outer `virsh`, `ssh`, and `sleep` boundaries controlled by the repository fixture | The default timeout and last-attempt success cases passed for IP discovery, SSH, cloud-init, and shutdown. Execution-time overrides reached the public path. All nine settings rejected zero, and representative negative and non-integer values were rejected before a VM action. | `make check-cloud-init-status`: 151/151; `bash -n`: pass; `shellcheck -S warning`: pass; plain `shellcheck`: two existing SC1091 information items for dynamic `source` paths; `git diff --check`: pass |
 
 ##### Closure Evidence
 
-- none
+- 2026-08-15 third-person findings and the first second-person finding were corrected; the repeated second-person pass found no additional issue. GitHub issue #19 remains open, so M3.1 remains In progress.
 
 ##### GitHub Projection
 
@@ -206,7 +212,7 @@ GitHub Milestone: Nimbus - Cloud Provisioning Reliability
 Observed State: open
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-12; issue updated 2026-07-31T09:37:09Z
+Last Compared: 2026-08-14; issue updated 2026-07-31T09:37:09Z
 
 <a id="m32"></a>
 #### M3.2 - Reuse VM stop behavior in the ioc-runner bake
@@ -214,57 +220,58 @@ Last Compared: 2026-08-12; issue updated 2026-07-31T09:37:09Z
 Origin: 579a8f3 / M3.2
 Identity History: none
 GitHub Issue: #11 - https://github.com/jeonghanlee/cloud-provision/issues/11
-Status: Blocked
+Status: In progress
 
 ##### Summary
 
-Decide whether the ioc-runner bake should reuse the shared VM stop behavior or retain a separate parameterized path. The shutdown budget must be decided before the implementation path is selected.
+Reuse the shared VM stop behavior in the ioc-runner bake. D4 selects the public `create_vm.bash -S` path with the same validated shutdown settings used by ordinary VM operations.
 
 ##### Scope
 
-- Decide the required shutdown allowance.
-- Share the shipped stop path or document and test an explicitly separate path.
+- Apply the D4 shutdown allowance.
+- Share the shipped public stop path.
 - Cover successful shutdown, timeout, and unexpected domain state.
 
 Out of scope: Changing the image flattening or cleanup sequence.
 
 ##### Completion Criteria
 
-- The required bake timeout is decided.
-- The selected shared or separate paths cover successful shutdown, timeout, and unexpected state.
-- Resume as Not started when M3.1 and G1 are Complete.
+- The required bake timeout is recorded in D4.
+- The bake invokes the shipped public stop path.
+- The shared path covers successful shutdown, timeout, and unexpected state.
 
 ##### Dependencies And Decisions
 
-- M3.1
+- D4
 - G1
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: Owner selection of D4 option 1 in the current session, 2026-08-14
+Implementation Authorization: Owner authorized the selected implementation in the current session, 2026-08-14
 Superseded Plan Artifacts: none
 
-1. Use M3.1 and G1 to establish the shutdown policy.
-2. Select the shared or explicitly separate implementation path.
-3. Add or update the public-path checks for all required shutdown states.
+1. Use D4 and G1 as the accepted shutdown policy.
+2. Call `create_vm.bash -S` from the ioc-runner publication step.
+3. Verify bake wiring and the shared public path's successful shutdown, timeout, and unexpected-state behavior.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
-| M3.2 / T1 | Runtime behavior | Exercise successful shutdown, timeout, and unexpected domain state through the shipped bake and VM lifecycle paths | Supported VM environments with controlled domain states | The selected path applies one documented policy and reports each state correctly |
+| M3.2 / T1 | Runtime behavior | Exercise successful shutdown, timeout, and unexpected domain state through the shipped bake and VM lifecycle paths | Shipped scripts with controlled outer `virsh`, `ssh`, and `sleep` boundaries, plus M3.1 real stop measurements | The selected path applies one documented policy and reports each state correctly |
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | M3.2 / T1 | 2026-08-06 canonicalization evidence | As recorded in the prior generation | Not rerun during reset; blocked by M3.1 and G1 | Prior canonical state at commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0` |
+| M3.2 / T1 | 2026-08-15 01:31 PDT | Local checkout; shipped ioc-runner bake and VM lifecycle scripts with controlled outer command boundaries; M3.1 real shutdown measurements | Three successful publication cases called the public `create_vm.bash -S` path and passed a 7-second execution override to it. The shared lifecycle test covered first-poll and last-poll success, timeout, and unexpected state. | `make check-bake`: 7/7 fresh-input, 83/83 ioc-runner provenance and publication, 8/8 EtherCAT regression; `make check-cloud-init-status`: 151/151; `make check-docs`: 51/51 |
 
 ##### Closure Evidence
 
-- Blocked by M3.1 and G1. Restore status to Not started when both dependencies are Complete.
+- 2026-08-15 third-person findings and the first second-person finding were corrected; the repeated second-person pass found no additional issue. GitHub issue #11 remains open, so M3.2 remains In progress.
 
 ##### GitHub Projection
 
@@ -274,7 +281,7 @@ GitHub Milestone: Nimbus - Cloud Provisioning Reliability
 Observed State: open
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-12; issue updated 2026-07-23T08:37:27Z
+Last Compared: 2026-08-14; issue updated 2026-07-23T08:37:27Z
 
 <a id="m41"></a>
 #### M4.1 - Validate the Rocky 8 golden after the sudoers fix
@@ -416,14 +423,14 @@ GitHub Milestone: Nimbus - Cloud Provisioning Reliability
 Observed State: open
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-13; issue updated 2026-08-13T20:42:09Z
+Last Compared: 2026-08-14; issue updated 2026-07-23T08:37:27Z
 
 <a id="g1"></a>
 #### G1 - Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance
 
 Origin: 579a8f3 / G1
 GitHub Issue: none
-Status: Open
+Status: Complete
 
 ##### Summary
 
@@ -435,7 +442,7 @@ Confirm whether the ioc-runner bake requires a separate 120-second shutdown allo
 
 ##### Completion Criteria
 
-- The bake waits 24 x 5s while `do_stop` waits 12 x 5s.
+- The pre-change bake waited 24 x 5s while `do_stop` waited 12 x 5s.
 - M3.1 provides the measured basis for the difference.
 - The owner accepts the resulting shutdown policy.
 
@@ -444,10 +451,11 @@ Confirm whether the ioc-runner bake requires a separate 120-second shutdown allo
 | Observed At | Result | Evidence |
 | --- | --- | --- |
 | 2026-08-06 canonicalization evidence | Open; not rerun during reset | Prior canonical state at commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0` |
+| 2026-08-14 17:10 PDT | Rocky 8 and Debian 13 both reached `shut off` on the first 5-second public stop poll. The owner selected D4, which uses one twelve-poll, 5-second public stop path for ordinary provisioning and the ioc-runner bake. | M3.1 / T1 real Libvirt/KVM measurements; owner selection of option 1 |
 
 ##### Closure Evidence
 
-- none; the external condition remains open.
+- Complete by owner acceptance of D4 on 2026-08-14. The ioc-runner bake does not retain a separate 120-second shutdown allowance.
 
 <a id="g2"></a>
 #### G2 - Run downstream validation on the 2026-06-03 Rocky 8 golden image

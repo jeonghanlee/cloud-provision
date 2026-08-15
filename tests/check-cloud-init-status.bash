@@ -142,7 +142,19 @@ case "$cmd" in
         # A domain that was asked to shut down reports "shut off" from then on,
         # unless the case asked for one that never obeys.
         if [[ -n "${FAKE_SHUTDOWN_MARKER:-}" && -e "${FAKE_SHUTDOWN_MARKER}" ]]; then
-            printf "shut off\n"
+            count=0
+            if [[ -n "${FAKE_SHUTDOWN_COUNT_FILE:-}" && -f "${FAKE_SHUTDOWN_COUNT_FILE}" ]]; then
+                read -r count < "${FAKE_SHUTDOWN_COUNT_FILE}"
+            fi
+            count=$((count + 1))
+            if [[ -n "${FAKE_SHUTDOWN_COUNT_FILE:-}" ]]; then
+                printf "%s\n" "${count}" > "${FAKE_SHUTDOWN_COUNT_FILE}"
+            fi
+            if [[ "${count}" -ge "${FAKE_SHUTDOWN_READY_AFTER:-1}" ]]; then
+                printf "shut off\n"
+            else
+                printf "running\n"
+            fi
             exit 0
         fi
         printf "%s\n" "${FAKE_DOMAIN_STATE:-running}"
@@ -151,7 +163,17 @@ case "$cmd" in
         exit "${FAKE_DOMINFO_RC:-1}"
         ;;
     domifaddr)
-        printf " vnet0 52:54:00:00:64:00 ipv4 192.168.122.100/24\n"
+        count=0
+        if [[ -n "${FAKE_DOMIFADDR_COUNT_FILE:-}" && -f "${FAKE_DOMIFADDR_COUNT_FILE}" ]]; then
+            read -r count < "${FAKE_DOMIFADDR_COUNT_FILE}"
+        fi
+        count=$((count + 1))
+        if [[ -n "${FAKE_DOMIFADDR_COUNT_FILE:-}" ]]; then
+            printf "%s\n" "${count}" > "${FAKE_DOMIFADDR_COUNT_FILE}"
+        fi
+        if [[ "${count}" -ge "${FAKE_DOMIFADDR_READY_AFTER:-1}" ]]; then
+            printf " vnet0 52:54:00:00:64:00 ipv4 192.168.122.100/24\n"
+        fi
         ;;
     shutdown)
         if [[ -n "${FAKE_SHUTDOWN_MARKER:-}" ]]; then
@@ -188,9 +210,35 @@ case "${remote_cmd}" in
         if [[ -n "${FAKE_SSH_STDERR:-}" ]]; then
             printf "%s\n" "${FAKE_SSH_STDERR}" >&2
         fi
+        if [[ -n "${FAKE_SSH_READY_AFTER:-}" ]]; then
+            count=0
+            if [[ -n "${FAKE_SSH_COUNT_FILE:-}" && -f "${FAKE_SSH_COUNT_FILE}" ]]; then
+                read -r count < "${FAKE_SSH_COUNT_FILE}"
+            fi
+            count=$((count + 1))
+            printf "%s\n" "${count}" > "${FAKE_SSH_COUNT_FILE}"
+            if [[ "${count}" -ge "${FAKE_SSH_READY_AFTER}" ]]; then
+                exit 0
+            fi
+            exit 255
+        fi
         exit "${FAKE_SSH_EXIT_RC:-0}"
         ;;
     "cloud-init status")
+        if [[ -n "${FAKE_CLOUD_INIT_READY_AFTER:-}" ]]; then
+            count=0
+            if [[ -n "${FAKE_CLOUD_INIT_COUNT_FILE:-}" && -f "${FAKE_CLOUD_INIT_COUNT_FILE}" ]]; then
+                read -r count < "${FAKE_CLOUD_INIT_COUNT_FILE}"
+            fi
+            count=$((count + 1))
+            printf "%s\n" "${count}" > "${FAKE_CLOUD_INIT_COUNT_FILE}"
+            if [[ "${count}" -ge "${FAKE_CLOUD_INIT_READY_AFTER}" ]]; then
+                printf "%s\n" "status: done"
+            else
+                printf "%s\n" "status: running"
+            fi
+            exit 0
+        fi
         printf "%s" "${FAKE_CLOUD_INIT_STATUS_OUTPUT:-}"
         exit "${FAKE_CLOUD_INIT_STATUS_RC:-0}"
         ;;
@@ -322,8 +370,16 @@ function run_create_vm {
     FAKE_DOMINFO_RC="${CASE_DOMINFO_RC:-${dominfo_rc}}" \
     FAKE_SSH_EXIT_RC="${FAKE_SSH_EXIT_RC:-0}" \
     FAKE_SSH_STDERR="${FAKE_SSH_STDERR:-}" \
+    FAKE_SSH_READY_AFTER="${FAKE_SSH_READY_AFTER:-}" \
+    FAKE_SSH_COUNT_FILE="${FAKE_SSH_COUNT_FILE:-}" \
+    FAKE_CLOUD_INIT_READY_AFTER="${FAKE_CLOUD_INIT_READY_AFTER:-}" \
+    FAKE_CLOUD_INIT_COUNT_FILE="${FAKE_CLOUD_INIT_COUNT_FILE:-}" \
     FAKE_LIBVIRT_DOWN="${FAKE_LIBVIRT_DOWN:-}" \
     FAKE_SHUTDOWN_MARKER="${FAKE_SHUTDOWN_MARKER:-}" \
+    FAKE_SHUTDOWN_READY_AFTER="${FAKE_SHUTDOWN_READY_AFTER:-}" \
+    FAKE_SHUTDOWN_COUNT_FILE="${FAKE_SHUTDOWN_COUNT_FILE:-}" \
+    FAKE_DOMIFADDR_READY_AFTER="${FAKE_DOMIFADDR_READY_AFTER:-}" \
+    FAKE_DOMIFADDR_COUNT_FILE="${FAKE_DOMIFADDR_COUNT_FILE:-}" \
     FAKE_QEMU_IMG_FAIL="${FAKE_QEMU_IMG_FAIL:-}" \
     FAKE_RESERVED_IP="${FAKE_RESERVED_IP:-}" \
     FAKE_GENISOIMAGE_FAIL="${FAKE_GENISOIMAGE_FAIL:-}" \
@@ -333,6 +389,15 @@ function run_create_vm {
     FAKE_SSH_ARG_LOG="${SSH_ARG_LOG}" \
     FAKE_QEMU_IMG_LOG="${QEMU_IMG_LOG}" \
     IMAGE_WORKFLOW_RUN_ID="${CASE_RUN_ID:-}" \
+    VM_WAIT_IP_ATTEMPTS="${VM_WAIT_IP_ATTEMPTS:-}" \
+    VM_WAIT_IP_INTERVAL_SECONDS="${VM_WAIT_IP_INTERVAL_SECONDS:-}" \
+    VM_WAIT_SSH_ATTEMPTS="${VM_WAIT_SSH_ATTEMPTS:-}" \
+    VM_WAIT_SSH_INTERVAL_SECONDS="${VM_WAIT_SSH_INTERVAL_SECONDS:-}" \
+    VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS="${VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS:-}" \
+    VM_WAIT_CLOUD_INIT_ATTEMPTS="${VM_WAIT_CLOUD_INIT_ATTEMPTS:-}" \
+    VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS="${VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS:-}" \
+    VM_WAIT_SHUTDOWN_ATTEMPTS="${VM_WAIT_SHUTDOWN_ATTEMPTS:-}" \
+    VM_WAIT_SHUTDOWN_INTERVAL_SECONDS="${VM_WAIT_SHUTDOWN_INTERVAL_SECONDS:-}" \
     PATH="${FAKEBIN}:${PATH}" \
     HOME="${WORKSPACE}/home" \
     REQUIRED_GROUP="$(id -gn)" \
@@ -347,15 +412,12 @@ function reset_sleep_log {
     : > "${SLEEP_LOG}"
 }
 
-# Drives the readiness path with an output the shared parser must reject, then
-# checks the retry contract without hard-coding the budget: the loop reports the
-# attempt count it actually made, sleeps once between consecutive attempts, and
-# uses one interval throughout. Reading the count from the run keeps this test
-# valid when the retry budget itself is revisited.
+# Drives the readiness path with an output the shared parser must reject and
+# pins the accepted default cloud-init policy through the public script.
 function run_rejection_case {
     local name="$1"
     local status_output="$2"
-    local result rc output attempts sleeps intervals
+    local result rc output attempts sleeps interval_values
 
     reset_sleep_log
     result=$(run_create_vm "${status_output}" "provision")
@@ -374,10 +436,11 @@ function run_rejection_case {
     fi
 
     sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
-    intervals=$(sort -u "${SLEEP_LOG}" | wc -l | tr -d '[:space:]')
+    interval_values=$(sort -u "${SLEEP_LOG}")
 
-    expect_equal "${name} sleeps between attempts" "$(( attempts - 1 ))" "${sleeps}"
-    expect_equal "${name} single retry interval" "1" "${intervals}"
+    expect_equal "${name} default attempts" "61" "${attempts}"
+    expect_equal "${name} sleeps between attempts" "60" "${sleeps}"
+    expect_equal "${name} default retry interval" "30" "${interval_values}"
 }
 
 # Drives the readiness path with an SSH probe that fails. The contract says a
@@ -389,7 +452,7 @@ function run_ssh_rejection_case {
     local name="$1"
     local stderr_text="$2"
     local want_text="$3"
-    local result rc output sleeps
+    local result rc output sleeps interval_values
 
     reset_sleep_log
     result=$(FAKE_SSH_EXIT_RC=255 FAKE_SSH_STDERR="${stderr_text}" \
@@ -407,7 +470,148 @@ function run_ssh_rejection_case {
         sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
         expect_equal "${name} does not spend the budget" "0" "${sleeps}"
         expect_contains "${name} repair" "${output}" "ssh-keygen -f"
+    else
+        sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+        interval_values=$(sort -u "${SLEEP_LOG}")
+        expect_contains "${name} default attempts" "${output}" "after 6 attempts"
+        expect_equal "${name} sleeps between attempts" "5" "${sleeps}"
+        expect_equal "${name} default retry interval" "10" "${interval_values}"
     fi
+}
+
+function run_ip_policy_case {
+    local name="$1"
+    local ready_after="$2"
+    local want_rc="$3"
+    local want_text="$4"
+    local count_file="${WORKSPACE}/domifaddr-count"
+    local result rc output sleeps interval_values attempts
+
+    reset_sleep_log
+    rm -f -- "${count_file}"
+    result=$(CASE_NODE_ID=test FAKE_DOMIFADDR_READY_AFTER="${ready_after}" \
+        FAKE_DOMIFADDR_COUNT_FILE="${count_file}" \
+        run_create_vm $'status: done\n' "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+    interval_values=$(sort -u "${SLEEP_LOG}")
+    read -r attempts < "${count_file}"
+
+    expect_exit "${name} exit" "${want_rc}" "${rc}"
+    expect_contains "${name} result" "${output}" "${want_text}"
+    expect_equal "${name} default attempts" "6" "${attempts}"
+    expect_equal "${name} sleeps between attempts" "5" "${sleeps}"
+    expect_equal "${name} default retry interval" "10" "${interval_values}"
+}
+
+function run_ssh_eventual_case {
+    local count_file="${WORKSPACE}/ssh-count"
+    local result rc output sleeps interval_values attempts
+
+    reset_sleep_log
+    rm -f -- "${count_file}"
+    result=$(FAKE_SSH_READY_AFTER=6 FAKE_SSH_COUNT_FILE="${count_file}" \
+        run_create_vm $'status: done\n' "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+    interval_values=$(sort -u "${SLEEP_LOG}")
+    read -r attempts < "${count_file}"
+
+    expect_exit "ssh eventual success exit" "0" "${rc}"
+    expect_contains "ssh eventual success result" "${output}" "SSH: ready [OK]"
+    expect_equal "ssh eventual success attempts" "6" "${attempts}"
+    expect_equal "ssh eventual success sleeps" "5" "${sleeps}"
+    expect_equal "ssh eventual success interval" "10" "${interval_values}"
+}
+
+function run_cloud_init_eventual_case {
+    local count_file="${WORKSPACE}/cloud-init-count"
+    local result rc output sleeps interval_values attempts
+
+    reset_sleep_log
+    rm -f -- "${count_file}"
+    result=$(FAKE_CLOUD_INIT_READY_AFTER=61 \
+        FAKE_CLOUD_INIT_COUNT_FILE="${count_file}" \
+        run_create_vm $'status: running\n' "provision")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+    interval_values=$(sort -u "${SLEEP_LOG}")
+    read -r attempts < "${count_file}"
+
+    expect_exit "cloud-init eventual success exit" "0" "${rc}"
+    expect_contains "cloud-init eventual success result" "${output}" "complete [OK]"
+    expect_equal "cloud-init eventual success attempts" "61" "${attempts}"
+    expect_equal "cloud-init eventual success sleeps" "60" "${sleeps}"
+    expect_equal "cloud-init eventual success interval" "30" "${interval_values}"
+}
+
+function run_override_case {
+    local override_log="${WORKSPACE}/ssh-override-args.log"
+    local saved_log="${SSH_ARG_LOG}"
+    local result rc output sleeps interval_values
+
+    reset_sleep_log
+    : > "${override_log}"
+    SSH_ARG_LOG="${override_log}"
+    result=$(VM_WAIT_CLOUD_INIT_ATTEMPTS=3 \
+        VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS=7 \
+        VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS=3 \
+        run_create_vm $'status: running\n' "provision")
+    SSH_ARG_LOG="${saved_log}"
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+    interval_values=$(sort -u "${SLEEP_LOG}")
+
+    expect_exit "wait override exit" "1" "${rc}"
+    expect_contains "wait override attempts" "${output}" "after 3 attempts"
+    expect_equal "wait override sleeps" "2" "${sleeps}"
+    expect_equal "wait override interval" "7" "${interval_values}"
+    if grep -q -- '-o ConnectTimeout=3' "${override_log}"; then
+        record_pass "SSH connect timeout override"
+    else
+        record_fail "SSH connect timeout override" "ConnectTimeout=3 was not used"
+    fi
+}
+
+function run_invalid_wait_setting_case {
+    local name="$1"
+    local value="$2"
+    local label="${name}=${value}"
+    local result rc output
+    local "${name}=${value}"
+
+    result=$(run_create_vm $'status: done\n' "status")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+
+    expect_exit "invalid wait setting ${label} exit" "1" "${rc}"
+    expect_contains "invalid wait setting ${label} result" "${output}" \
+        "${name} must be a positive integer"
+}
+
+function run_invalid_wait_setting_cases {
+    local name
+    local -a names=(
+        VM_WAIT_IP_ATTEMPTS
+        VM_WAIT_IP_INTERVAL_SECONDS
+        VM_WAIT_SSH_ATTEMPTS
+        VM_WAIT_SSH_INTERVAL_SECONDS
+        VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS
+        VM_WAIT_CLOUD_INIT_ATTEMPTS
+        VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS
+        VM_WAIT_SHUTDOWN_ATTEMPTS
+        VM_WAIT_SHUTDOWN_INTERVAL_SECONDS
+    )
+
+    for name in "${names[@]}"; do
+        run_invalid_wait_setting_case "${name}" "0"
+    done
+    run_invalid_wait_setting_case VM_WAIT_IP_ATTEMPTS -1
+    run_invalid_wait_setting_case VM_WAIT_IP_ATTEMPTS invalid
 }
 
 # Drives one cell of the action-by-state table in ARCHITECTURE section 14.
@@ -415,13 +619,13 @@ function run_ssh_rejection_case {
 # cell that no action can currently produce is still exercised.
 # Stop against a domain that obeys the ACPI request: the marker makes the fake
 # report "shut off" once shutdown has been issued, which is the transition the
-# poll exists to observe. The attempt count and interval are deliberately not
-# asserted; they belong to the wait-budget policy.
+# poll exists to observe. This case pins first-poll success and the default
+# interval; the last-attempt case below pins the full shutdown budget.
 function run_stop_obeys_case {
     local name="$1"
     local want_rc="$2"
     local want_text="$3"
-    local result rc output
+    local result rc output sleeps interval_values
 
     reset_sleep_log
     result=$(FAKE_STATE_OVERRIDE="running" \
@@ -429,10 +633,38 @@ function run_stop_obeys_case {
         run_create_vm $'status: done\n' "stop")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
+    sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+    interval_values=$(sort -u "${SLEEP_LOG}")
     rm -f -- "${WORKSPACE}/shutdown.marker"
 
     expect_exit "${name} exit" "${want_rc}" "${rc}"
     expect_contains "${name} message" "${output}" "${want_text}"
+    expect_equal "${name} first poll" "1" "${sleeps}"
+    expect_equal "${name} default interval" "5" "${interval_values}"
+}
+
+function run_stop_eventual_case {
+    local marker="${WORKSPACE}/shutdown.marker"
+    local count_file="${WORKSPACE}/shutdown-count"
+    local result rc output sleeps interval_values attempts
+
+    reset_sleep_log
+    rm -f -- "${marker}" "${count_file}"
+    result=$(FAKE_STATE_OVERRIDE=running FAKE_SHUTDOWN_MARKER="${marker}" \
+        FAKE_SHUTDOWN_READY_AFTER=12 FAKE_SHUTDOWN_COUNT_FILE="${count_file}" \
+        run_create_vm $'status: done\n' "stop")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
+    interval_values=$(sort -u "${SLEEP_LOG}")
+    read -r attempts < "${count_file}"
+    rm -f -- "${marker}" "${count_file}"
+
+    expect_exit "stop eventual success exit" "0" "${rc}"
+    expect_contains "stop eventual success result" "${output}" "shut off [OK]"
+    expect_equal "stop eventual success attempts" "12" "${attempts}"
+    expect_equal "stop eventual success sleeps" "12" "${sleeps}"
+    expect_equal "stop eventual success interval" "5" "${interval_values}"
 }
 
 function run_lifecycle_case {
@@ -798,19 +1030,24 @@ function run_case {
 # previous run at the same reused address accepts the connection, fails
 # mid-request, and returns a non-blocking stdin the caller never clears.
 function assert_ssh_multiplexing_off {
-    local total offenders
+    local total multiplexing_offenders timeout_offenders
 
     if [[ ! -s "${SSH_ARG_LOG}" ]]; then
         record_fail "ssh probes were recorded" "no ssh invocation reached the log"
         return 0
     fi
     total="$(wc -l < "${SSH_ARG_LOG}" | tr -d '[:space:]')"
-    offenders="$(awk \
+    multiplexing_offenders="$(awk \
         '!/-o ControlMaster=no/ || !/-o ControlPath=none/ {count++} END {print count + 0}' \
         "${SSH_ARG_LOG}")"
-    printf "  ssh invocations recorded: %s (missing options: %s)\n" \
-        "${total}" "${offenders}"
-    expect_equal "every ssh probe refuses multiplexing" "0" "${offenders}"
+    timeout_offenders="$(awk \
+        '!/-o ConnectTimeout=5/ {count++} END {print count + 0}' \
+        "${SSH_ARG_LOG}")"
+    printf "  ssh invocations recorded: %s (multiplexing: %s, timeout: %s)\n" \
+        "${total}" "${multiplexing_offenders}" "${timeout_offenders}"
+    expect_equal "every ssh probe refuses multiplexing" "0" "${multiplexing_offenders}"
+    expect_equal "every default SSH probe uses the 5-second connection timeout" \
+        "0" "${timeout_offenders}"
 }
 
 function print_summary {
@@ -838,6 +1075,12 @@ run_case "status malformed" $'done but no status field\n' "status" 1 "cloud-init
 run_case "provision done" $'status: done\n' "provision" 0 "cloud-init: complete [OK]"
 run_rejection_case "provision not complete" $'status: running\n'
 run_rejection_case "provision malformed" $'done but no status field\n'
+run_ip_policy_case "IP eventual success" 6 0 "SSH: ready [OK]"
+run_ip_policy_case "IP timeout" 7 1 "Status: IP not available"
+run_ssh_eventual_case
+run_cloud_init_eventual_case
+run_override_case
+run_invalid_wait_setting_cases
 run_ssh_rejection_case "ssh unavailable" "" "SSH: not available after"
 run_ssh_rejection_case "ssh host key changed" \
     "@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@" \
@@ -846,7 +1089,8 @@ run_ssh_rejection_case "ssh host key changed" \
 # Libvirt lifecycle policy, ARCHITECTURE section 14. Each case names the row of
 # the action-by-state table it pins.
 run_stop_obeys_case "stop running" 0 "shut off [OK]"
-run_lifecycle_case "stop never obeys" "stop" "running" 1 "did not shut off within"
+run_stop_eventual_case
+run_lifecycle_case "stop never obeys" "stop" "running" 1 "did not shut off within 60s"
 run_lifecycle_case "stop already off" "stop" "shut off" 0 "already shut off"
 run_lifecycle_case "stop absent" "stop" "absent" 0 "is not defined"
 run_lifecycle_case "stop paused" "stop" "paused" 1 "unexpected state: paused"

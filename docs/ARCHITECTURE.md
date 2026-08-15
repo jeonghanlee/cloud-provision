@@ -352,7 +352,7 @@ ready-to-use environment.
      | 8. validate /etc/iocrunner-bake.manifest inside the VM, then extract
      |    it as the sidecar
      |
-     | 9. shutdown, copy the validated disk to a unique image pair, and publish
+     | 9. stop through create_vm.bash -S, copy to a unique pair, and publish
      |
      | 10. clean build VM  (or keep with -k)
      |
@@ -368,7 +368,7 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 | 4-6 | `ansible-playbook` | Apply the software stack, NFS simulator, and test users |
 | 7 | remote privileged Bash | Append `pip3 freeze` and remove site proxy configuration |
 | 8 | `validate_iocrunner_bake.bash` | Validate the manifest before any sidecar extraction or image publication |
-| 9 | `virsh`, `qemu-img`, `mv` | Quiesce and publish an independent image with its creation record |
+| 9 | `create_vm.bash -S`, `qemu-img`, `mv` | Stop through the shared lifecycle path and publish an independent image with its creation record |
 | 10 | `create_vm.bash -c` | Tear down the build VM unless `-k` keeps it for explicit follow-up checks |
 
 **Inputs.**
@@ -485,8 +485,28 @@ seconds earlier; the provisioner also reports on long-lived VMs the operator did
 not just create, where silently accepting a changed identity would hide a fact
 worth seeing.
 
-Retry counts and intervals are not part of this contract. They are recorded and
-reviewed separately.
+### Wait policy
+
+Readiness and shutdown use one set of positive integer environment settings.
+The defaults come from measured Rocky 8 and Debian 13 behavior, and an operator
+may override one or more values for a single execution without changing the
+readiness or lifecycle semantics.
+
+| Path | Attempts | Interval | Additional bound | Default behavior |
+| --- | --- | --- | --- | --- |
+| DHCP IP discovery | `VM_WAIT_IP_ATTEMPTS=6` | `VM_WAIT_IP_INTERVAL_SECONDS=10` | none | Six polls with five sleeps, up to 50 seconds between the first and final polls |
+| SSH readiness | `VM_WAIT_SSH_ATTEMPTS=6` | `VM_WAIT_SSH_INTERVAL_SECONDS=10` | `VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS=5` | Six probes with five sleeps; each probe may also spend up to 5 seconds connecting |
+| `cloud-init` completion | `VM_WAIT_CLOUD_INIT_ATTEMPTS=61` | `VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS=30` | none | Sixty-one polls with sixty sleeps, 30 minutes between the first and final polls |
+| Domain shutdown | `VM_WAIT_SHUTDOWN_ATTEMPTS=12` | `VM_WAIT_SHUTDOWN_INTERVAL_SECONDS=5` | none | Twelve polls after the ACPI request, up to 60 seconds |
+
+Static-address nodes skip DHCP IP discovery and begin with the SSH probe. A
+changed SSH host key remains an immediate failure and does not spend the SSH
+budget. All settings reject zero, negative, and non-integer values.
+
+The ioc-runner bake exports its run identity and calls the same
+`create_vm.bash -S` path at publication step 9. It therefore uses the same
+60-second shutdown default and the same execution-time overrides as an
+ordinary public stop.
 
 ### Connection multiplexing is refused
 

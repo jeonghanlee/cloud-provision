@@ -462,21 +462,8 @@ ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo cat /etc/iocrunner-bake.manifes
 [[ -s "${SIDECAR_TEMP}" ]] || die "sidecar extraction produced an empty file"
 
 printf "\nStep 9/9: Shutdown and publish the validated pair\n"
-virsh --connect "${LIBVIRT_URI}" shutdown "${VM_NAME}" >/dev/null
-
-declare -g ATTEMPT=0
-declare -g STATE="unknown"
-while [[ "${ATTEMPT}" -lt "24" ]]; do
-    sleep 5
-    STATE="$(virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" 2>/dev/null || printf "unknown\n")"
-    if [[ "${STATE}" == "shut off" ]]; then
-        printf "  VM shut off [OK]\n"
-        break
-    fi
-    ATTEMPT=$((ATTEMPT + 1))
-done
-
-[[ "${STATE}" == "shut off" ]] || die "VM did not shut down within 120s"
+"${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" \
+    -p "${VM_PREFIX}" -S
 [[ -f "${SOURCE_DISK}" ]] || die "source disk missing: ${SOURCE_DISK}"
 
 OUTPUT_TEMP_CREATED=true

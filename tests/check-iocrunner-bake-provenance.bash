@@ -432,6 +432,10 @@ EOF
 
     cat > "${fakebin}/sleep" <<'EOF'
 #!/usr/bin/env bash
+set -e
+if [[ -n "${SLEEP_LOG:-}" ]]; then
+    printf "%s\n" "$1" >> "${SLEEP_LOG}"
+fi
 exit 0
 EOF
 
@@ -591,6 +595,7 @@ function run_promotion_case {
         "RUNTIME_INVENTORY_ARG_LOG=${case_dir}/runtime-inventory-args.log"
         "RUNTIME_INVENTORY_SNAPSHOT=${case_dir}/runtime-inventory.ini"
         "SSH_ARG_LOG=${case_dir}/ssh-args.log"
+        "SLEEP_LOG=${case_dir}/sleep.log"
         "CASE_DIR=${case_dir}"
         "DOMAIN_STATE_FILE=${case_dir}/domain.state"
         "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
@@ -608,6 +613,7 @@ function run_promotion_case {
         "HOME=${home_dir}"
         "USER=$(id -un)"
         "REQUIRED_GROUP=$(id -gn)"
+        "VM_WAIT_SHUTDOWN_INTERVAL_SECONDS=7"
     )
     local -a bake_command=(
         "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" -k
@@ -666,6 +672,25 @@ function run_promotion_case {
             record_pass "${mode} removes only current temporary outputs"
         else
             record_fail "${mode} removes only current temporary outputs" "temporary output remained"
+        fi
+
+        if grep -Eq \
+            "VM 'testbed-rocky8-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' is running\. Shutting down \(ACPI\)\.\.\." \
+            "${case_dir}/output.txt" && \
+           grep -Eq \
+            "VM 'testbed-rocky8-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' shut off \[OK\]" \
+            "${case_dir}/output.txt"; then
+            record_pass "${mode} uses the shared public stop path"
+        else
+            record_fail "${mode} uses the shared public stop path" \
+                "public ACPI start or completion output is missing"
+        fi
+
+        if [[ "$(cat "${case_dir}/sleep.log")" == "7" ]]; then
+            record_pass "${mode} passes the wait override to the shared stop path"
+        else
+            record_fail "${mode} passes the wait override to the shared stop path" \
+                "the shared stop did not use the 7-second override"
         fi
 
         # These cases run with -k, which keeps the build VM on purpose. The
