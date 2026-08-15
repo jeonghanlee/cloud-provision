@@ -33,11 +33,16 @@ declare -g IMAGE_WORKFLOW_RUN_ID="${IMAGE_WORKFLOW_RUN_ID:-}"
 declare -g LIBVIRT_URI="qemu:///system"
 # Ansible inventory for the playbook call; env-overridable per site.
 declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
+declare -g ANSIBLE_USER="vmadmin"
+declare -g RUNTIME_INVENTORY=""
 declare -g MANIFEST_TEMP=""
 
 function cleanup_output_temps {
     local rc=$?
 
+    if [[ -n "${RUNTIME_INVENTORY}" ]]; then
+        rm -f -- "${RUNTIME_INVENTORY}"
+    fi
     if [[ -n "${MANIFEST_TEMP}" ]]; then
         rm -f -- "${MANIFEST_TEMP}"
     fi
@@ -104,8 +109,16 @@ esac
 # image workflow and is resolved by create_vm.bash through its creation record.
 declare -g BUILD_OS_TYPE="${OS_TYPE}-rtbase"
 declare -g CREATE_VM="${SC_TOP}/bin/create_vm.bash"
+declare -g INVENTORY_GENERATOR="${SC_TOP}/bin/generate_ansible_inventory.bash"
 declare -g ETHERCAT_BASE_PLAYBOOK="playbooks/05_ethercat_base.yml"
 declare -g ANSIBLE_PLAYBOOK_BIN
+declare -g INVENTORY_PATH
+
+if [[ "${INVENTORY}" == /* ]]; then
+    INVENTORY_PATH="${INVENTORY}"
+else
+    INVENTORY_PATH="${ANSIBLE_DIR}/${INVENTORY}"
+fi
 
 if ! IMAGE_WORKFLOW_RUN_ID="$(image_workflow_resolve_run_id \
     "${IMAGE_WORKFLOW_RUN_ID}")"; then
@@ -146,6 +159,17 @@ if [[ ! -d "${ANSIBLE_DIR}" ]]; then
     exit 1
 fi
 
+if [[ ! -x "${INVENTORY_GENERATOR}" ]]; then
+    printf "Error: inventory generator is not executable: %s\n" \
+        "${INVENTORY_GENERATOR}" >&2
+    exit 1
+fi
+
+if [[ ! -f "${INVENTORY_PATH}" ]]; then
+    printf "Error: inventory not found: %s\n" "${INVENTORY_PATH}" >&2
+    exit 1
+fi
+
 if [[ ! -f "${ANSIBLE_DIR}/${ETHERCAT_BASE_PLAYBOOK}" ]]; then
     printf "Error: ethercat base playbook not found: %s\n" "${ANSIBLE_DIR}/${ETHERCAT_BASE_PLAYBOOK}" >&2
     exit 1
@@ -178,6 +202,17 @@ fi
 ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "${VM_IP}" 2>/dev/null || true
 ssh-keyscan -H "${VM_IP}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null
 printf "  VM_IP=%s [OK]\n" "${VM_IP}"
+RUNTIME_INVENTORY="$(mktemp /tmp/cloud-provision-ansible-inventory.XXXXXX)"
+if ! "${INVENTORY_GENERATOR}" \
+    --vm-name "${VM_NAME}" \
+    --address "${VM_IP}" \
+    --os-type "${BUILD_OS_TYPE}" \
+    --role ethercat-build \
+    --ansible-user "${ANSIBLE_USER}" > "${RUNTIME_INVENTORY}"; then
+    printf "Error: failed to generate runtime inventory\n" >&2
+    exit 1
+fi
+printf "  runtime inventory for %s [OK]\n" "${VM_NAME}"
 
 printf "\nStep 3/7: Stamp the bake manifest header\n"
 declare -g CLOUD_HEAD ANSIBLE_HEAD
@@ -196,7 +231,8 @@ printf "  manifest header stamped [OK]\n"
 
 printf "\nStep 4/7: Apply ansible %s on %s\n" "${ETHERCAT_BASE_PLAYBOOK}" "${VM_NAME}"
 ( cd "${ANSIBLE_DIR}" && "${ANSIBLE_PLAYBOOK_BIN}" \
-    -i "${INVENTORY}" --limit "${VM_NAME}" "${ETHERCAT_BASE_PLAYBOOK}" )
+    -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
+    --limit "${VM_NAME}" "${ETHERCAT_BASE_PLAYBOOK}" )
 
 printf "\nStep 5/7: De-proxy, verify, copy manifest sidecar\n"
 ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo sh -s' <<'DEPROXY'

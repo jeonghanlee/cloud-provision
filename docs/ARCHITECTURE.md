@@ -309,9 +309,17 @@ section 8 is the contract between this layer and downstream tools.
 The canonical seam contract — responsibility boundary, cross-repo naming
 contract, and consumer register — is `ansible-provision/docs/SEAM.md`.
 
-`ansible-provision` reads the same IPs from `inventory/testbed.ini`
-without dynamic discovery, so any change to the IP scheme requires
-coordinated updates in both repositories.
+`bin/generate_ansible_inventory.bash` carries the actual VM name and resolved
+address into Ansible. It maps the cloud OS selector and workload role to the
+required direct groups. `ansible-provision/inventory/testbed.ini` contains no
+host rows; it supplies only stable parent-child group relationships, and its
+directory supplies the retained group variables.
+
+Ordinary and consumer VM operators generate a temporary host inventory from
+`create_vm.bash -s` output. The ioc-runner bake, EtherCAT bake, and EPICS-env
+build create and remove their temporary host inventories automatically. Every
+Ansible call receives both the maintained group source and the generated host
+source.
 
 **Pre-baked variants.** `rocky8-iocrunner` and `debian13-iocrunner`
 boot from a golden image that already contains the
@@ -335,8 +343,8 @@ ready-to-use environment.
      |
      | 1. create_vm.bash -o <os> -n build with the shared run ID
      |
-     | 2. refresh known_hosts, resolve the build VM address, and generate a
-     |    temporary inventory entry for the run-specific host
+     | 2. refresh known_hosts, resolve the build VM address, and call the
+     |    shared inventory generator for the run-specific host
      |
      | 3. resolve the source image from the source-disk creation record and
      |    stamp the manifest header
@@ -363,7 +371,7 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 | Step | Tool | Purpose |
 |------|------|---------|
 | 1 | `create_vm.bash` | Boot a run-specific build VM and independent VM disk |
-| 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan`, `mktemp` | Resolve the build VM address, refresh its `known_hosts` entry, and generate its temporary Ansible inventory entry |
+| 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan`, `generate_ansible_inventory.bash` | Resolve the build VM address, refresh its `known_hosts` entry, and generate its temporary Ansible inventory entry |
 | 3 | `qemu-img`, `sha256sum` | Record the selected source-image filename and digest |
 | 4-6 | `ansible-playbook` | Apply the software stack, NFS simulator, and test users |
 | 7 | remote privileged Bash | Append `pip3 freeze` and remove site proxy configuration |
@@ -381,7 +389,14 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 
 The bake script never mutates the upstream cloud base image. The output is an independent copy with a unique name, manifest sidecar, and creation record. Re-running the bake creates a new pair; an existing image is never overwritten.
 
-The maintained Ansible inventory supplies group relationships and group variables. The bake adds its run-specific host and resolved address through a temporary second inventory source, assigning it to the matching OS group and `nfs_sim_nodes`. Every bake play receives both inventory sources, and the temporary source is removed when the bake exits.
+The maintained Ansible inventory supplies group relationships and group
+variables. The shared generator adds the run-specific host and resolved address
+through a temporary second inventory source, assigning it to the matching OS
+group and `nfs_sim_nodes`. Every bake play receives both inventory sources, and
+the temporary source is removed when the bake exits. The EtherCAT bake follows
+the same contract with `ethercat_build`; the EPICS-env runner generates one
+host source per selected VM and limits the play to the resulting core or matrix
+group.
 
 **Provenance manifest.** Each IOC runner bake writes
 `/etc/iocrunner-bake.manifest` inside the build VM and, after validation,

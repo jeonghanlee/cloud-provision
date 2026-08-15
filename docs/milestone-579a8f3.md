@@ -13,7 +13,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: review and accept the M5.1 generated-inventory implementation plan before starting code changes.
+Next session entry point: review and commit the M5.1 changes in both repositories, push them, and reconcile GitHub issue #31; T1 and T2 are satisfied in the current working trees.
 
 ## Milestone
 
@@ -25,7 +25,7 @@ Next session entry point: review and accept the M5.1 generated-inventory impleme
 | M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | Complete | No | D4 | Commit `986d410` records and verifies the shared policy; GitHub issue #19 is closed; [M3.1 detail](#m31). |
 | M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | Complete | No | D4, G1 | Commit `986d410` routes the bake through the shared public stop path; GitHub issue #11 is closed; [M3.2 detail](#m32). |
 | M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Blocked | No | G2 | Run downstream validation against the real Rocky 8 golden after G2 completes; [M4.1 detail](#m41). |
-| M5 Dynamic Ansible inventory | M5.1 | Replace fixed Ansible host inventory with VM-derived inventory | Milestone | Not started | Yes |  | Provision and configure every supported VM type without adding its exact host name to a static inventory file; [M5.1 detail](#m51). |
+| M5 Dynamic Ansible inventory | M5.1 | Replace fixed Ansible host inventory with VM-derived inventory | Milestone | In progress | No |  | Provision and configure supported VM roles without adding exact host names to a static inventory file; T1 and T2 are satisfied in the current working trees, while durable commits and GitHub issue #31 closure remain; [M5.1 detail](#m51). |
 | External gate | G1 | Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance | External gate | Complete | No |  | Owner accepts a measured shutdown policy for the bake and provisioner paths; [G1 detail](#g1). |
 | External gate | G2 | Run downstream validation on the 2026-06-03 Rocky 8 golden image | External gate | Open | No |  | The real Rocky 8 golden and downstream validation environment produce recorded results; [G2 detail](#g2). |
 
@@ -355,13 +355,13 @@ Last Compared: 2026-08-12; issue updated 2026-07-23T08:36:44Z
 Origin: 579a8f3 / M5.1
 Identity History: none
 GitHub Issue: #31 - https://github.com/jeonghanlee/cloud-provision/issues/31
-Status: Not started
+Status: In progress
 
 ##### Summary
 
-Replace hand-maintained per-VM host entries with inventory derived from the VM identity and address resolved by the provisioning path. `create_vm.bash` supports eleven OS selectors, three standard node IDs, arbitrary node IDs, and run-specific bake build names, while `ansible-provision/inventory/testbed.ini` names only a fixed subset. A real Rocky 8 bake demonstrated that the static inventory rejects a valid run-specific build VM before any play runs.
+Replace hand-maintained per-VM host entries with inventory derived from the VM identity and address resolved by the provisioning path. The current working trees use one shared generator for ordinary VMs, ioc-runner consumers and build VMs, EtherCAT consumers and build VMs, and EPICS-env build VMs. The maintained inventory contains only group relationships, and its Make entry points require a generated runtime host source unless a complete site-owned inventory is supplied.
 
-M1.1 supplies its run-specific ioc-runner build host through a temporary second inventory so image-workflow acceptance can continue. That narrow bake path does not replace the maintained inventory for all supported VM types and does not satisfy this work unit.
+Local group checks cover all supported selectors and roles. Real acceptance configured a fresh arbitrary-name Debian 13 VM, ran the Debian 13 EPICS-env build playbook, and completed a fresh run-specific Rocky 8 ioc-runner bake. Actual EtherCAT bake and consumer validation remains deferred to Backlog M2.1 under D3 and is not part of M5.1 closure.
 
 ##### Scope
 
@@ -370,7 +370,7 @@ M1.1 supplies its run-specific ioc-runner build host through a temporary second 
 - Preserve the intended `all_nodes`, `ioc_nodes`, `nfs_sim_nodes`, `ethercat_nodes`, `ethercat_build`, and `epics_env_build` group selection without requiring an exact host name in a maintained inventory file.
 - Remove script, test, and maintained-document assumptions that a supported VM must already have a fixed inventory row.
 
-Out of scope: Image artifact naming, qcow2 selection, DHCP and MAC allocation policy, and Ansible role behavior.
+Out of scope: Image artifact naming, qcow2 selection, DHCP and MAC allocation policy, Ansible role behavior, and the actual EtherCAT bake and consumer validation owned by Backlog M2.1.
 
 ##### Completion Criteria
 
@@ -386,23 +386,24 @@ Out of scope: Image artifact naming, qcow2 selection, DHCP and MAC allocation po
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: Owner selected the shared generated-inventory option in the current session, 2026-08-15
+Implementation Authorization: Owner authorized the selected implementation in the current session, 2026-08-15
 Superseded Plan Artifacts: none
 
-1. Define one generated inventory interface from resolved VM identity, address, OS selector, and workload role.
-2. Route provisioning and bake Ansible calls through that interface while retaining the existing group variables.
-3. Remove fixed host rows once every supported path has a generated equivalent.
-4. Add local group-membership checks and run representative real VM and bake paths.
-5. Align the maintained architecture and runbook with the delivered inventory model.
+1. Add one shared generator that accepts the resolved VM name, address, OS selector, and workload role and writes the required Ansible host memberships.
+2. Keep the maintained inventory as the host-free group relationship source so the existing group variables and playbook scopes continue to apply.
+3. Route ordinary and consumer VM use, ioc-runner bake, EtherCAT bake, and EPICS-env build use through generated temporary host inventories.
+4. Remove fixed host rows after every supported path has a generated equivalent.
+5. Add local group-membership checks and run representative real VM and bake paths.
+6. Align the maintained architecture and runbook with the delivered inventory model.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
 | M5.1 / T1 | Inventory contract | Generate inventory for every supported OS selector and representative standard, arbitrary, and run-specific node IDs, then inspect the merged Ansible graph | Repository checkouts with the real inventory generator and Ansible inventory parser | Every generated host appears once and belongs only to the groups required by its VM role |
-| M5.1 / T2 | Runtime acceptance | Provision representative ordinary, ioc-runner, EtherCAT, EPICS-env, and run-specific bake VMs through their shipped entry points | Supported Libvirt/KVM host | Each Ansible play targets the actual VM without a maintained fixed-name host row |
+| M5.1 / T2 | Runtime acceptance | Configure a fresh arbitrary-name ordinary VM, execute an EPICS-env build playbook, and complete one run-specific ioc-runner bake through their shipped entry points; retain actual EtherCAT bake and consumer acceptance in Backlog M2.1 | Supported Libvirt/KVM host | Each selected Ansible play targets the actual VM without a maintained fixed-name host row, and the run-specific bake completes and cleans its build VM |
 
 ##### Verification Results
 
@@ -410,10 +411,13 @@ Superseded Plan Artifacts: none
 | --- | --- | --- | --- | --- |
 | M5.1 / T1 | 2026-08-13 | Code and inventory inspection | Not satisfied: `configure/CONFIG_SITE` defines eleven OS selectors and `create_vm.bash` accepts arbitrary node IDs, but `inventory/testbed.ini` contains only fixed host entries for a subset. | `configure/CONFIG_SITE`, `bin/create_vm.bash`, `ansible-provision/inventory/testbed.ini` |
 | M5.1 / T2 | 2026-08-13 | Host `top`; real Rocky 8 ioc-runner bake | Not satisfied: Ansible rejected the valid run-specific build VM because its exact name was absent from the static inventory. | `make bake.rocky8`; run `20260813T195453Z-1dbbd75082f9` |
+| M5.1 / T1 | 2026-08-15 | Local checkouts; real generator and Ansible inventory parser; filesystem, Libvirt, SSH, and Ansible command boundaries controlled only where named by each public-path check | Satisfied: all eleven OS selectors, ordinary and arbitrary names, both ioc-runner bake platforms, EtherCAT runtime and build roles, and EPICS-env core and matrix roles produced only their required direct groups. IOC hosts were reachable through both `ioc_nodes` and `all_nodes`; EPICS-env hosts were reachable through `epics_env_build`; fixed host rows were absent and rejected by the regression check. The runtime-inventory aggregate passed 65/65 plus EPICS-env 2/2, ansible-provision Make preflight passed 3/3, ioc-runner bake passed 83/83, and EtherCAT bake passed 10/10. | `make check-runtime-inventory`; `make check-bake-provenance`; `make check-bake-ethercat-workflow`; ansible-provision `make check-runtime-inventory-contract` |
+| M5.1 / T2 | 2026-08-15 | Host `top`; real running VMs and shipped `create_vm.bash -s`, generator, and Ansible parser/playbook loader | Partially satisfied without changing VM contents: Rocky 8 and Debian 13 ioc-runner consumers passed domain, IP, SSH, and cloud-init readiness and each appeared as the sole target of all three `site.yml` plays through the generated inventory. The Debian 13 EPICS-env VM passed readiness and appeared as the sole `epics_env_build` target. The Rocky 8 EPICS-env VM had SSH ready but reported cloud-init `unknown`, so its public status path correctly returned nonzero. No ordinary VM play, run-specific bake, or configuration-changing play was executed in this observation. | `bin/create_vm.bash -s` piped to `bin/generate_ansible_inventory.bash --status-input`; `ansible-playbook --list-hosts` with `inventory/testbed.ini` and the generated source |
+| M5.1 / T2 | 2026-08-15 02:35 PDT | Host `top`; real Libvirt/KVM; shipped VM, generator, Ansible, EPICS-env, and ioc-runner bake entry points | Satisfied for the owner-selected runtime scope. Fresh arbitrary-name VM `m51verify-debian13-m51accept` reached `READY`; generated inventory selected it for `playbooks/01_base.yml`, which completed `ok=10`, `changed=2`, `failed=0`, and cleanup left no matching domain, disk, seed ISO, or DHCP reservation. `run_epics_env_build.bash` generated the Debian 13 EPICS-env inventory and ran `playbooks/08_epics_env_build.yml` on only `testbed-epics-env-debian13-server`, completing `ok=2`, `changed=0`, `failed=0`. Rocky 8 ioc-runner bake `20260815T092848Z-e115d2581d28` completed all nine shipped steps; `site.yml` completed `ok=27`, `failed=0`, NFS simulation completed `ok=11`, `failed=0`, test users completed `ok=4`, `failed=0`, the real in-image provenance validator passed, the output image and both sidecars were published, `qemu-img check` found no errors, and the build VM and DHCP reservation were removed. Post-run checks passed inventory 65/65 plus 2/2, fresh-input 7/7, ioc-runner 83/83, EtherCAT inventory mapping 10/10, docs 51/51, and ansible-provision 3/3. Actual EtherCAT bake and consumer acceptance remains in Backlog M2.1. | `bin/create_vm.bash -F`; generated inventory with `playbooks/01_base.yml`; `bin/run_epics_env_build.bash -o epics-env-debian13`; `make bake.rocky8`; `iocrunner-rocky8-20260815T092848Z-e115d2581d28.qcow2` and sidecars; `make check-runtime-inventory check-bake check-docs`; ansible-provision `make check-runtime-inventory-contract` |
 
 ##### Closure Evidence
 
-- none
+- Deliverable and required checks are satisfied in the current working trees. Closure awaits durable commits in `cloud-provision` and `ansible-provision`, push confirmation, and reconciliation and closure of GitHub issue #31.
 
 ##### GitHub Projection
 
@@ -423,7 +427,7 @@ GitHub Milestone: Nimbus - Cloud Provisioning Reliability
 Observed State: open
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-14; issue updated 2026-07-23T08:37:27Z
+Last Compared: 2026-08-15; issue updated 2026-08-13T20:42:09Z
 
 <a id="g1"></a>
 #### G1 - Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance

@@ -9,7 +9,9 @@
 # distribution targets; the matrix VMs below extend the OS coverage for the
 # public distribution and are driven with their own ansible invocations.
 epics-env: epics-env.provision ## Provision both core epics-env VMs and build EPICS-env from source
-	$(QUIET) cd $(ANSIBLE_DIR) && ansible-playbook -i $(EPICS_ENV_INVENTORY) $(EPICS_ENV_PLAYBOOK) --limit epics_env_core
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(RUN_EPICS_ENV_BUILD) \
+	    -a $(ANSIBLE_DIR) -d $(IMAGE_DIR) -p $(VM_PREFIX) \
+	    -i $(EPICS_ENV_INVENTORY) -P $(EPICS_ENV_PLAYBOOK)
 
 epics-env.provision: ## Provision the two core epics-env VMs without building
 	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-rocky8   -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)

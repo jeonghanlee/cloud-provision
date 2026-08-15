@@ -26,6 +26,7 @@ declare -g ANSIBLE_USER="vmadmin"
 declare -g LIBVIRT_URI="qemu:///system"
 declare -g VM_IP=""
 declare -g RUNTIME_INVENTORY=""
+declare -g INVENTORY_GENERATOR="${SC_TOP}/bin/generate_ansible_inventory.bash"
 declare -g OUTPUT_TEMP_CREATED=false
 declare -g SIDECAR_TEMP_CREATED=false
 
@@ -112,22 +113,18 @@ function cleanup_output_temps {
 }
 
 function write_runtime_inventory {
-    local runtime_host_line
-
-    [[ "${VM_NAME}" =~ ^[A-Za-z0-9._-]+$ ]] \
-        || die "generated VM name is not inventory-safe: ${VM_NAME}"
-    [[ "${VM_IP}" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] \
-        || die "resolved VM address is not inventory-safe: ${VM_IP}"
-
-    RUNTIME_INVENTORY="$(mktemp /tmp/cloud-provision-iocrunner-inventory.XXXXXX)" \
+    RUNTIME_INVENTORY="$(mktemp /tmp/cloud-provision-ansible-inventory.XXXXXX)" \
         || die "failed to create runtime inventory"
-    runtime_host_line="${VM_NAME} ansible_host=${VM_IP} ansible_user=${ANSIBLE_USER}"
-    printf "%s\n" \
-        "[${OS_TYPE}]" \
-        "${runtime_host_line}" \
-        "" \
-        "[nfs_sim_nodes]" \
-        "${VM_NAME}" > "${RUNTIME_INVENTORY}"
+    if ! "${INVENTORY_GENERATOR}" \
+        --vm-name "${VM_NAME}" \
+        --address "${VM_IP}" \
+        --os-type "${OS_TYPE}" \
+        --role ioc-runner-build \
+        --ansible-user "${ANSIBLE_USER}" > "${RUNTIME_INVENTORY}"; then
+        rm -f -- "${RUNTIME_INVENTORY}"
+        RUNTIME_INVENTORY=""
+        die "failed to generate runtime inventory"
+    fi
     [[ -s "${RUNTIME_INVENTORY}" ]] || die "runtime inventory is empty"
 }
 
@@ -354,6 +351,8 @@ else
 fi
 
 [[ -x "${CREATE_VM}" ]] || die "create_vm.bash is not executable: ${CREATE_VM}"
+[[ -x "${INVENTORY_GENERATOR}" ]] \
+    || die "inventory generator is not executable: ${INVENTORY_GENERATOR}"
 [[ -f "${VALIDATOR}" ]] || die "validator not found: ${VALIDATOR}"
 [[ -f "${INVENTORY_PATH}" ]] || die "inventory not found: ${INVENTORY_PATH}"
 

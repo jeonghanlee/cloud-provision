@@ -6,6 +6,7 @@ Provisions reproducible multi-node test environments from official cloud images.
 * Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 * Image workflow: [docs/IMAGE_WORKFLOW.md](docs/IMAGE_WORKFLOW.md) — how images are made and used, from upstream base to VM disk
 * Bake runbook: [docs/RUNBOOK_BAKE.md](docs/RUNBOOK_BAKE.md) — running a golden image bake and accepting the result
+* Ansible inventory runbook: [docs/RUNBOOK_ANSIBLE_INVENTORY.md](docs/RUNBOOK_ANSIBLE_INVENTORY.md) — generating host inventory from a VM
 * Work register: [docs/milestone-579a8f3.md](docs/milestone-579a8f3.md) — current work, external gates, and the next session entry point
 * CLI Reference: [docs/VIRSH_CLI.md](docs/VIRSH_CLI.md)
 * Host setup: `bin/setup_host.bash`
@@ -80,6 +81,17 @@ make epics-env.provision          # provision the two core VMs only
 make epics-env.provision.matrix   # provision the rocky10 / ubuntu26 matrix VMs only
 make help.epics-env               # show this workflow
 ```
+
+### Ansible inventory
+
+`ansible-provision/inventory/testbed.ini` contains group relationships and no
+fixed VM host rows. Generate each host entry from the actual VM status with
+`bin/generate_ansible_inventory.bash`, then pass the generated file as the
+second inventory source. The ioc-runner bake, EtherCAT bake, and `make
+epics-env` perform this automatically.
+
+See [docs/RUNBOOK_ANSIBLE_INVENTORY.md](docs/RUNBOOK_ANSIBLE_INVENTORY.md) for
+ordinary VMs, consumer VMs, and direct Ansible use.
 
 ### Status
 

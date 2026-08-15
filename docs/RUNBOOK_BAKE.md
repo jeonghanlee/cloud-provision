@@ -279,11 +279,13 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var
 
 ## Site overrides honored by the bake scripts
 
-- `BAKE_INVENTORY` — maintained ansible inventory path passed to every
+- `BAKE_INVENTORY` — host-free Ansible group inventory passed to every
   playbook call (default `inventory/testbed.ini`; relative to
-  ansible-provision). The bake also passes a temporary inventory containing
-  its run-specific host, resolved address, OS group, and `nfs_sim_nodes`
-  membership; that file is removed when the bake exits.
+  ansible-provision). Each bake also calls
+  `bin/generate_ansible_inventory.bash` and passes a temporary host inventory.
+  The ioc-runner host enters its base OS group and `nfs_sim_nodes`; the
+  EtherCAT build host enters `ethercat_build`. Each temporary file is removed
+  when its bake exits.
 - `VM_PREFIX` — build-VM name prefix (default `testbed`), now a single
   source shared with the make targets when exported.
 - `REQUIRED_GROUP` — host group required by `create_vm.bash` before

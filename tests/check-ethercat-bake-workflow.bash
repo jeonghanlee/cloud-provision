@@ -129,6 +129,28 @@ EOF
     cat > "${FAKEBIN}/ansible-playbook" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+runtime_inventory=""
+expect_inventory_path=false
+for argument in "$@"; do
+    if [[ "${expect_inventory_path}" == true ]]; then
+        expect_inventory_path=false
+        if [[ -f "${argument}" ]] && \
+           grep -Fxq '[ethercat_build]' "${argument}" && \
+           grep -Fq ' ansible_host=' "${argument}"; then
+            runtime_inventory="${argument}"
+        fi
+    elif [[ "${argument}" == "-i" ]]; then
+        expect_inventory_path=true
+    fi
+done
+[[ -n "${runtime_inventory}" ]] || {
+    printf "%s\n" "generated EtherCAT inventory was not passed" >&2
+    exit 3
+}
+printf "%s\n" "${runtime_inventory}" >> "${RUNTIME_INVENTORY_ARG_LOG}"
+if [[ ! -s "${RUNTIME_INVENTORY_SNAPSHOT}" ]]; then
+    cp "${runtime_inventory}" "${RUNTIME_INVENTORY_SNAPSHOT}"
+fi
 printf "%s\n" "$*" >> "${FAKE_ANSIBLE_LOG}"
 EOF
 
@@ -208,6 +230,8 @@ function run_bake {
         "FAKE_STATE_FILE=${state_file}" \
         "FAKE_CALL_LOG=${call_log}" \
         "FAKE_ANSIBLE_LOG=${ansible_log}" \
+        "RUNTIME_INVENTORY_ARG_LOG=${WORKSPACE}/runtime-inventory-args.log" \
+        "RUNTIME_INVENTORY_SNAPSHOT=${WORKSPACE}/runtime-inventory.ini" \
         "FAKE_SSH_LOG=${ssh_log}" \
         "FAKE_REMOTE_MANIFEST=${remote_manifest}" \
         "${TOP}/bin/bake_ethercat_image.bash" \
@@ -286,6 +310,29 @@ if grep -q '05_ethercat_base.yml' "${ansible_log}"; then
     record_pass "EtherCAT bake runs the base playbook"
 else
     record_fail "EtherCAT bake runs the base playbook" "playbook invocation was not recorded"
+fi
+
+runtime_inventory_count="$(wc -l < "${WORKSPACE}/runtime-inventory-args.log")"
+if [[ "${runtime_inventory_count}" == "2" ]] && \
+   grep -Eq '^testbed-debian13-rtbase-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=[0-9.]+ ansible_user=vmadmin$' \
+       "${WORKSPACE}/runtime-inventory.ini"; then
+    record_pass "EtherCAT bake generates one build-host inventory per run"
+else
+    record_fail "EtherCAT bake generates one build-host inventory per run" \
+        "generated inventory count or host entry was incorrect"
+fi
+
+runtime_inventory_remains=false
+while IFS= read -r runtime_inventory; do
+    if [[ -e "${runtime_inventory}" ]]; then
+        runtime_inventory_remains=true
+    fi
+done < "${WORKSPACE}/runtime-inventory-args.log"
+if [[ "${runtime_inventory_remains}" == false ]]; then
+    record_pass "EtherCAT bake removes generated inventories"
+else
+    record_fail "EtherCAT bake removes generated inventories" \
+        "a generated inventory remains after the bake"
 fi
 
 if awk '!/-o ControlMaster=no/ || !/-o ControlPath=none/ {bad++} END {exit bad + 0}' \
