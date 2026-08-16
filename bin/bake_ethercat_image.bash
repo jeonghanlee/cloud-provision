@@ -10,8 +10,8 @@
 # The RT kernel is installed but never selected as the boot default here: the
 # ethercat-env repository treats kernel selection (rt.kernel.select) and
 # post-reboot running-kernel confirmation as explicit operator / external-gate
-# steps (decision D2 / milestone M16). The live app_ethercat run, not this
-# image, drives the boot-default change.
+# steps. The live app_ethercat run, not this image, drives the boot-default
+# change.
 
 set -e
 

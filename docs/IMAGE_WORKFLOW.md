@@ -38,11 +38,11 @@ B' only. B is read, never written, never held by a running VM.
 
 B is held by no VM, which removes the root under three issues:
 
-- #24 (M6.2) — libvirt claimed the backing file's ownership when a consumer started; with no backing chain there is no
+- #24 — libvirt claimed the backing file's ownership when a consumer started; with no backing chain there is no
   file to claim
-- #25 (M1.6) — consumers held the golden so it could not be rebaked; the in-use guard (`protect_output_consumers`) and
+- #25 — consumers held the golden so it could not be rebaked; the in-use guard (`protect_output_consumers`) and
   its first-transition refusal become unnecessary on this stretch
-- #2 (M1.4) — rebaking B cannot disturb any VM already made from it
+- #2 — rebaking B cannot disturb any VM already made from it
 - the bake's flatten step (`qemu-img convert`) disappears: the disk is independent from birth
 
 Cost, stated once: a VM disk grows from the current overlay (~106 M observed) to the full size of B (several GB), and
@@ -81,7 +81,7 @@ build VMs carry the run timestamp / hash. The rule is defined in ONE place from
 the start, and every consumer — provisioning and bake alike — calls that one
 place.
 
-This absorbs #7 (M3.2): today `create_vm.bash` and the bake scripts each compute `VM_NAME` and disk paths on their own,
+This absorbs #7: today `create_vm.bash` and the bake scripts each compute `VM_NAME` and disk paths on their own,
 two copies that must agree. The approved resolver plan (`plan20260723_234700`) wanted to extract that computation; the
 new naming scheme starts extracted, so #7 is resolved by the redesign rather than as separate work.
 
@@ -92,7 +92,7 @@ timestamp / hash. Names never collide across runs, so a leftover VM from an earl
 — every run creates its own fresh VM.
 
 Fresh-input enforcement (`-F` / `require_fresh_input`) becomes unnecessary: there is nothing to force when reuse is
-structurally impossible. Both bake entry points use the shared build-VM creation path delivered by M1.1; the naming rule
+structurally impossible. Both bake entry points use the shared build-VM creation path delivered by `4fc1341`; the naming rule
 removes reuse as a correctness risk once the workflow lands. What remains after that is housekeeping - when to remove
 leftover VMs - not correctness.
 
