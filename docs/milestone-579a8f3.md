@@ -13,7 +13,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: review and commit the M5.1 closure record; after that, no Milestone work row is Ready until external gate G2 completes or the owner reactivates deferred Backlog M2.1.
+Next session entry point: satisfy external gate G2 by obtaining the 2026-06-03 Rocky 8 golden and downstream validation environment; when G2 completes, restore M4.1 to Not started. No Milestone work row is Ready while G2 remains Open.
 
 ## Milestone
 
@@ -347,7 +347,7 @@ GitHub Milestone: Nimbus - Cloud Provisioning Reliability
 Observed State: open
 Observed Labels: none
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-12; issue updated 2026-07-23T08:36:44Z
+Last Compared: 2026-08-16; issue updated 2026-07-23T08:36:44Z
 
 <a id="m51"></a>
 #### M5.1 - Replace fixed Ansible host inventory with VM-derived inventory
