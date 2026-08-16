@@ -13,7 +13,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: review and commit the M5.1 changes in both repositories, push them, and reconcile GitHub issue #31; T1 and T2 are satisfied in the current working trees.
+Next session entry point: review and commit the M5.1 closure record; after that, no Milestone work row is Ready until external gate G2 completes or the owner reactivates deferred Backlog M2.1.
 
 ## Milestone
 
@@ -25,7 +25,7 @@ Next session entry point: review and commit the M5.1 changes in both repositorie
 | M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | Complete | No | D4 | Commit `986d410` records and verifies the shared policy; GitHub issue #19 is closed; [M3.1 detail](#m31). |
 | M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | Complete | No | D4, G1 | Commit `986d410` routes the bake through the shared public stop path; GitHub issue #11 is closed; [M3.2 detail](#m32). |
 | M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Blocked | No | G2 | Run downstream validation against the real Rocky 8 golden after G2 completes; [M4.1 detail](#m41). |
-| M5 Dynamic Ansible inventory | M5.1 | Replace fixed Ansible host inventory with VM-derived inventory | Milestone | In progress | No |  | Provision and configure supported VM roles without adding exact host names to a static inventory file; T1 and T2 are satisfied in the current working trees, while durable commits and GitHub issue #31 closure remain; [M5.1 detail](#m51). |
+| M5 Dynamic Ansible inventory | M5.1 | Replace fixed Ansible host inventory with VM-derived inventory | Milestone | Complete | No |  | Commits `c1f657b` and `50925d4` deliver the host-free inventory workflow; T1 and T2 passed, and GitHub issue #31 is closed; [M5.1 detail](#m51). |
 | External gate | G1 | Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance | External gate | Complete | No |  | Owner accepts a measured shutdown policy for the bake and provisioner paths; [G1 detail](#g1). |
 | External gate | G2 | Run downstream validation on the 2026-06-03 Rocky 8 golden image | External gate | Open | No |  | The real Rocky 8 golden and downstream validation environment produce recorded results; [G2 detail](#g2). |
 
@@ -355,11 +355,11 @@ Last Compared: 2026-08-12; issue updated 2026-07-23T08:36:44Z
 Origin: 579a8f3 / M5.1
 Identity History: none
 GitHub Issue: #31 - https://github.com/jeonghanlee/cloud-provision/issues/31
-Status: In progress
+Status: Complete
 
 ##### Summary
 
-Replace hand-maintained per-VM host entries with inventory derived from the VM identity and address resolved by the provisioning path. The current working trees use one shared generator for ordinary VMs, ioc-runner consumers and build VMs, EtherCAT consumers and build VMs, and EPICS-env build VMs. The maintained inventory contains only group relationships, and its Make entry points require a generated runtime host source unless a complete site-owned inventory is supplied.
+Replace hand-maintained per-VM host entries with inventory derived from the VM identity and address resolved by the provisioning path. Commits `c1f657b` in cloud-provision and `50925d4` in ansible-provision use one shared generator for ordinary VMs, ioc-runner consumers and build VMs, EtherCAT consumers and build VMs, and EPICS-env build VMs. The maintained inventory contains only group relationships, and its Make entry points require a generated runtime host source unless a complete site-owned inventory is supplied.
 
 Local group checks cover all supported selectors and roles. Real acceptance configured a fresh arbitrary-name Debian 13 VM, ran the Debian 13 EPICS-env build playbook, and completed a fresh run-specific Rocky 8 ioc-runner bake. Actual EtherCAT bake and consumer validation remains deferred to Backlog M2.1 under D3 and is not part of M5.1 closure.
 
@@ -417,17 +417,17 @@ Superseded Plan Artifacts: none
 
 ##### Closure Evidence
 
-- Deliverable and required checks are satisfied in the current working trees. Closure awaits durable commits in `cloud-provision` and `ansible-provision`, push confirmation, and reconciliation and closure of GitHub issue #31.
+- Complete on 2026-08-16. Cloud-provision commit `c1f657b3d1d747b5e74cbb3857934585ab533d5c` is present on `origin/feature/image-workflow`; ansible-provision commit `50925d40c1470e8e4bc3cb7df8e157f8451a20bc` is present on `origin/master`; GitHub issue #31 has synchronized completion criteria and was observed closed at 2026-08-16T07:06:56Z.
 
 ##### GitHub Projection
 
 Title: Replace fixed Ansible host inventory with VM-derived inventory
 Labels: enhancement
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-15; issue updated 2026-08-13T20:42:09Z
+Last Compared: 2026-08-16; issue updated 2026-08-16T07:06:56Z
 
 <a id="g1"></a>
 #### G1 - Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance
