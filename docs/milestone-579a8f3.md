@@ -24,7 +24,7 @@ Next session entry point: no Milestone work remains. Backlog M2.1 remains Deferr
 | M1 Image workflow adoption | M1.1 | Adopt the image workflow recorded in `docs/IMAGE_WORKFLOW.md` | Milestone | Complete | No | D1, D2, D3 | Verify that the ioc-runner workflow produces independent run-specific golden pairs through shared naming, copy, and record code on real supported hosts; [M1.1 detail](#m11). |
 | M3 VM lifecycle policy | M3.1 | Review VM readiness and shutdown wait budgets | Milestone | Complete | No | D4 | Commit `986d410` records and verifies the shared policy; GitHub issue #19 is closed; [M3.1 detail](#m31). |
 | M3 VM lifecycle policy | M3.2 | Reuse VM stop behavior in the ioc-runner bake | Milestone | Complete | No | D4, G1 | Commit `986d410` routes the bake through the shared public stop path; GitHub issue #11 is closed; [M3.2 detail](#m32). |
-| M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Complete | No | G2, D5 | Owner retired the obsolete 2026-06-03 target without claiming T1 passed; current-image validation moved to `epics-ioc-runner` #146; [M4.1 detail](#m41). |
+| M4 Rocky golden validation | M4.1 | Validate the Rocky 8 golden after the sudoers fix | Milestone | Complete | No | G2, D5 | Owner retired the obsolete 2026-06-03 target without claiming T1 passed; current-image validation moved to jeonghanlee/epics-ioc-runner#146; [M4.1 detail](#m41). |
 | M5 Dynamic Ansible inventory | M5.1 | Replace fixed Ansible host inventory with VM-derived inventory | Milestone | Complete | No |  | Commits `c1f657b` and `50925d4` deliver the host-free inventory workflow; T1 and T2 passed, and GitHub issue #31 is closed; [M5.1 detail](#m51). |
 | External gate | G1 | Confirm whether the ioc-runner bake requires its own 120-second shutdown allowance | External gate | Complete | No |  | Owner accepts a measured shutdown policy for the bake and provisioner paths; [G1 detail](#g1). |
 | External gate | G2 | Run downstream validation on the 2026-06-03 Rocky 8 golden image | External gate | Complete | No | D5 | Owner retired the exact historical target after the image workflow superseded it; no validation pass is claimed; [G2 detail](#g2). |
@@ -37,7 +37,7 @@ Next session entry point: no Milestone work remains. Backlog M2.1 remains Deferr
 | D2 | New development moves to branches: `master` takes no direct implementation work from this generation onward, and the annotated tag `pre-image-workflow` marks the last state built that way. | User direction, 2026-08-01 |
 | D3 | GitHub issue #30 owns ioc-runner acceptance of the copy-based image workflow. Shared code delivered in commit `304291b` also integrates EtherCAT, but actual EtherCAT bake and consumer validation is deferred to Backlog M2.1 and does not block M1.1. The earlier claim that the old EtherCAT rows were M2.1 and M2.2 was incorrect; the prior-generation EtherCAT rows were M1.7 and M1.8. | Owner direction, 2026-08-13 |
 | D4 | Centralize the VM wait settings with validated execution-time overrides. Use six IP polls at 10-second intervals, six SSH probes at 10-second intervals with a 5-second connection timeout, sixty-one cloud-init polls at 30-second intervals, and twelve shutdown polls at 5-second intervals. The ioc-runner bake uses the same public 60-second shutdown path instead of a separate 120-second loop. | Owner selection of option 1, 2026-08-14 |
-| D5 | Retire G2 and M4.1 without claiming M4.1 / T1 passed because their exact 2026-06-03 fixed-name golden target is obsolete after issue #30. Carry the remaining current-image downstream verification in `epics-ioc-runner` issue #146, independent of this milestone and issue #4 closure. | Owner selection of the Backlog carry-forward and repository boundary, 2026-08-16 |
+| D5 | Retire G2 and M4.1 without claiming M4.1 / T1 passed because their exact 2026-06-03 fixed-name golden target is obsolete after issue #30. Carry the remaining current-image downstream verification in jeonghanlee/epics-ioc-runner#146, independent of this milestone and issue #4 closure. | Owner selection of the Backlog carry-forward and repository boundary, 2026-08-16 |
 
 ### Milestone Details
 
@@ -294,7 +294,7 @@ Status: Complete
 
 ##### Summary
 
-The original work targeted the fixed-name Rocky golden rebuilt on 2026-06-03. Issue #30 replaced that image workflow and produced a newer run-specific Rocky image and fresh consumer, so the owner retired this exact historical target. M4.1 / T1 was not rerun and is not recorded as passed; current-image downstream validation is carried by `epics-ioc-runner` issue #146.
+The original work targeted the fixed-name Rocky golden rebuilt on 2026-06-03. Issue #30 replaced that image workflow and produced a newer run-specific Rocky image and fresh consumer, so the owner retired this exact historical target. M4.1 / T1 was not rerun and is not recorded as passed; current-image downstream validation is carried by jeonghanlee/epics-ioc-runner#146.
 
 ##### Scope
 
@@ -307,7 +307,7 @@ Out of scope: Rebuilding the golden image unless runtime verification identifies
 ##### Completion Criteria
 
 - Owner-approved retirement records that the exact 2026-06-03 target is obsolete and waives its unrun T1 without calling it Pass.
-- Current-image downstream verification is independently tracked in `epics-ioc-runner` issue #146.
+- Current-image downstream verification is independently tracked in jeonghanlee/epics-ioc-runner#146.
 
 ##### Dependencies And Decisions
 
@@ -323,7 +323,7 @@ Superseded Plan Artifacts: The original three-step runtime plan below was retire
 
 1. Record owner-approved retirement of the obsolete 2026-06-03 target.
 2. Preserve M4.1 / T1 as not run and make no downstream pass claim for the issue #30 image.
-3. Record `epics-ioc-runner` issue #146 as the independent owner of current-image downstream validation.
+3. Record jeonghanlee/epics-ioc-runner#146 as the independent owner of current-image downstream validation.
 4. Observe issue #4 closed and update the milestone status and next session entry point.
 
 ##### Test Plan
@@ -337,7 +337,7 @@ Superseded Plan Artifacts: The original three-step runtime plan below was retire
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | M4.1 / T1 | 2026-08-06 canonicalization evidence | As recorded in the prior generation | Not rerun during reset; blocked by G2 | Prior canonical state at commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0` |
-| M4.1 / T1 | 2026-08-16 owner retirement | Retired 2026-06-03 target | Not run; waived by D5, not passed | Issue #30 superseded the fixed-name workflow; remaining current-image verification moved to `epics-ioc-runner` issue #146 |
+| M4.1 / T1 | 2026-08-16 owner retirement | Retired 2026-06-03 target | Not run; waived by D5, not passed | Issue #30 superseded the fixed-name workflow; remaining current-image verification moved to jeonghanlee/epics-ioc-runner#146 |
 
 ##### Closure Evidence
 
@@ -345,7 +345,7 @@ Superseded Plan Artifacts: The original three-step runtime plan below was retire
 - `ansible-provision` commit `141400bbad33b236cef24e58485dc48c255fa499` enforces the sudoers include directive as the final active directive.
 - Durable `epics-ioc-runner` commit `60de0cf10d5d549712f146d293d13a7adc795740` records a 2026-08-12 real six-suite gate on fresh Rocky and Debian consumers. Rocky reported `SUITES OK (6 blocks, 614 checks, na=12)`; the recorded system-infrastructure S05 include-order checks and the real system-lifecycle S29 non-IOC sudo denial check passed. This predates issue #30 and supports retirement context only.
 - Issue #30 accepted the current image workflow on Rocky run `20260814T184022Z-d83582600cba` with clean `cloud-provision` commit `fcf206bc9771545b02c69608bd7f5f5a799c0621`, clean `ansible-provision` commit `5c52419bf3be795780abdc64cec7732d424fede4`, installed runner `e357210`, valid provenance, and a fresh consumer that reached `READY`. It did not run the downstream suites.
-- The unrun current-image check is owned by `epics-ioc-runner` issue #146 and does not block this retirement.
+- The unrun current-image check is owned by jeonghanlee/epics-ioc-runner#146 and does not block this retirement.
 
 ##### GitHub Projection
 
@@ -355,7 +355,7 @@ GitHub Milestone: Nimbus - Cloud Provisioning Reliability
 Observed State: closed
 Observed Labels: none
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-16; issue closed and updated 2026-08-16T08:11:30Z
+Last Compared: 2026-08-16; issue closed and updated 2026-08-16T08:46:20Z
 
 <a id="m51"></a>
 #### M5.1 - Replace fixed Ansible host inventory with VM-derived inventory
@@ -478,7 +478,7 @@ Status: Complete
 
 ##### Summary
 
-The exact 2026-06-03 Rocky golden target was superseded by the run-specific image workflow accepted in issue #30. The owner retired this historical gate without claiming the downstream validation passed and moved the current-image check to `epics-ioc-runner` issue #146.
+The exact 2026-06-03 Rocky golden target was superseded by the run-specific image workflow accepted in issue #30. The owner retired this historical gate without claiming the downstream validation passed and moved the current-image check to jeonghanlee/epics-ioc-runner#146.
 
 ##### Affected Work
 
@@ -494,7 +494,7 @@ The exact 2026-06-03 Rocky golden target was superseded by the run-specific imag
 | Observed At | Result | Evidence |
 | --- | --- | --- |
 | 2026-08-06 canonicalization evidence | Open; not rerun during reset | Prior canonical state at commit `579a8f322c6ee3997c6e6ae2581b9a0477666ef0` |
-| 2026-08-16 owner retirement | Complete by retirement; original downstream validation not run | D5; current-image verification moved to `epics-ioc-runner` issue #146 |
+| 2026-08-16 owner retirement | Complete by retirement; original downstream validation not run | D5; current-image verification moved to jeonghanlee/epics-ioc-runner#146 |
 
 ##### Closure Evidence
 
