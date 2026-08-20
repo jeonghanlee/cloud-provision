@@ -126,6 +126,7 @@ ${VM_NAME}-seed.iso  →  attached as CDROM (bus=sata)
 - hostname set
 - vmadmin account created (sudo, SSH key)
 - OS-specific packages installed
+- `en_US.UTF-8` locale available before hand-off
 - timezone configured
 ```
 
@@ -186,6 +187,14 @@ OS-specific differences are isolated to `templates/user-data.*` and `bin/create_
 | OpenSSL headers   | `openssl-devel`       | `libssl-dev`                       |
 | Boot firmware     | BIOS                  | UEFI (`--boot uefi`, requires OVMF)|
 | Image filename    | `...Base.latest...`   | `...-daily.qcow2`                  |
+
+### Locale baseline
+
+Every supported plain cloud-init guest provides the `en_US.UTF-8` locale before
+hand-off. The Debian 13, Ubuntu 24, and Ubuntu 26 templates install `locales`,
+activate and generate `en_US.UTF-8`, and set `LANG=en_US.UTF-8`. Rocky 8 and
+Rocky 10 base images already provide the locale, so their user-data templates
+do not add locale setup.
 
 ---
 
