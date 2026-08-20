@@ -7,7 +7,7 @@ Provisions reproducible multi-node test environments from official cloud images.
 * Image workflow: [docs/IMAGE_WORKFLOW.md](docs/IMAGE_WORKFLOW.md) — how images are made and used, from upstream base to VM disk
 * Bake runbook: [docs/RUNBOOK_BAKE.md](docs/RUNBOOK_BAKE.md) — running a golden image bake and accepting the result
 * Ansible inventory runbook: [docs/RUNBOOK_ANSIBLE_INVENTORY.md](docs/RUNBOOK_ANSIBLE_INVENTORY.md) — generating host inventory from a VM
-* Work register: [docs/milestone-780a25e.md](docs/milestone-780a25e.md) — current work, external gates, and the next session entry point
+* Work register: [docs/milestone-c53e17e.md](docs/milestone-c53e17e.md) — current work, external gates, and the next session entry point
 * CLI Reference: [docs/VIRSH_CLI.md](docs/VIRSH_CLI.md)
 * Host setup: `bin/setup_host.bash`
 * Software deployment: [ansible-provision](https://github.com/jeonghanlee/ansible-provision) (next stage on top of these VMs)
