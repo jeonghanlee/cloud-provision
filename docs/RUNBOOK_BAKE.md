@@ -133,49 +133,30 @@ sha256sum "${latest_iocrunner}.manifest" "${latest_debian_iocrunner}.manifest"
 
 ## Baking behind a site proxy
 
-The build VM has no route to public mirrors on a proxied site. The
-proxy VALUES are site-confidential: use them from your site notes,
-never commit them anywhere in these repositories (`*.local` overlays
-and this VM-side procedure are their only homes). `<site-proxy>`
-below stands for `http://<your-proxy-host>:<port>/`.
+Keep the site proxy value in the host's protected site configuration. The
+default discovery directory is `/etc/profile.d`; override it for one run with
+`PROXY_SOURCE_DIR`. Exactly one regular `*proxy.sh` file may be present, and it
+must contain exactly one quoted `PROXY_URL` assignment. The provisioner parses
+that scalar as data and never executes or copies the host script.
 
-Symptoms without this procedure, in the order you will meet them:
-`dnf`/`apt` metadata stalls at 0 B/s (Step 4), then `pip` retries with
-`NewConnectionError`, then in-VM `wget`/`git` of build sources times
-out. Note the fix is per BUILD VM and per bake: the de-proxy step
-(Step 7/9 ioc-runner, 5/7 ethercat) strips every layer again before
-the independent copy, so goldens never carry the values.
+The seed writes the current contract only:
 
-Inject all layers into the booted build VM (as vmadmin):
+- `/etc/profile.d/95cloud-provision-proxy.sh` on Debian, Ubuntu, and Rocky;
+- `/etc/apt/apt.conf.d/95cloud-provision-proxy` on Debian and Ubuntu;
+- one marked block in `/etc/dnf/dnf.conf` on Rocky;
+- one marked block in `/etc/gitconfig` on every supported family.
 
-1. Package manager:
-   - Rocky: append `proxy=<site-proxy>` to `/etc/dnf/dnf.conf`.
-   - Debian: write `/etc/apt/apt.conf.d/95proxy` with
-     `Acquire::http::Proxy "<site-proxy>";` and the `https` twin.
-2. Shell environment: append `http_proxy`, `https_proxy`, upper-case
-   twins, and `no_proxy=localhost,127.0.0.1,192.168.0.0/16` to
-   `/etc/environment`.
-3. Root context (ansible runs become-root; Debian sudo env_resets):
-   write `/etc/sudoers.d/95proxy` with
-   `Defaults env_keep += "http_proxy https_proxy HTTP_PROXY HTTPS_PROXY no_proxy NO_PROXY"`
-   (mode 0440, `visudo -cf` it). Rocky's default sudoers already
-   keeps proxy variables.
-4. Non-interactive ssh sessions (ansible raw): set
-   `PermitUserEnvironment yes` in `/etc/ssh/sshd_config.d/99proxy.conf`,
-   write the same variables to `~vmadmin/.ssh/environment`, restart
-   sshd.
-5. Tool-specific (Debian needed both in practice): `/etc/pip.conf`
-   `[global] proxy = <site-proxy>`; `git config --system http.proxy
-   <site-proxy>` (and https).
+Both bake callers validate and extract their manifest sidecar, then stream the
+same `bin/proxy_contract.bash` bytes through the exact privileged
+`/bin/bash -p -s -- seal` stdin form. Seal is the last guest command. It removes
+the exact marked contract, runs supported
+`cloud-init clean` handling, verifies only value-free identities and counts,
+and returns nonzero on a missing, duplicate, nested, orphaned, unowned, or
+ownership/mode-conflicting artifact. Publication begins only after the exact
+sealed VM is shut off and its exact source disk is confirmed.
 
-Verify each layer before re-running the bake: `dnf makecache` /
-`apt-get update`; `sudo wget -q -O /dev/null <any-https-url>` (tests
-layers 2+3); a plain `ssh vmadmin@<vm> 'env | grep -i proxy'` (tests
-layer 4).
-
-The control host itself also needs its own proxy environment for the
-base-image download and any galaxy-free ansible fetches — that is host
-policy, out of scope here.
+The control host still needs its own network policy for base-image downloads
+and host-side fetches. That policy is outside the guest artifact contract.
 
 ## VM wait policy
 
@@ -197,7 +178,7 @@ example allows 40 minutes between the first and final `cloud-init` polls:
 VM_WAIT_CLOUD_INIT_ATTEMPTS=81 make bake.rocky8
 ```
 
-The ioc-runner bake calls `create_vm.bash -S` at publication step 9, so it uses
+The ioc-runner bake calls `create_vm.bash -S` at publication step 10, so it uses
 the same 60-second shutdown default as `make <os>.<node>.stop`. Zero, negative,
 and non-integer settings are rejected before a VM action begins.
 
@@ -376,7 +357,10 @@ The target expands to:
 
 - `make check-bake-fresh-inputs`
 - `make check-bake-provenance`
+- `make check-bake-ethercat-workflow`
+- `make check-proxy-lifecycle`
 
 These checks replace only the host boundary commands. The public bake
-script and the shipped validator still run through their normal entry
-points.
+scripts, producer, proxy contract, and validator still run through their normal
+entry points. These local checks do not replace the separate supported
+Libvirt/KVM producer-consumer gates or an authorized existing-artifact audit.

@@ -49,6 +49,13 @@ function cleanup_output_temps {
     return "${rc}"
 }
 
+function seal_proxy_contract {
+    ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" \
+        'sudo /bin/bash -p -s -- seal' < "${PROXY_CONTRACT}"
+    SEALED_VM_NAME="${VM_NAME}"
+    SEALED_SOURCE_DISK="${SOURCE_DISK}"
+}
+
 # Connection multiplexing is refused for every ssh this bake makes. An operator
 # ssh_config that sets ControlMaster/ControlPath under Host * names its socket
 # after the connection target, and the build VM is destroyed and recreated at a
@@ -110,9 +117,12 @@ esac
 declare -g BUILD_OS_TYPE="${OS_TYPE}-rtbase"
 declare -g CREATE_VM="${SC_TOP}/bin/create_vm.bash"
 declare -g INVENTORY_GENERATOR="${SC_TOP}/bin/generate_ansible_inventory.bash"
+declare -g PROXY_CONTRACT="${SC_TOP}/bin/proxy_contract.bash"
 declare -g ETHERCAT_BASE_PLAYBOOK="playbooks/05_ethercat_base.yml"
 declare -g ANSIBLE_PLAYBOOK_BIN
 declare -g INVENTORY_PATH
+declare -g SEALED_VM_NAME=""
+declare -g SEALED_SOURCE_DISK=""
 
 if [[ "${INVENTORY}" == /* ]]; then
     INVENTORY_PATH="${INVENTORY}"
@@ -174,6 +184,10 @@ if [[ ! -f "${ANSIBLE_DIR}/${ETHERCAT_BASE_PLAYBOOK}" ]]; then
     printf "Error: ethercat base playbook not found: %s\n" "${ANSIBLE_DIR}/${ETHERCAT_BASE_PLAYBOOK}" >&2
     exit 1
 fi
+if [[ ! -f "${PROXY_CONTRACT}" ]]; then
+    printf "Error: proxy contract not found: %s\n" "${PROXY_CONTRACT}" >&2
+    exit 1
+fi
 
 printf "%s\n" "------------------------------------------------------------"
 printf "Bake: ethercat base image\n"
@@ -188,10 +202,10 @@ printf "%s\n" "------------------------------------------------------------"
 
 # Step 1: create_vm.bash creates a run-specific build VM and polls until SSH
 # and cloud-init are ready before returning.
-printf "\nStep 1/7: Boot %s\n" "${VM_NAME}"
+printf "\nStep 1/8: Boot %s\n" "${VM_NAME}"
 "${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
 
-printf "\nStep 2/7: Refresh known_hosts for VM IP\n"
+printf "\nStep 2/8: Refresh known_hosts for VM IP\n"
 declare -g VM_IP
 VM_IP="$("${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
     | awk -F': *' '/^IP Address/ {print $2; exit}')"
@@ -214,7 +228,7 @@ if ! "${INVENTORY_GENERATOR}" \
 fi
 printf "  runtime inventory for %s [OK]\n" "${VM_NAME}"
 
-printf "\nStep 3/7: Stamp the bake manifest header\n"
+printf "\nStep 3/8: Stamp the bake manifest header\n"
 declare -g CLOUD_HEAD ANSIBLE_HEAD
 CLOUD_HEAD="$(git -C "${SC_TOP}" rev-parse HEAD 2>/dev/null || printf unknown)"
 [[ -n "$(git -C "${SC_TOP}" status --porcelain 2>/dev/null)" ]] && CLOUD_HEAD="${CLOUD_HEAD}-dirty"
@@ -229,65 +243,42 @@ ansible-provision ${ANSIBLE_HEAD}
 MANIFEST
 printf "  manifest header stamped [OK]\n"
 
-printf "\nStep 4/7: Apply ansible %s on %s\n" "${ETHERCAT_BASE_PLAYBOOK}" "${VM_NAME}"
+printf "\nStep 4/8: Apply ansible %s on %s\n" "${ETHERCAT_BASE_PLAYBOOK}" "${VM_NAME}"
 ( cd "${ANSIBLE_DIR}" && "${ANSIBLE_PLAYBOOK_BIN}" \
     -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
     --limit "${VM_NAME}" "${ETHERCAT_BASE_PLAYBOOK}" )
 
-printf "\nStep 5/7: De-proxy, verify, copy manifest sidecar\n"
-ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo sh -s' <<'DEPROXY'
-set -e
-[ -f /etc/dnf/dnf.conf ] && sed -i '/^proxy=/d' /etc/dnf/dnf.conf
-rm -f /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy \
-      /etc/ssh/sshd_config.d/99proxy.conf /etc/pip.conf
-sed -i '/[Pp][Rr][Oo][Xx][Yy]/d' /etc/environment
-git config --system --unset-all http.proxy 2>/dev/null || true
-git config --system --unset-all https.proxy 2>/dev/null || true
-rm -f /root/.ssh/environment /home/*/.ssh/environment
-DEPROXY
-if ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo sh -s' <<'REMNANT'
-set -e
-hits=0
-[ -f /etc/dnf/dnf.conf ] && grep -qsi proxy /etc/dnf/dnf.conf && hits=1
-ls /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy \
-   /etc/ssh/sshd_config.d/99proxy.conf /etc/pip.conf \
-   /root/.ssh/environment /home/*/.ssh/environment 2>/dev/null | grep -q . && hits=1
-grep -qsi proxy /etc/environment && hits=1
-git config --system --get-regexp proxy >/dev/null 2>&1 && hits=1
-exit ${hits}
-REMNANT
-then
-    printf "  de-proxy verified: no remnants [OK]\n"
-else
-    printf "Error: proxy remnants survived the de-proxy step\n" >&2
-    exit 1
-fi
+printf "\nStep 5/8: Extract and validate the manifest sidecar\n"
 MANIFEST_TEMP="${OUTPUT_IMAGE}.manifest.tmp"
 ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo cat /etc/ethercat-bake.manifest' > "${MANIFEST_TEMP}"
-printf "  manifest copied to sidecar [OK]\n"
-
-printf "\nStep 6/7: Shutdown and copy qcow2\n"
-virsh --connect "${LIBVIRT_URI}" shutdown "${VM_NAME}" >/dev/null
-
-declare -g attempt=0
-declare -g state="unknown"
-while [[ "${attempt}" -lt 24 ]]; do
-    sleep 5
-    state="$(virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" 2>/dev/null || printf "unknown\n")"
-    if [[ "${state}" == "shut off" ]]; then
-        printf "  VM shut off [OK]\n"
-        break
-    fi
-    attempt=$(( attempt + 1 ))
-done
-
-if [[ "${state}" != "shut off" ]]; then
-    printf "Error: VM did not shut down within 120s\n" >&2
+if [[ "$(grep -Fxc '# ethercat golden bake manifest' "${MANIFEST_TEMP}")" != "1" ||
+      "$(grep -c '^bake_date ' "${MANIFEST_TEMP}")" != "1" ||
+      "$(grep -c '^cloud-provision ' "${MANIFEST_TEMP}")" != "1" ||
+      "$(grep -c '^ansible-provision ' "${MANIFEST_TEMP}")" != "1" ]]; then
+    printf "Error: EtherCAT manifest sidecar validation failed\n" >&2
     exit 1
 fi
+printf "  manifest copied to sidecar [OK]\n"
 
-if [[ ! -f "${SOURCE_DISK}" ]]; then
-    printf "Error: source disk missing: %s\n" "${SOURCE_DISK}" >&2
+printf "\nStep 6/8: Seal the current proxy artifact contract\n"
+seal_proxy_contract
+printf "  terminal proxy seal complete [OK]\n"
+
+printf "\nStep 7/8: Shutdown and copy qcow2\n"
+if [[ "${SEALED_VM_NAME}" != "${VM_NAME}" ||
+      "${SEALED_SOURCE_DISK}" != "${SOURCE_DISK}" ]]; then
+    printf "Error: terminal seal state does not match the exact build VM and disk\n" >&2
+    exit 1
+fi
+"${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" \
+    -p "${VM_PREFIX}" -S
+if [[ "$(virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}")" != "shut off" ]]; then
+    printf "Error: exact build VM is not shut off after the shared stop\n" >&2
+    exit 1
+fi
+if [[ ! -f "${SOURCE_DISK}" || -L "${SOURCE_DISK}" ]]; then
+    printf "Error: exact stopped source disk is missing or not a regular file: %s\n" \
+        "${SOURCE_DISK}" >&2
     exit 1
 fi
 
@@ -300,7 +291,7 @@ MANIFEST_TEMP=""
 printf "  Output: %s (%s)\n" "${OUTPUT_IMAGE}" "$(du -h "${OUTPUT_IMAGE}" | awk '{print $1}')"
 printf "  Manifest sidecar: %s\n" "${OUTPUT_IMAGE}.manifest"
 
-printf "\nStep 7/7: Cleanup build VM\n"
+printf "\nStep 8/8: Cleanup build VM\n"
 if [[ "${KEEP_VM}" == true ]]; then
     printf "  Keeping build VM (use 'bin/create_vm.bash -o %s -n %s -c' to remove later)\n" \
         "${BUILD_OS_TYPE}" "${NODE_ID}"

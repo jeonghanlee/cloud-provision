@@ -15,6 +15,7 @@ declare -g TOP
 declare -g WORKSPACE
 declare -g FAKEBIN
 declare -g BASE_FIXTURE
+declare -g CONTRACT_FIXTURE
 declare -g ORIGINAL_PATH
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
@@ -26,6 +27,7 @@ TOP="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKSPACE="$(mktemp -d /tmp/cloud-provision-proxy-test.XXXXXX)"
 FAKEBIN="${WORKSPACE}/fakebin"
 BASE_FIXTURE="${WORKSPACE}/base.qcow2"
+CONTRACT_FIXTURE="${TOP}/tests/fixtures/proxy-artifacts.tsv"
 ORIGINAL_PATH="${PATH}"
 
 function cleanup {
@@ -93,6 +95,45 @@ function expect_not_contains {
         record_pass "${name}"
     else
         record_fail "${name}" "unexpected text in ${file}"
+    fi
+}
+
+function expect_exact_artifact_set {
+    local name="$1"
+    local os_type="$2"
+    local capture_file="$3"
+    local os_family
+    local expected_file="${WORKSPACE}/${name}.expected-paths"
+    local actual_file="${WORKSPACE}/${name}.actual-paths"
+    local expected_inventory="${WORKSPACE}/${name}.expected-inventory"
+    local actual_inventory="${WORKSPACE}/${name}.actual-inventory"
+
+    case "${os_type}" in
+        *debian*) os_family="debian" ;;
+        *ubuntu*) os_family="ubuntu" ;;
+        *rocky*) os_family="rocky" ;;
+        *) record_fail "${name} resolves fixture OS" "unsupported test OS ${os_type}"; return 0 ;;
+    esac
+    awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os {print $3}' \
+        "${CONTRACT_FIXTURE}" | sort > "${expected_file}"
+    awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os' \
+        "${CONTRACT_FIXTURE}" | sort > "${expected_inventory}"
+    bash -c 'source "$1"; proxy_contract_print_inventory "$2"' \
+        proxy-inventory "${TOP}/bin/proxy_contract.bash" "${os_family}" \
+        | sort > "${actual_inventory}"
+    if diff -u "${expected_inventory}" "${actual_inventory}" >/dev/null; then
+        record_pass "${name} fixture matches the production inventory tuple"
+    else
+        record_fail "${name} fixture matches the production inventory tuple" \
+            "identity, path, ownership, marker, cleanup, or remnant metadata differs"
+    fi
+    awk '$1 == "-" && $2 == "path:" {print $3}' "${capture_file}" \
+        | sort > "${actual_file}"
+    if diff -u "${expected_file}" "${actual_file}" >/dev/null; then
+        record_pass "${name} emits the exact proxy artifact set"
+    else
+        record_fail "${name} emits the exact proxy artifact set" \
+            "generated write_files paths differ from the independent fixture"
     fi
 }
 
@@ -213,10 +254,12 @@ EOF
 function write_proxy_fixture {
     local proxy_dir="$1"
     local file_name="$2"
+    local proxy_url="${3:-http://proxy.example.test:3128/}"
 
     mkdir -p "${proxy_dir}"
-    printf '%s\n' \
-        'PROXY_URL="http://proxy.example.test:3128/"' \
+    {
+        printf 'PROXY_URL="%s"\n' "${proxy_url}"
+        printf '%s\n' \
         "export http_proxy=\"\$PROXY_URL\"" \
         "export https_proxy=\"\$PROXY_URL\"" \
         "export ftp_proxy=\"\$PROXY_URL\"" \
@@ -224,7 +267,82 @@ function write_proxy_fixture {
         "export HTTP_PROXY=\"\$PROXY_URL\"" \
         "export HTTPS_PROXY=\"\$PROXY_URL\"" \
         "export FTP_PROXY=\"\$PROXY_URL\"" \
-        "export NO_PROXY=\"\$no_proxy\"" > "${proxy_dir}/${file_name}"
+        "export NO_PROXY=\"\$no_proxy\""
+    } > "${proxy_dir}/${file_name}"
+}
+
+function expect_profile_sources_as_data {
+    local name="$1"
+    local capture_file="$2"
+    local profile_file="${WORKSPACE}/${name}.profile"
+
+    if ! awk '
+        $0 == "  - path: /etc/profile.d/95cloud-provision-proxy.sh" {
+            selected = 1
+            next
+        }
+        selected && $0 == "    content: |" {
+            content = 1
+            next
+        }
+        content && /^  - path:/ { exit }
+        content {
+            if (substr($0, 1, 6) != "      ") exit 2
+            print substr($0, 7)
+        }
+    ' "${capture_file}" > "${profile_file}"; then
+        record_fail "${name} profile sources the accepted URL strictly as data" \
+            "could not extract the shipped profile from generated user-data"
+        return 0
+    fi
+
+    if (
+        set -u
+        http_proxy=""
+        https_proxy=""
+        ftp_proxy=""
+        no_proxy=""
+        HTTP_PROXY=""
+        HTTPS_PROXY=""
+        FTP_PROXY=""
+        NO_PROXY=""
+        # shellcheck source=/dev/null
+        source "${profile_file}"
+        expected="http://proxy.example.test:3128/"
+        [[ "${http_proxy}" == "${expected}" &&
+           "${https_proxy}" == "${expected}" &&
+           "${ftp_proxy}" == "${expected}" &&
+           "${HTTP_PROXY}" == "${expected}" &&
+           "${HTTPS_PROXY}" == "${expected}" &&
+           "${FTP_PROXY}" == "${expected}" &&
+           "${no_proxy}" == "localhost,127.0.0.1,192.168.0.0/16" &&
+           "${NO_PROXY}" == "${no_proxy}" ]]
+    ); then
+        record_pass "${name} profile sources the accepted URL strictly as data"
+    else
+        record_fail "${name} profile sources the accepted URL strictly as data" \
+            "the sourced profile did not preserve the accepted scalar"
+    fi
+}
+
+function expect_renderer_rejects_shell_active {
+    local name="$1"
+    local active_character="$2"
+    local proxy_url="http://proxy.example.test:3128/path${active_character}segment"
+    local output_file="${WORKSPACE}/renderer-${name}.log"
+    local rc=0
+
+    bash -c 'source "$1"; proxy_contract_render_write_files debian13 "$2"' \
+        proxy-render "${TOP}/bin/proxy_contract.bash" "${proxy_url}" \
+        > "${output_file}" 2>&1 || rc=$?
+    if [[ "${rc}" != "0" ]] &&
+       grep -Fq 'received an invalid proxy URL' "${output_file}" &&
+       ! grep -Fq -- "${proxy_url}" "${output_file}"; then
+        record_pass "renderer rejects ${name} without recording the value"
+    else
+        record_fail "renderer rejects ${name} without recording the value" \
+            "renderer accepted the character or exposed the rejected scalar"
+    fi
 }
 
 function run_case {
@@ -239,6 +357,7 @@ function run_case {
     local capture_file="${case_dir}/user-data"
     local curl_log="${case_dir}/curl.log"
     local virt_install_log="${case_dir}/virt-install.log"
+    local active_character=""
     local rc=0
 
     mkdir -p "${image_dir}" "${home_dir}/.ssh" "${proxy_dir}"
@@ -250,6 +369,10 @@ function run_case {
     elif [[ "${proxy_count}" == "multiple" ]]; then
         write_proxy_fixture "${proxy_dir}" "first-proxy.sh"
         write_proxy_fixture "${proxy_dir}" "second-proxy.sh"
+    elif [[ "${proxy_count}" == "shell-active" ]]; then
+        printf -v active_character '%b' '\044'
+        write_proxy_fixture "${proxy_dir}" "active-proxy.sh" \
+            "http://proxy.example.test:3128/path${active_character}segment"
     fi
 
     env \
@@ -281,6 +404,19 @@ function run_case {
         return 0
     fi
 
+    if [[ "${proxy_count}" == "shell-active" ]]; then
+        expect_exit "${label} rejects shell-active proxy input as data" 1 "${rc}"
+        expect_contains "${label} reports value-free proxy rejection" \
+            "${output_file}" "received an invalid proxy URL"
+        if [[ ! -s "${curl_log}" ]] && [[ ! -e "${capture_file}" ]]; then
+            record_pass "${label} rejects before seed generation and download"
+        else
+            record_fail "${label} rejects before seed generation and download" \
+                "an outer boundary ran after the rejected scalar"
+        fi
+        return 0
+    fi
+
     expect_exit "${label} provisioning succeeds" 0 "${rc}"
     if [[ ! -f "${capture_file}" ]]; then
         record_fail "${label} captures generated user-data" "capture file is missing"
@@ -301,12 +437,20 @@ function run_case {
         return 0
     fi
 
-    expect_contains "${label} copies the selected profile script" \
-        "${capture_file}" "/etc/profile.d/alsu-proxy.sh"
-    expect_contains "${label} preserves the profile script content" \
-        "${capture_file}" "export http_proxy=\"\$PROXY_URL\""
+    expect_exact_artifact_set "${label}" "${os_type}" "${capture_file}"
+    expect_contains "${label} writes the deterministic profile path" \
+        "${capture_file}" "/etc/profile.d/95cloud-provision-proxy.sh"
+    expect_contains "${label} renders the validated profile value" \
+        "${capture_file}" 'export http_proxy="http://proxy.example.test:3128/"'
+    expect_contains "${label} writes the contract begin marker" \
+        "${capture_file}" "# BEGIN CLOUD-PROVISION PROXY CONTRACT"
+    expect_contains "${label} writes the contract end marker" \
+        "${capture_file}" "# END CLOUD-PROVISION PROXY CONTRACT"
     expect_contains "${label} writes the Git HTTP proxy setting" \
         "${capture_file}" 'proxy = http://proxy.example.test:3128/'
+    if [[ "${label}" == "debian-proxy" ]]; then
+        expect_profile_sources_as_data "${label}" "${capture_file}"
+    fi
 
     if [[ "${os_type}" == "rocky8" ]]; then
         expect_contains "${label} writes the DNF proxy setting" \
@@ -338,8 +482,17 @@ run_case no-proxy debian13 none
 run_case ubuntu24-locale epics-env-ubuntu24 none
 run_case ubuntu26-locale epics-env-ubuntu26 none
 run_case debian-proxy debian13 one
+run_case ubuntu-proxy epics-env-ubuntu24 one
 run_case rocky-proxy rocky8 one
 run_case multiple-proxy debian13 multiple
+run_case shell-active-proxy debian13 shell-active
+
+printf -v active_character '%b' '\044'
+expect_renderer_rejects_shell_active "parameter expansion introducer" "${active_character}"
+printf -v active_character '%b' '\140'
+expect_renderer_rejects_shell_active "command substitution introducer" "${active_character}"
+printf -v active_character '%b' '\041'
+expect_renderer_rejects_shell_active "history expansion introducer" "${active_character}"
 
 printf "Summary: %s passed / %s total\n" "${TEST_PASSED}" "${TEST_TOTAL}"
 if [[ "${TEST_FAILED}" -gt 0 ]]; then

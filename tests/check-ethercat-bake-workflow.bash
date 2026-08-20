@@ -48,6 +48,86 @@ function record_fail {
     printf "  %s\n" "${detail}" >&2
 }
 
+function prepare_proxy_guest_root {
+    local root="$1"
+
+    mkdir -p \
+        "${root}/etc/profile.d" \
+        "${root}/etc/apt/apt.conf.d" \
+        "${root}/usr/bin" \
+        "${root}/var/lib/cloud/instances/fixture" \
+        "${root}/var/lib/cloud/seed/nocloud" \
+        "${root}/var/log"
+    printf '%s\n' 'ID=debian' > "${root}/etc/os-release"
+    printf '%s\n' \
+        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
+        'export http_proxy="http://fixture.invalid/"' \
+        'export https_proxy="http://fixture.invalid/"' \
+        'export ftp_proxy="http://fixture.invalid/"' \
+        'export no_proxy="localhost,127.0.0.1,192.168.0.0/16"' \
+        'export HTTP_PROXY="$http_proxy"' \
+        'export HTTPS_PROXY="$https_proxy"' \
+        'export FTP_PROXY="$ftp_proxy"' \
+        'export NO_PROXY="$no_proxy"' \
+        '# END CLOUD-PROVISION PROXY CONTRACT' \
+        > "${root}/etc/profile.d/95cloud-provision-proxy.sh"
+    printf '%s\n' \
+        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
+        'Acquire::http::Proxy "http://fixture.invalid/";' \
+        'Acquire::https::Proxy "http://fixture.invalid/";' \
+        '# END CLOUD-PROVISION PROXY CONTRACT' \
+        > "${root}/etc/apt/apt.conf.d/95cloud-provision-proxy"
+    printf '%s\n' \
+        '[user]' \
+        '    name = Fixture' \
+        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
+        '[http]' \
+        '    proxy = http://fixture.invalid/' \
+        '[https]' \
+        '    proxy = http://fixture.invalid/' \
+        '# END CLOUD-PROVISION PROXY CONTRACT' \
+        > "${root}/etc/gitconfig"
+    printf '%s\n' 'instance state' > "${root}/var/lib/cloud/instances/fixture/state"
+    ln -s "instances/fixture" "${root}/var/lib/cloud/instance"
+    printf '%s\n' '#cloud-config' > "${root}/var/lib/cloud/seed/nocloud/user-data"
+    printf '%s\n' 'cloud-init log' > "${root}/var/log/cloud-init.log"
+    printf '%s\n' 'cloud-init output' > "${root}/var/log/cloud-init-output.log"
+    cat > "${root}/usr/bin/cloud-init" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+root="${0%/usr/bin/cloud-init}"
+if [[ "$*" == "clean --help" ]]; then
+    printf '%s\n' 'usage: cloud-init clean [--logs] [--seed]'
+    exit 0
+fi
+[[ "${1:-}" == clean ]]
+rm -f -- "${root}/var/lib/cloud/instance"
+rm -rf -- "${root}/var/lib/cloud/instances"/*
+for argument in "$@"; do
+    case "${argument}" in
+        --logs)
+            rm -f -- "${root}/var/log/cloud-init.log" \
+                "${root}/var/log/cloud-init-output.log"
+            ;;
+        --seed)
+            rm -rf -- "${root}/var/lib/cloud/seed"/*
+            ;;
+    esac
+done
+EOF
+    chmod 0644 \
+        "${root}/etc/os-release" \
+        "${root}/etc/profile.d/95cloud-provision-proxy.sh" \
+        "${root}/etc/apt/apt.conf.d/95cloud-provision-proxy" \
+        "${root}/etc/gitconfig"
+    chmod 0755 \
+        "${root}/etc" \
+        "${root}/etc/profile.d" \
+        "${root}/etc/apt" \
+        "${root}/etc/apt/apt.conf.d"
+    chmod +x "${root}/usr/bin/cloud-init"
+}
+
 function write_fake_commands {
     cat > "${FAKEBIN}/virsh" <<'EOF'
 #!/usr/bin/env bash
@@ -84,6 +164,12 @@ case "${command_name}" in
     net-update)
         ;;
     shutdown|destroy)
+        if [[ "${command_name}" == shutdown ]]; then
+            [[ -e "${FAKE_GUEST_ROOT}/.proxy-sealed" ]] || {
+                printf "%s\n" "stop attempted before terminal proxy seal" >&2
+                exit 5
+            }
+        fi
         printf "%s\n" "shut off" > "${FAKE_STATE_FILE}"
         ;;
     undefine)
@@ -176,6 +262,10 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 printf "%s\n" "$*" >> "${FAKE_SSH_LOG}"
+if [[ -e "${FAKE_GUEST_ROOT:-/nonexistent}/.proxy-sealed" ]]; then
+    printf "%s\n" "guest command attempted after terminal proxy seal" >&2
+    exit 6
+fi
 remote_command="${@: -1}"
 case "${remote_command}" in
     exit)
@@ -189,8 +279,27 @@ case "${remote_command}" in
     "sudo cat /etc/ethercat-bake.manifest")
         cat "${FAKE_REMOTE_MANIFEST}"
         ;;
-    "sudo sh -s")
-        cat >/dev/null
+    "sudo /bin/bash -p -s -- seal")
+        input_file="${FAKE_GUEST_ROOT}/proxy-contract.input"
+        cat > "${input_file}"
+        grep -q 'Defines the proxy artifacts written by cloud-init' "${input_file}"
+        /bin/bash -p -s -- --test-root "${FAKE_GUEST_ROOT}" seal < "${input_file}"
+        while IFS=$'\t' read -r os identity contract_path ownership marker cleanup remnant; do
+            [[ "${os}" == debian ]] || continue
+            guest_path="${FAKE_GUEST_ROOT}${contract_path}"
+            case "${ownership}" in
+                dedicated)
+                    [[ ! -e "${guest_path}" && ! -L "${guest_path}" ]] || exit 4
+                    ;;
+                shared)
+                    ! grep -Eqi 'CLOUD-PROVISION PROXY CONTRACT|^[[:space:]]*proxy[[:space:]]*=' \
+                        "${guest_path}" || exit 4
+                    ;;
+            esac
+        done < "${CONTRACT_FIXTURE}"
+        grep -Fq 'name = Fixture' "${FAKE_GUEST_ROOT}/etc/gitconfig" || exit 4
+        printf '%s\n' seal >> "${PROXY_SEAL_LOG}"
+        : > "${FAKE_GUEST_ROOT}/.proxy-sealed"
         ;;
     *)
         printf "unexpected ssh command: %s\n" "${remote_command}" >&2
@@ -221,6 +330,7 @@ function run_bake {
     local ssh_log="$6"
     local remote_manifest="$7"
     local home_dir="$8"
+    local guest_root="$9"
 
     env \
         "PATH=${FAKEBIN}:${PATH}" \
@@ -234,6 +344,9 @@ function run_bake {
         "RUNTIME_INVENTORY_SNAPSHOT=${WORKSPACE}/runtime-inventory.ini" \
         "FAKE_SSH_LOG=${ssh_log}" \
         "FAKE_REMOTE_MANIFEST=${remote_manifest}" \
+        "FAKE_GUEST_ROOT=${guest_root}" \
+        "CONTRACT_FIXTURE=${TOP}/tests/fixtures/proxy-artifacts.tsv" \
+        "PROXY_SEAL_LOG=${WORKSPACE}/proxy-seal.log" \
         "${TOP}/bin/bake_ethercat_image.bash" \
         -o debian13 -d "${image_dir}" -a "${TOP}/../ansible-provision" \
         > "${output_file}" 2>&1
@@ -275,12 +388,22 @@ write_manifest "${remote_manifest}"
 
 for run_number in 1 2; do
     output_file="${WORKSPACE}/run-${run_number}.log"
+    guest_root="${WORKSPACE}/guest-root-${run_number}"
+    prepare_proxy_guest_root "${guest_root}"
     run_bake "${output_file}" "${image_dir}" "${state_file}" "${call_log}" \
-        "${ansible_log}" "${ssh_log}" "${remote_manifest}" "${home_dir}"
+        "${ansible_log}" "${ssh_log}" "${remote_manifest}" "${home_dir}" \
+        "${guest_root}"
     printf "[ PASS ] EtherCAT bake run %s reaches completion\n" "${run_number}"
     TEST_TOTAL=$((TEST_TOTAL + 1))
     TEST_PASSED=$((TEST_PASSED + 1))
 done
+
+if [[ "$(wc -l < "${WORKSPACE}/proxy-seal.log" 2>/dev/null || true)" == "2" ]]; then
+    record_pass "EtherCAT bake executes one exact terminal proxy seal per run"
+else
+    record_fail "EtherCAT bake executes one exact terminal proxy seal per run" \
+        "the streamed contract did not complete exactly twice"
+fi
 
 shopt -s nullglob
 images=("${image_dir}"/ethercat-debian13-*.qcow2)

@@ -206,6 +206,82 @@ EOF
     chmod 0644 "${manifest}"
 }
 
+function prepare_proxy_guest_root {
+    local root="$1"
+
+    mkdir -p \
+        "${root}/etc/profile.d" \
+        "${root}/etc/dnf" \
+        "${root}/usr/bin" \
+        "${root}/var/lib/cloud/instances/fixture" \
+        "${root}/var/lib/cloud/seed/nocloud" \
+        "${root}/var/log"
+    printf '%s\n' 'ID=rocky' > "${root}/etc/os-release"
+    printf '%s\n' \
+        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
+        'export http_proxy="http://fixture.invalid/"' \
+        'export https_proxy="http://fixture.invalid/"' \
+        'export ftp_proxy="http://fixture.invalid/"' \
+        'export no_proxy="localhost,127.0.0.1,192.168.0.0/16"' \
+        'export HTTP_PROXY="$http_proxy"' \
+        'export HTTPS_PROXY="$https_proxy"' \
+        'export FTP_PROXY="$ftp_proxy"' \
+        'export NO_PROXY="$no_proxy"' \
+        '# END CLOUD-PROVISION PROXY CONTRACT' \
+        > "${root}/etc/profile.d/95cloud-provision-proxy.sh"
+    printf '%s\n' \
+        'keep_dnf=true' \
+        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
+        'proxy=http://fixture.invalid/' \
+        '# END CLOUD-PROVISION PROXY CONTRACT' \
+        > "${root}/etc/dnf/dnf.conf"
+    printf '%s\n' \
+        '[user]' \
+        '    name = Fixture' \
+        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
+        '[http]' \
+        '    proxy = http://fixture.invalid/' \
+        '[https]' \
+        '    proxy = http://fixture.invalid/' \
+        '# END CLOUD-PROVISION PROXY CONTRACT' \
+        > "${root}/etc/gitconfig"
+    printf '%s\n' 'instance state' > "${root}/var/lib/cloud/instances/fixture/state"
+    ln -s "instances/fixture" "${root}/var/lib/cloud/instance"
+    printf '%s\n' '#cloud-config' > "${root}/var/lib/cloud/seed/nocloud/user-data"
+    printf '%s\n' 'cloud-init log' > "${root}/var/log/cloud-init.log"
+    printf '%s\n' 'cloud-init output' > "${root}/var/log/cloud-init-output.log"
+    cat > "${root}/usr/bin/cloud-init" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+root="${0%/usr/bin/cloud-init}"
+if [[ "$*" == "clean --help" ]]; then
+    printf '%s\n' 'usage: cloud-init clean [--logs] [--seed]'
+    exit 0
+fi
+[[ "${1:-}" == clean ]]
+rm -f -- "${root}/var/lib/cloud/instance"
+rm -rf -- "${root}/var/lib/cloud/instances"/*
+for argument in "$@"; do
+    case "${argument}" in
+        --logs)
+            rm -f -- "${root}/var/log/cloud-init.log" \
+                "${root}/var/log/cloud-init-output.log"
+            ;;
+        --seed)
+            rm -rf -- "${root}/var/lib/cloud/seed"/*
+            ;;
+    esac
+done
+EOF
+    chmod 0644 \
+        "${root}/etc/os-release" \
+        "${root}/etc/profile.d/95cloud-provision-proxy.sh" \
+        "${root}/etc/dnf/dnf.conf" \
+        "${root}/etc/gitconfig"
+    chmod 0755 "${root}/etc" "${root}/etc/profile.d" "${root}/etc/dnf"
+    chmod +x "${root}/usr/bin/cloud-init"
+}
+
 function run_validator {
     local manifest="$1"
     local epics_checkout="$2"
@@ -355,6 +431,10 @@ case "${command_name}" in
     net-update)
         ;;
     shutdown)
+        [[ -e "${FAKE_GUEST_ROOT}/.proxy-sealed" ]] || {
+            printf "%s\n" "stop attempted before terminal proxy seal" >&2
+            exit 5
+        }
         printf "%s\n" "shut off" > "${DOMAIN_STATE_FILE}"
         ;;
     *)
@@ -500,6 +580,10 @@ set -e
 if [[ -n "${SSH_ARG_LOG:-}" ]]; then
     printf "%s\n" "$*" >> "${SSH_ARG_LOG}"
 fi
+if [[ -e "${FAKE_GUEST_ROOT:-/nonexistent}/.proxy-sealed" ]]; then
+    printf "%s\n" "guest command attempted after terminal proxy seal" >&2
+    exit 6
+fi
 remote_command="${@: -1}"
 case "${remote_command}" in
     exit)
@@ -518,6 +602,28 @@ esac
 if [[ "${remote_command}" == sudo\ /bin/bash\ -p\ -s* ]]; then
     input_file="${CASE_DIR}/ssh-input"
     cat > "${input_file}"
+    if grep -q 'Defines the proxy artifacts written by cloud-init' "${input_file}"; then
+        [[ "${remote_command}" == "sudo /bin/bash -p -s -- seal" ]] || exit 4
+        /bin/bash -p -s -- --test-root "${FAKE_GUEST_ROOT}" seal < "${input_file}"
+        while IFS=$'\t' read -r os identity contract_path ownership marker cleanup remnant; do
+            [[ "${os}" == rocky ]] || continue
+            guest_path="${FAKE_GUEST_ROOT}${contract_path}"
+            case "${ownership}" in
+                dedicated)
+                    [[ ! -e "${guest_path}" && ! -L "${guest_path}" ]] || exit 4
+                    ;;
+                shared)
+                    ! grep -Eqi 'CLOUD-PROVISION PROXY CONTRACT|^[[:space:]]*proxy[[:space:]]*=' \
+                        "${guest_path}" || exit 4
+                    ;;
+            esac
+        done < "${CONTRACT_FIXTURE}"
+        [[ "$(cat "${FAKE_GUEST_ROOT}/etc/dnf/dnf.conf")" == 'keep_dnf=true' ]] || exit 4
+        grep -Fq 'name = Fixture' "${FAKE_GUEST_ROOT}/etc/gitconfig" || exit 4
+        printf '%s\n' seal >> "${PROXY_SEAL_LOG}"
+        : > "${FAKE_GUEST_ROOT}/.proxy-sealed"
+        exit 0
+    fi
     if grep -q 'Validates a complete IOC runner bake manifest' "${input_file}"; then
         unshare -Ur env GIT_DIR=/nonexistent "${REAL_VALIDATOR}" \
             "${REMOTE_MANIFEST}" "${EPICS_CHECKOUT}" "${RUNNER_CHECKOUT}" "${RUNNER_BIN}"
@@ -568,6 +674,7 @@ function run_promotion_case {
     local runner_checkout="${case_dir}/runner"
     local runner_bin="${case_dir}/ioc-runner"
     local remote_manifest="${case_dir}/remote.manifest"
+    local guest_root="${case_dir}/guest-root"
     local output_image=""
     local sidecar=""
     local record=""
@@ -589,6 +696,7 @@ function run_promotion_case {
     fixture_commit="${runner_commit}"
     write_runner "${runner_bin}" "${runner_commit:0:7}"
     write_fake_host_commands "${fakebin}"
+    prepare_proxy_guest_root "${guest_root}"
 
     local -a bake_env=(
         "ANSIBLE_ARG_LOG=${case_dir}/ansible-args.log"
@@ -602,6 +710,9 @@ function run_promotion_case {
         "CALL_LOG=${case_dir}/calls.log"
         "PROMOTION_MODE=${mode}"
         "REMOTE_MANIFEST=${remote_manifest}"
+        "FAKE_GUEST_ROOT=${guest_root}"
+        "CONTRACT_FIXTURE=${TOP}/tests/fixtures/proxy-artifacts.tsv"
+        "PROXY_SEAL_LOG=${case_dir}/proxy-seal.log"
         "FIXTURE_COMMIT=${fixture_commit}"
         "EPICS_COMMIT=${epics_commit}"
         "RUNNER_COMMIT=${runner_commit}"
@@ -628,12 +739,46 @@ function run_promotion_case {
         "${case_dir}/runtime-inventory-args.log" "${case_dir}/runtime-inventory.ini"
     assert_ssh_multiplexing_off "${mode}" "${case_dir}/ssh-args.log"
 
+    if [[ "${mode}" == "seed-argument-omission" ]]; then
+        if [[ "${rc}" != "0" ]]; then
+            record_pass "${mode} fails the public bake during terminal seal"
+        else
+            record_fail "${mode} fails the public bake during terminal seal" \
+                "bake unexpectedly succeeded"
+        fi
+        if [[ -f "${guest_root}/var/lib/cloud/seed/nocloud/user-data" ]]; then
+            record_pass "${mode} retains seed data when the argument is missing"
+        else
+            record_fail "${mode} retains seed data when the argument is missing" \
+                "the argument-sensitive fake removed seed data"
+        fi
+        shopt -s nullglob
+        images=("${image_dir}"/iocrunner-rocky8-*.qcow2)
+        shopt -u nullglob
+        if (( ${#images[@]} == 0 )) &&
+           { [[ ! -e "${case_dir}/calls.log" ]] ||
+             ! grep -q 'convert .*iocrunner-rocky8-' "${case_dir}/calls.log"; }; then
+            record_pass "${mode} blocks publication before conversion"
+        else
+            record_fail "${mode} blocks publication before conversion" \
+                "a final image or conversion call was observed"
+        fi
+        return 0
+    fi
+
     if [[ "${mode}" == "publish-clean" || "${mode}" == "publish-repeat" || \
         "${mode}" == "publish-pinned" ]]; then
         if [[ "${rc}" == "0" ]]; then
             record_pass "${mode} public bake completes"
         else
             record_fail "${mode} public bake completes" "bake exited ${rc}"
+        fi
+
+        if [[ "$(wc -l < "${case_dir}/proxy-seal.log" 2>/dev/null || true)" == "1" ]]; then
+            record_pass "${mode} executes the exact terminal proxy seal"
+        else
+            record_fail "${mode} executes the exact terminal proxy seal" \
+                "the streamed contract did not complete exactly once"
         fi
 
         shopt -s nullglob
@@ -841,6 +986,9 @@ case "${1:-all}" in
         run_promotion_case publish-repeat
         CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
         ;;
+    seed-omission)
+        run_promotion_case seed-argument-omission
+        ;;
     all)
         run_validator_tests
         run_ref_guard_tests
@@ -851,7 +999,8 @@ case "${1:-all}" in
         CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
         ;;
     *)
-        printf "Usage: %s [validator|promotion|all]\n" "$(basename "$0")" >&2
+        printf "Usage: %s [validator|promotion|seed-omission|all]\n" \
+            "$(basename "$0")" >&2
         exit 2
         ;;
 esac

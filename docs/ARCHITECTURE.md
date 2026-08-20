@@ -111,6 +111,7 @@ Ordinary VMs keep the stable name. Bake entry points set `NODE_ID=build` and app
 templates/user-data.${OS_VARIANT}
      |
      | perl: SSH_AUTHORIZED_KEY_PLACEHOLDER → ~/.ssh/id_ed25519.pub
+     | proxy_contract.bash: optional deterministic proxy write_files
      |
      V
 ${IMAGE_DIR}/${VM_NAME}.seed_staging/{user-data, meta-data}
@@ -138,6 +139,25 @@ exact inputs that produced the failure.
 `OS_VARIANT` collapses pre-baked variants onto their base OS template,
 so `rocky8-iocrunner` reuses `templates/user-data.rocky8` and
 `debian13-iocrunner` reuses `templates/user-data.debian13`.
+
+**Current proxy artifact contract.** When `create_vm.bash` discovers exactly
+one host `*proxy.sh` file and validates its single quoted `PROXY_URL`, it calls
+the source-only renderer in `bin/proxy_contract.bash`. The renderer writes only
+the applicable rows below; the host script itself is never copied or sourced as
+guest shell code.
+
+| Identity | Debian and Ubuntu | Rocky | Ownership |
+| --- | --- | --- | --- |
+| `/etc/profile.d/95cloud-provision-proxy.sh` | yes | yes | Dedicated marked file |
+| `/etc/apt/apt.conf.d/95cloud-provision-proxy` | yes | no | Dedicated marked file |
+| `/etc/dnf/dnf.conf` | no | yes | One marked block in a shared file |
+| `/etc/gitconfig` | yes | yes | One marked block in a shared file |
+
+The profile owns the conventional lower- and upper-case proxy variables and
+the fixed local bypass set. Dedicated files have fixed first and last markers;
+shared targets have one exact begin/end marker pair. The production inventory
+also fixes each identity's ownership form, marker identity, cleanup requirement,
+and remnant requirement. A no-proxy input emits no proxy `write_files` entries.
 
 ---
 
@@ -364,14 +384,17 @@ ready-to-use environment.
      |
      | 6. ansible-playbook playbooks/07_test_users.yml
      |
-     | 7. append pip provenance and strip proxy configuration
+     | 7. append pip provenance
      |
      | 8. validate /etc/iocrunner-bake.manifest inside the VM, then extract
      |    it as the sidecar
      |
-     | 9. stop through create_vm.bash -S, copy to a unique pair, and publish
+     | 9. stream proxy_contract.bash to privileged Bash in seal mode
      |
-     | 10. clean build VM  (or keep with -k)
+     | 10. stop through create_vm.bash -S, confirm the exact stopped domain
+     |     and disk, copy to a unique pair, and publish
+     |
+     | Cleanup build VM (or keep with -k)
      |
      V
 ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-iocrunner variant
@@ -383,10 +406,11 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 | 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan`, `generate_ansible_inventory.bash` | Resolve the build VM address, refresh its `known_hosts` entry, and generate its temporary Ansible inventory entry |
 | 3 | `qemu-img`, `sha256sum` | Record the selected source-image filename and digest |
 | 4-6 | `ansible-playbook` | Apply the software stack, NFS simulator, and test users |
-| 7 | remote privileged Bash | Append `pip3 freeze` and remove site proxy configuration |
+| 7 | remote privileged Bash | Append `pip3 freeze` provenance |
 | 8 | `validate_iocrunner_bake.bash` | Validate the manifest before any sidecar extraction or image publication |
-| 9 | `create_vm.bash -S`, `qemu-img`, `mv` | Stop through the shared lifecycle path and publish an independent image with its creation record |
-| 10 | `create_vm.bash -c` | Tear down the build VM unless `-k` keeps it for explicit follow-up checks |
+| 9 | `proxy_contract.bash seal` | Preflight and remove the exact applicable proxy set, clean cloud-init state and selected logs, and verify the value-free clean state |
+| 10 | `create_vm.bash -S`, `virsh`, `qemu-img`, `mv` | Stop the sealed VM, confirm its exact domain and disk, and publish an independent image with its creation record |
+| Cleanup | `create_vm.bash -c` | Tear down the build VM unless `-k` keeps it for explicit follow-up checks |
 
 **Inputs.**
 
@@ -397,6 +421,13 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 | `OS_TYPE`                 | (required)               | `-o rocky8` / `-o debian13`       |
 
 The bake script never mutates the upstream cloud base image. The output is an independent copy with a unique name, manifest sidecar, and creation record. Re-running the bake creates a new pair; an existing image is never overwritten.
+
+The EtherCAT bake uses the same streamed stdin terminal seal and state binding after it
+extracts and validates its manifest sidecar. In both callers, seal is the last
+guest command. The only following operations are the exact VM stop, shut-off
+confirmation, exact source-disk check, and pair publication. A failed seal,
+later guest command, state mismatch, stop failure, or disk mismatch prevents
+publication.
 
 The maintained Ansible inventory supplies group relationships and group
 variables. The shared generator adds the run-specific host and resolved address
@@ -528,7 +559,7 @@ changed SSH host key remains an immediate failure and does not spend the SSH
 budget. All settings reject zero, negative, and non-integer values.
 
 The ioc-runner bake exports its run identity and calls the same
-`create_vm.bash -S` path at publication step 9. It therefore uses the same
+`create_vm.bash -S` path at publication step 10. It therefore uses the same
 60-second shutdown default and the same execution-time overrides as an
 ordinary public stop.
 

@@ -27,8 +27,11 @@ declare -g LIBVIRT_URI="qemu:///system"
 declare -g VM_IP=""
 declare -g RUNTIME_INVENTORY=""
 declare -g INVENTORY_GENERATOR="${SC_TOP}/bin/generate_ansible_inventory.bash"
+declare -g PROXY_CONTRACT="${SC_TOP}/bin/proxy_contract.bash"
 declare -g OUTPUT_TEMP_CREATED=false
 declare -g SIDECAR_TEMP_CREATED=false
+declare -g SEALED_VM_NAME=""
+declare -g SEALED_SOURCE_DISK=""
 
 # Connection multiplexing is refused for every ssh this bake makes. An operator
 # ssh_config that sets ControlMaster/ControlPath under Host * names its socket
@@ -226,45 +229,11 @@ rm -f -- "${package_tmp}"
 REMOTE_PIP
 }
 
-function remove_proxy_configuration {
-    ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' <<'REMOTE_DEPROXY'
-if [[ ! -o privileged ]]; then
-    printf "%s\n" "error: privileged Bash mode is required" >&2
-    exit 1
-fi
-set -euo pipefail
-unset BASH_ENV ENV CDPATH
-unset TMPDIR TMP TEMP
-export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
-[[ "${EUID}" == "0" ]]
-[[ -f /etc/dnf/dnf.conf ]] && sed -i '/^proxy=/d' /etc/dnf/dnf.conf
-rm -f /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy
-rm -f /etc/ssh/sshd_config.d/99proxy.conf /etc/pip.conf
-sed -i '/[Pp][Rr][Oo][Xx][Yy]/d' /etc/environment
-git config --system --unset-all http.proxy 2>/dev/null || true
-git config --system --unset-all https.proxy 2>/dev/null || true
-rm -f /root/.ssh/environment /home/*/.ssh/environment
-REMOTE_DEPROXY
-
-    ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' <<'REMOTE_VERIFY'
-if [[ ! -o privileged ]]; then
-    printf "%s\n" "error: privileged Bash mode is required" >&2
-    exit 1
-fi
-set -euo pipefail
-unset BASH_ENV ENV CDPATH
-export PATH="/usr/sbin:/usr/bin:/sbin:/bin"
-hits=0
-[[ -f /etc/dnf/dnf.conf ]] && grep -qsi proxy /etc/dnf/dnf.conf && hits=1
-if ls /etc/apt/apt.conf.d/95proxy /etc/sudoers.d/95proxy \
-      /etc/ssh/sshd_config.d/99proxy.conf /etc/pip.conf \
-      /root/.ssh/environment /home/*/.ssh/environment 2>/dev/null | grep -q .; then
-    hits=1
-fi
-grep -qsi proxy /etc/environment && hits=1
-git config --system --get-regexp proxy >/dev/null 2>&1 && hits=1
-exit "${hits}"
-REMOTE_VERIFY
+function seal_proxy_contract {
+    ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" \
+        'sudo /bin/bash -p -s -- seal' < "${PROXY_CONTRACT}"
+    SEALED_VM_NAME="${VM_NAME}"
+    SEALED_SOURCE_DISK="${SOURCE_DISK}"
 }
 
 while getopts ":o:d:a:kr:h" opt; do
@@ -354,6 +323,7 @@ fi
 [[ -x "${INVENTORY_GENERATOR}" ]] \
     || die "inventory generator is not executable: ${INVENTORY_GENERATOR}"
 [[ -f "${VALIDATOR}" ]] || die "validator not found: ${VALIDATOR}"
+[[ -f "${PROXY_CONTRACT}" ]] || die "proxy contract not found: ${PROXY_CONTRACT}"
 [[ -f "${INVENTORY_PATH}" ]] || die "inventory not found: ${INVENTORY_PATH}"
 
 trap cleanup_output_temps EXIT
@@ -373,10 +343,10 @@ printf "  Output     : %s\n" "${OUTPUT_IMAGE}"
 printf "  Ansible    : %s\n" "${ANSIBLE_DIR}"
 printf "%s\n" "------------------------------------------------------------"
 
-printf "\nStep 1/9: Boot a fresh %s\n" "${VM_NAME}"
+printf "\nStep 1/10: Boot a fresh %s\n" "${VM_NAME}"
 "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
 
-printf "\nStep 2/9: Refresh known_hosts and resolve the VM address\n"
+printf "\nStep 2/10: Refresh known_hosts and resolve the VM address\n"
 VM_IP="$(
     "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
         | awk -F': *' '/^IP Address/ {print $2; exit}'
@@ -388,7 +358,7 @@ printf "  VM_IP=%s [OK]\n" "${VM_IP}"
 write_runtime_inventory
 printf "  runtime inventory for %s [OK]\n" "${VM_NAME}"
 
-printf "\nStep 3/9: Resolve base identity and stamp the manifest\n"
+printf "\nStep 3/10: Resolve base identity and stamp the manifest\n"
 declare -g BASE_NAME
 declare -g BASE_DIGEST
 declare -g CLOUD_HEAD
@@ -416,7 +386,7 @@ stamp_manifest_header "${BAKE_DATE}" "${CLOUD_HEAD}" "${ANSIBLE_HEAD}" \
     "${EPICS_ENV_VERSION}" "${EPICS_BASE_VERSION}" "${BASE_NAME}" "${BASE_DIGEST}"
 printf "  base image: %s sha256=%s [OK]\n" "${BASE_NAME}" "${BASE_DIGEST}"
 
-printf "\nStep 4/9: Apply ansible site.yml on %s\n" "${VM_NAME}"
+printf "\nStep 4/10: Apply ansible site.yml on %s\n" "${VM_NAME}"
 (
     cd "${ANSIBLE_DIR}"
     # The selector goes to site.yml alone. This is the first --extra-vars use in
@@ -433,26 +403,25 @@ printf "\nStep 4/9: Apply ansible site.yml on %s\n" "${VM_NAME}"
     fi
 )
 
-printf "\nStep 5/9: Apply 04_nfs_sim.yml on %s\n" "${VM_NAME}"
+printf "\nStep 5/10: Apply 04_nfs_sim.yml on %s\n" "${VM_NAME}"
 (
     cd "${ANSIBLE_DIR}"
     ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
         --limit "${VM_NAME}" playbooks/04_nfs_sim.yml
 )
 
-printf "\nStep 6/9: Apply 07_test_users.yml on %s\n" "${VM_NAME}"
+printf "\nStep 6/10: Apply 07_test_users.yml on %s\n" "${VM_NAME}"
 (
     cd "${ANSIBLE_DIR}"
     ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
         --limit "${VM_NAME}" playbooks/07_test_users.yml
 )
 
-printf "\nStep 7/9: Finalize provenance and remove proxy configuration\n"
+printf "\nStep 7/10: Finalize provenance\n"
 append_pip_provenance
-remove_proxy_configuration
-printf "  manifest and de-proxy checks complete [OK]\n"
+printf "  manifest provenance complete [OK]\n"
 
-printf "\nStep 8/9: Validate the real in-image provenance\n"
+printf "\nStep 8/10: Validate provenance and extract the sidecar\n"
 ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' < "${VALIDATOR}"
 printf "  validator accepted the manifest [OK]\n"
 
@@ -460,10 +429,20 @@ SIDECAR_TEMP_CREATED=true
 ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo cat /etc/iocrunner-bake.manifest' > "${SIDECAR_TEMP}"
 [[ -s "${SIDECAR_TEMP}" ]] || die "sidecar extraction produced an empty file"
 
-printf "\nStep 9/9: Shutdown and publish the validated pair\n"
+printf "\nStep 9/10: Seal the current proxy artifact contract\n"
+seal_proxy_contract
+printf "  terminal proxy seal complete [OK]\n"
+
+printf "\nStep 10/10: Shutdown and publish the validated pair\n"
+[[ "${SEALED_VM_NAME}" == "${VM_NAME}" && \
+   "${SEALED_SOURCE_DISK}" == "${SOURCE_DISK}" ]] \
+    || die "terminal seal state does not match the exact build VM and disk"
 "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" \
     -p "${VM_PREFIX}" -S
-[[ -f "${SOURCE_DISK}" ]] || die "source disk missing: ${SOURCE_DISK}"
+[[ "$(virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}")" == "shut off" ]] \
+    || die "exact build VM is not shut off after the shared stop"
+[[ -f "${SOURCE_DISK}" && ! -L "${SOURCE_DISK}" ]] \
+    || die "exact stopped source disk is missing or not a regular file: ${SOURCE_DISK}"
 
 OUTPUT_TEMP_CREATED=true
 image_workflow_copy_qcow2 "${SOURCE_DISK}" "${OUTPUT_IMAGE}" \

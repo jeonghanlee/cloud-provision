@@ -12,6 +12,7 @@ SC_RPATH="$(realpath "$0")"
 SC_TOP="${SC_RPATH%/*}/.."
 SC_TOP="$(realpath "${SC_TOP}")"
 source "${SC_TOP}/bin/image_workflow.bash"
+source "${SC_TOP}/bin/proxy_contract.bash"
 
 # --- Global Configuration ---
 declare -g VM_PREFIX="testbed"
@@ -588,11 +589,7 @@ function discover_proxy_configuration {
     fi
 
     PROXY_URL="${proxy_urls[0]}"
-    if [[ ! "${PROXY_URL}" =~ ^https?://[^[:space:]]+$ ]] || \
-       [[ "${PROXY_URL}" == *'"'* ]] || \
-       [[ "${PROXY_URL}" == *"'"* ]] || \
-       [[ "${PROXY_URL}" == *\\* ]]; then
-        printf "Error: proxy URL contains unsupported characters.\n" >&2
+    if ! proxy_contract_validate_url "${PROXY_URL}"; then
         exit 1
     fi
 }
@@ -685,56 +682,13 @@ function prepare_disk {
 # --- Cloud-Init Seed Generation ---
 function append_proxy_user_data {
     local user_data_path="$1"
-    local line
 
     if [[ -z "${PROXY_FILE}" ]]; then
         return 0
     fi
 
-    {
-        printf "\nwrite_files:\n"
-        printf "  - path: /etc/profile.d/%s\n" "${PROXY_FILE_NAME}"
-        printf "    owner: root:root\n"
-        printf "    permissions: '0644'\n"
-        printf "    content: |\n"
-        while IFS= read -r line || [[ -n "${line}" ]]; do
-            printf "      %s\n" "${line}"
-        done < "${PROXY_FILE}"
-
-        case "${OS_VARIANT}" in
-            debian*|ubuntu*)
-                printf "  - path: /etc/apt/apt.conf.d/95cloud-provision-proxy\n"
-                printf "    owner: root:root\n"
-                printf "    permissions: '0644'\n"
-                printf "    content: |\n"
-                printf "      Acquire::http::Proxy \"%s\";\n" "${PROXY_URL}"
-                printf "      Acquire::https::Proxy \"%s\";\n" "${PROXY_URL}"
-                ;;
-            rocky*)
-                printf "  - path: /etc/dnf/dnf.conf\n"
-                printf "    append: true\n"
-                printf "    owner: root:root\n"
-                printf "    permissions: '0644'\n"
-                printf "    content: |\n"
-                printf "      proxy=%s\n" "${PROXY_URL}"
-                ;;
-            *)
-                printf "Error: no proxy package-manager mapping for %s\n" \
-                    "${OS_VARIANT}" >&2
-                exit 1
-                ;;
-        esac
-
-        printf "  - path: /etc/gitconfig\n"
-        printf "    append: true\n"
-        printf "    owner: root:root\n"
-        printf "    permissions: '0644'\n"
-        printf "    content: |\n"
-        printf "      [http]\n"
-        printf "          proxy = %s\n" "${PROXY_URL}"
-        printf "      [https]\n"
-        printf "          proxy = %s\n" "${PROXY_URL}"
-    } >> "${user_data_path}"
+    proxy_contract_render_write_files "${OS_VARIANT}" "${PROXY_URL}" \
+        >> "${user_data_path}"
 }
 
 function generate_seed {

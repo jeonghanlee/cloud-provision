@@ -1,0 +1,10 @@
+os	identity	path	ownership	marker	cleanup	remnant
+debian	profile	/etc/profile.d/95cloud-provision-proxy.sh	dedicated	cloud-provision-proxy-v1	required	required
+debian	apt	/etc/apt/apt.conf.d/95cloud-provision-proxy	dedicated	cloud-provision-proxy-v1	required	required
+debian	git	/etc/gitconfig	shared	cloud-provision-proxy-v1	required	required
+ubuntu	profile	/etc/profile.d/95cloud-provision-proxy.sh	dedicated	cloud-provision-proxy-v1	required	required
+ubuntu	apt	/etc/apt/apt.conf.d/95cloud-provision-proxy	dedicated	cloud-provision-proxy-v1	required	required
+ubuntu	git	/etc/gitconfig	shared	cloud-provision-proxy-v1	required	required
+rocky	profile	/etc/profile.d/95cloud-provision-proxy.sh	dedicated	cloud-provision-proxy-v1	required	required
+rocky	dnf	/etc/dnf/dnf.conf	shared	cloud-provision-proxy-v1	required	required
+rocky	git	/etc/gitconfig	shared	cloud-provision-proxy-v1	required	required
