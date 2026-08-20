@@ -31,6 +31,10 @@ declare -g LIBVIRT_URI="qemu:///system"
 declare -g LIBVIRT_NETWORK="default"
 declare -g VM_BOOT_FIRMWARE=""
 declare -g REQUIRED_GROUP="${REQUIRED_GROUP:-libvirt}"
+declare -g PROXY_SOURCE_DIR="${PROXY_SOURCE_DIR:-/etc/profile.d}"
+declare -g PROXY_FILE=""
+declare -g PROXY_FILE_NAME=""
+declare -g PROXY_URL=""
 
 # Wait settings are positive integer counts or seconds. Environment values
 # override the measured defaults for one execution without changing the
@@ -508,6 +512,91 @@ function require_fresh_input {
     fi
 }
 
+# Discovers at most one host proxy script, extracts one quoted PROXY_URL
+# assignment without executing the host file, and validates values used in
+# generated package-manager and Git configuration.
+function discover_proxy_configuration {
+    local candidate
+    local line
+    local value
+    local proxy_file_count=0
+    local -a proxy_files=()
+    local -a proxy_urls=()
+
+    if [[ -d "${PROXY_SOURCE_DIR}" ]]; then
+        shopt -s nullglob
+        proxy_files=("${PROXY_SOURCE_DIR}"/*proxy.sh)
+        shopt -u nullglob
+    fi
+
+    for candidate in "${proxy_files[@]}"; do
+        if [[ -f "${candidate}" ]]; then
+            PROXY_FILE="${candidate}"
+            proxy_urls=()
+            break
+        fi
+    done
+
+    if [[ ${#proxy_files[@]} -gt 0 ]]; then
+        for candidate in "${proxy_files[@]}"; do
+            if [[ -f "${candidate}" ]]; then
+                proxy_file_count=$((proxy_file_count + 1))
+            fi
+        done
+        if [[ ${proxy_file_count} -gt 1 ]]; then
+            printf "Error: multiple proxy files found in %s.\n" \
+                "${PROXY_SOURCE_DIR}" >&2
+            exit 1
+        fi
+    fi
+
+    if [[ -z "${PROXY_FILE}" ]]; then
+        return 0
+    fi
+
+    PROXY_FILE_NAME="${PROXY_FILE##*/}"
+    if [[ ! "${PROXY_FILE_NAME}" =~ ^[A-Za-z0-9._-]+\.sh$ ]]; then
+        printf "Error: proxy file name is not safe: %s\n" \
+            "${PROXY_FILE_NAME}" >&2
+        exit 1
+    fi
+
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" =~ ^[[:space:]]*(export[[:space:]]+)?PROXY_URL[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+            value="${BASH_REMATCH[2]}"
+            case "${value}" in
+                \"*\")
+                    value="${value#\"}"
+                    value="${value%\"}"
+                    ;;
+                \'*\')
+                    value="${value#\'}"
+                    value="${value%\'}"
+                    ;;
+                *)
+                    printf "Error: proxy file must quote PROXY_URL.\n" >&2
+                    exit 1
+                    ;;
+            esac
+            proxy_urls+=("${value}")
+        fi
+    done < "${PROXY_FILE}"
+
+    if [[ ${#proxy_urls[@]} -ne 1 ]]; then
+        printf "Error: proxy file must contain exactly one PROXY_URL assignment.\n" >&2
+        exit 1
+    fi
+
+    PROXY_URL="${proxy_urls[0]}"
+    if [[ ! "${PROXY_URL}" =~ ^https?://[^[:space:]]+$ ]] || \
+       [[ "${PROXY_URL}" == *'"'* ]] || \
+       [[ "${PROXY_URL}" == *"'"* ]] || \
+       [[ "${PROXY_URL}" == *\\* ]]; then
+        printf "Error: proxy URL contains unsupported characters.\n" >&2
+        exit 1
+    fi
+}
+
 # --- Base Image Acquisition ---
 # Names the class of the selected base image. The operationally important fact
 # is not the file name but whether it can be obtained again: a moving upstream
@@ -594,6 +683,60 @@ function prepare_disk {
 }
 
 # --- Cloud-Init Seed Generation ---
+function append_proxy_user_data {
+    local user_data_path="$1"
+    local line
+
+    if [[ -z "${PROXY_FILE}" ]]; then
+        return 0
+    fi
+
+    {
+        printf "\nwrite_files:\n"
+        printf "  - path: /etc/profile.d/%s\n" "${PROXY_FILE_NAME}"
+        printf "    owner: root:root\n"
+        printf "    permissions: '0644'\n"
+        printf "    content: |\n"
+        while IFS= read -r line || [[ -n "${line}" ]]; do
+            printf "      %s\n" "${line}"
+        done < "${PROXY_FILE}"
+
+        case "${OS_VARIANT}" in
+            debian*|ubuntu*)
+                printf "  - path: /etc/apt/apt.conf.d/95cloud-provision-proxy\n"
+                printf "    owner: root:root\n"
+                printf "    permissions: '0644'\n"
+                printf "    content: |\n"
+                printf "      Acquire::http::Proxy \"%s\";\n" "${PROXY_URL}"
+                printf "      Acquire::https::Proxy \"%s\";\n" "${PROXY_URL}"
+                ;;
+            rocky*)
+                printf "  - path: /etc/dnf/dnf.conf\n"
+                printf "    append: true\n"
+                printf "    owner: root:root\n"
+                printf "    permissions: '0644'\n"
+                printf "    content: |\n"
+                printf "      proxy=%s\n" "${PROXY_URL}"
+                ;;
+            *)
+                printf "Error: no proxy package-manager mapping for %s\n" \
+                    "${OS_VARIANT}" >&2
+                exit 1
+                ;;
+        esac
+
+        printf "  - path: /etc/gitconfig\n"
+        printf "    append: true\n"
+        printf "    owner: root:root\n"
+        printf "    permissions: '0644'\n"
+        printf "    content: |\n"
+        printf "      [http]\n"
+        printf "          proxy = %s\n" "${PROXY_URL}"
+        printf "      [https]\n"
+        printf "          proxy = %s\n" "${PROXY_URL}"
+    } >> "${user_data_path}"
+}
+
 function generate_seed {
     local pub_key_path=""
     local pub_key_data=""
@@ -633,6 +776,7 @@ function generate_seed {
     export PUB_KEY_DATA="${pub_key_data}"
     perl -pe 's/SSH_AUTHORIZED_KEY_PLACEHOLDER/$ENV{PUB_KEY_DATA}/g' \
         "${user_data_template}" > "${seed_dir}/user-data"
+    append_proxy_user_data "${seed_dir}/user-data"
 
     if [[ -f "${CLOUD_INIT_ISO}" ]]; then
         rm -f "${CLOUD_INIT_ISO}"
@@ -1105,6 +1249,7 @@ if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
     esac
 fi
 
+discover_proxy_configuration
 verify_base_image
 prepare_disk
 generate_seed
