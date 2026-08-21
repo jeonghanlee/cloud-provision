@@ -344,6 +344,7 @@ Commit `304291b` integrates the EtherCAT bake and consumer with the shared namin
 ##### Scope
 
 - After M3 completes, restore and update the deferred dedicated EtherCAT test surfaces from the recorded `733edf0` baseline.
+- Apply the same SIGPIPE-safe IP-resolution fix already made in the IOC bake to the EtherCAT bake, whose VM-address `awk` still exits on first match while `create_vm -s` is writing and can abort the bake with exit 141 under `set -o pipefail`.
 - Run the shipped Debian 13 EtherCAT bake on supported Libvirt/KVM.
 - Inspect the produced image, manifest, and creation record for matching identity and no backing file.
 - Boot a fresh `debian13-ethercat` consumer and confirm that it selects the exact valid pair produced by the bake.
