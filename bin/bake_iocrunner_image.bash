@@ -349,7 +349,7 @@ printf "\nStep 1/10: Boot a fresh %s\n" "${VM_NAME}"
 printf "\nStep 2/10: Refresh known_hosts and resolve the VM address\n"
 VM_IP="$(
     "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
-        | awk -F': *' '/^IP Address/ {print $2; exit}'
+        | awk -F': *' '/^IP Address/ && !seen {print $2; seen=1}'
 )"
 [[ -n "${VM_IP}" ]] || die "failed to resolve VM IP"
 ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "${VM_IP}" 2>/dev/null || true
