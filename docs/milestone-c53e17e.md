@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: Commit the R1 fix (`create_vm` drops the cloud-init `packages:` directive under proxy injection) with its test and record changes, then reconcile and close issue #33 to complete M3; both real gates V012 and V013 now pass. Keep M2 / T13 gated by G2, keep issue #34 open until its audit, and run no EtherCAT test or runtime action.
+Next session entry point: M3 is Complete and issue #33 is closed. Next, authorize and run the G2 ioc-runner existing-artifact audit to unblock M2 / T13, and pick up the proxy-ordering follow-ups M4-M7 in the Backlog. Keep issue #34 open until its audit, keep M1.1 EtherCAT deferred, and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -19,7 +19,7 @@ Next session entry point: Commit the R1 fix (`create_vm` drops the cloud-init `p
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Proxy lifecycle | M2 | Remove every injected proxy artifact before publishing golden images | Milestone | Blocked | No | D009-D017, M3, G2 | M3 completes the exact IOC proxy set, both real IOC producer-consumer gates pass, and the separately authorized ioc-runner existing-artifact audit completes; [M2 detail](#m2). |
-| Proxy lifecycle | M3 | Complete proxy injection for non-interactive Ansible and pip | Milestone | In progress | No | D009-D010, D013, D016 | The shared contract owns the exact Debian 8, Ubuntu 8, and Rocky 7 final artifacts, local IOC-only verification passes, and two real IOC producer-consumer gates pass; [M3 detail](#m3). |
+| Proxy lifecycle | M3 | Complete proxy injection for non-interactive Ansible and pip | Milestone | Complete | No | D009-D010, D013, D016, D018 | The shared contract owns the exact Debian 8, Ubuntu 8, and Rocky 7 final artifacts, local IOC-only verification passes, and two real IOC producer-consumer gates pass; [M3 detail](#m3). |
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Open | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 
@@ -73,7 +73,7 @@ Out of scope: implementing issue #33 inside the accepted M2 plan because M3 owns
 
 - D009-D017
 - D012 remains the historical boundary of the accepted M2 plan; D016 assigns issue #33 implementation to M3 without rewriting that plan.
-- M3 is In progress and blocks the two real IOC gates; resume M2 as In progress after M3 completes.
+- M3 is Complete; G2 remains the only Open gate, so M2 stays Blocked on G2 and resumes as In progress when G2 completes.
 - G2 remains Open and independently blocks M2 / T13; M3 does not depend on G2.
 
 ##### Implementation Plan
@@ -162,7 +162,7 @@ Projection State: reconciled; remote body matches the canonical projection and t
 Origin: c53e17e / M3
 Identity History: none
 GitHub Issue: [#33](https://github.com/jeonghanlee/cloud-provision/issues/33)
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -257,18 +257,18 @@ Superseded Plan Artifacts: none
 
 ##### Closure Evidence
 
-- Local V001-V011 pass. V012 first failed on supported Libvirt/KVM because the cloud-init `packages:` module installs before the runcmd proxy apply, so the golden bake could not fetch packages in the no-direct-route topology. The R1 fix makes `create_vm` drop the `packages:` directive whenever the proxy is injected, deferring package installation to post-apply Ansible over the applied proxy. Both real gates then passed end-to-end: V012 (Debian) and V013 (Rocky) each baked through all 10 steps, published the golden pair, and had a fresh consumer select that exact pair. The `create_vm` and test changes are not yet committed; issue #33 reconciliation and close remain the only external gate before M3 completes.
+- Local V001-V011 pass. V012 first failed on supported Libvirt/KVM because the cloud-init `packages:` module installs before the runcmd proxy apply, so the golden bake could not fetch packages in the no-direct-route topology. The R1 fix makes `create_vm` drop the `packages:` directive whenever the proxy is injected, deferring package installation to post-apply Ansible over the applied proxy. Both real gates then passed end-to-end: V012 (Debian) and V013 (Rocky) each baked through all 10 steps, published the golden pair, and had a fresh consumer select that exact pair. The fix and test landed in commit `fbd9fb3`; the milestone record landed in `bbee888`. Issue #33 was observed closed on 2026-08-21, satisfying the last completion criterion, so M3 is Complete.
 
 ##### GitHub Projection
 
 Title: Complete proxy injection for non-interactive Ansible and pip
 Labels: bug
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: bug
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-20 18:43:18 PDT; remote updated 2026-08-20 18:43:10 PDT
-Projection State: reconciled; remote body matches the canonical projection and the issue remains open
+Last Compared: 2026-08-21; issue closed with the completion comment
+Projection State: reconciled; issue #33 observed closed on 2026-08-21
 
 <a id="g1"></a>
 #### G1 - Deliver the consumer behavior required by the two IOC real gates
