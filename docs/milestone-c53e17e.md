@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: Run V012-V013 on supported Libvirt/KVM, then close M3 and issue #33 only after both real gates pass. Keep M2 / T13 gated by G2, keep issue #34 open until its audit, and run no EtherCAT test or runtime action.
+Next session entry point: Commit the R1 fix (`create_vm` drops the cloud-init `packages:` directive under proxy injection) with its test and record changes, then reconcile and close issue #33 to complete M3; both real gates V012 and V013 now pass. Keep M2 / T13 gated by G2, keep issue #34 open until its audit, and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -36,6 +36,7 @@ Next session entry point: Run V012-V013 on supported Libvirt/KVM, then close M3 
 | D015 | EtherCAT real-bake verification and EtherCAT image audit are owned by Backlog M1.1 and issue #35 and do not block M2 or issue #34 closure. | 2026-08-20 |
 | D016 | Issue #33 is assigned directly to M3. M2 depends on M3 instead of G1, while D012 remains the historical boundary of the accepted M2 implementation plan. | 2026-08-20 |
 | D017 | Dedicated EtherCAT test surfaces are removed from the current graph without changing production EtherCAT behavior; this supersedes only the current EtherCAT test portion of D011, preserves its `47aeede` result as history, and assigns restoration and update from `733edf0beca51a59ca44782ec3958b00a8fc8bc3` to Backlog M1.1 after M3. | 2026-08-20 |
+| D018 | Under proxy injection, `create_vm` removes the cloud-init `packages:` directive so packages install after the proxy apply through Ansible; the cloud-init package module runs in the config stage before the runcmd apply and cannot use the proxy. This supersedes the accepted M3 plan assumption that apply-before-Ansible was the only ordering constraint and preserves that plan acceptance as history. It also opens the testbed, package-parity, locale, and documentation follow-ups recorded in the Backlog. | 2026-08-21 |
 
 ### Milestone Details
 
@@ -251,12 +252,12 @@ Superseded Plan Artifacts: none
 | M3 / T9 | 2026-08-20 18:32:23 PDT | Local checkout at `733edf0`; production EtherCAT preservation boundary | Pass | V009 `git diff --check` exited 0; `bin/bake_ethercat_image.bash` and two generic tests matched `733edf0`; five user-data template hashes matched their baselines; the narrow diff contained only the accepted shared merge and direct test removal |
 | M3 / T10 | 2026-08-20 18:32:23 PDT | Fresh Reviewer on the corrected final uncommitted implementation | Pass | V010 resolved the root-environment finding and accepted P001-P010 with zero blocking findings and zero required decisions |
 | M3 / T11 | 2026-08-20 18:39:18 PDT | Local checkout and GitHub read-only access | Pass | V011 produced self-contained #33, #34, and #35 bodies, verified open state, `bug`, milestone 1, and assignee `jeonghanlee`, and found only the planned #35 title difference |
-| M3 / T12 | Not run | Supported Libvirt/KVM | Pending | V012 exact public Debian IOC bake and fresh consumer |
-| M3 / T13 | Not run | Supported Libvirt/KVM | Pending | V013 exact public Rocky IOC bake and fresh consumer |
+| M3 / T12 | 2026-08-21 | Supported Libvirt/KVM | Pass | V012 Debian real gate passed after the R1 fix (create_vm drops the cloud-init `packages:` directive when the proxy is injected, so packages install post-apply through the applied proxy): the bake completed all 10 steps and published `iocrunner-debian13-20260821T085423Z-d97faafeb045`, and a fresh `debian13-iocrunner.server` consumer reached READY selecting that exact pair |
+| M3 / T13 | 2026-08-21 | Supported Libvirt/KVM | Pass | V013 Rocky real gate passed under the same R1 fix (dnf packages install post-apply via Ansible over the proxy): the bake completed all 10 steps and published `iocrunner-rocky8-20260821T155443Z-9b788064edba`, and a fresh `rocky8-iocrunner.server` consumer reached READY selecting that exact pair |
 
 ##### Closure Evidence
 
-- Local V001-V011 pass. V012-V013 remain pending, so M3 remains In progress and issue #33 remains open.
+- Local V001-V011 pass. V012 first failed on supported Libvirt/KVM because the cloud-init `packages:` module installs before the runcmd proxy apply, so the golden bake could not fetch packages in the no-direct-route topology. The R1 fix makes `create_vm` drop the `packages:` directive whenever the proxy is injected, deferring package installation to post-apply Ansible over the applied proxy. Both real gates then passed end-to-end: V012 (Debian) and V013 (Rocky) each baked through all 10 steps, published the golden pair, and had a fresh consumer select that exact pair. The `create_vm` and test changes are not yet committed; issue #33 reconciliation and close remain the only external gate before M3 completes.
 
 ##### GitHub Projection
 
@@ -326,6 +327,10 @@ Issue #34 cannot close until a separately planned and authorized value-safe audi
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 Deferred EtherCAT acceptance | M1.1 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D014-D015, D017, M3 | After M3, restore and update the deferred EtherCAT test surfaces from `733edf0`, then run the real bake, consumer, proxy-clean check, and separately authorized image audit; [M1.1 detail](#m11). |
+| Proxy ordering follow-up | M4 | Repurpose the testbed VM into a bare base image open to all tests | Milestone | Not started | Yes | D018 | The server=1/node=2 concept is retired and `testbed` becomes a package-minimal `bare` base image any test can use; [M4 detail](#m4). |
+| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018 | A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning; [M5 detail](#m5). |
+| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
+| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state packages install post-apply via Ansible, not cloud-init; [M7 detail](#m7). |
 
 ### Backlog Details
 
@@ -352,6 +357,7 @@ Commit `304291b` integrates the EtherCAT bake and consumer with the shared namin
 - Audit current EtherCAT working and archived images under a separate accepted and authorized value-safe plan.
 - Quarantine or replace every affected EtherCAT image and record any required credential rotation outside the repository and GitHub.
 - Record the runtime evidence in this detail section.
+- Verify the EtherCAT bake still installs its packages after the proxy-injection `packages:` strip (D018), since the EtherCAT bake shares the same `create_vm` merge; if it does not install them through a post-apply path, restore that coverage.
 
 Out of scope: Changes to the shared image workflow or proxy contract unless runtime verification exposes a defect; ioc-runner runtime verification and ioc-runner image audit owned by M2 and issue #34; publishing any proxy endpoint or credential.
 
@@ -439,6 +445,197 @@ Observed Labels: bug
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
 Last Compared: 2026-08-20 18:43:18 PDT; remote updated 2026-08-20 18:43:11 PDT
 Projection State: reconciled; remote title and body match the canonical projection and the issue remains open
+
+<a id="m4"></a>
+#### M4 - Repurpose the testbed VM into a bare base image open to all tests
+
+Origin: c53e17e / M4
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+Under D018 the proxy-injection merge drops the cloud-init `packages:` directive for every VM, so a plain `testbed` VM that runs no post-apply Ansible now installs no packages. The `testbed` role also still carries the older server=1/node=2 concept that no longer matches how it is used. Retire that concept and make `testbed` a package-minimal `bare` base image that any test can boot.
+
+##### Scope
+
+- Retire the server=1/node=2 numbering concept from the `testbed` role.
+- Redefine `testbed` as a `bare`, package-minimal base image open to all tests.
+- Align `create_vm` node and prefix handling with the new `bare` role.
+
+Out of scope: proxy contract behavior; the golden IOC or EtherCAT bake paths; proxy values.
+
+##### Completion Criteria
+
+- A `bare` base image boots with the minimal package set and no test-specific assumptions.
+- No test depends on the retired server=1/node=2 concept.
+- Documentation names the `bare` role and its intended use.
+
+##### Dependencies And Decisions
+
+- D018
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+##### Test Plan
+
+To be defined at planning.
+
+##### Verification Results
+
+None observed.
+
+##### Closure Evidence
+
+None.
+
+<a id="m5"></a>
+#### M5 - Guard package-set parity between the retired cloud-init packages and post-apply install
+
+Origin: c53e17e / M5
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+D018 moved package installation from the cloud-init `packages:` module to post-apply Ansible. The two lists must stay equivalent or a package silently disappears from the golden image. Add a guard that keeps them in agreement.
+
+##### Scope
+
+- Enumerate the packages the OS templates previously installed through cloud-init.
+- Compare that set against what post-apply provisioning installs.
+- Fail a check when a former cloud-init package is not covered.
+
+Out of scope: changing the package sets themselves; proxy contract behavior.
+
+##### Completion Criteria
+
+- A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning.
+- The check runs in the offline test graph.
+
+##### Dependencies And Decisions
+
+- D018
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+##### Test Plan
+
+To be defined at planning.
+
+##### Verification Results
+
+None observed.
+
+##### Closure Evidence
+
+None.
+
+<a id="m6"></a>
+#### M6 - Document and guard the base-image locale assumption
+
+Origin: c53e17e / M6
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+After the `packages:` strip, the runcmd locale commands rely on the base image already shipping locale support (Debian ships `locales`; Rocky ships glibc langpacks). This assumption is now load-bearing and undocumented, and breaks silently if a base image drops it.
+
+##### Scope
+
+- Document in the runbook and ADR that locale generation depends on base-image locale support.
+- Add a guard that catches a base image missing the required locale support.
+
+Out of scope: changing locale selection; proxy contract behavior.
+
+##### Completion Criteria
+
+- The runbook and ADR record the base-image locale dependency.
+- A guard fails when the base image lacks the required locale support.
+
+##### Dependencies And Decisions
+
+- D018
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+##### Test Plan
+
+To be defined at planning.
+
+##### Verification Results
+
+None observed.
+
+##### Closure Evidence
+
+None.
+
+<a id="m7"></a>
+#### M7 - Record the package-install ordering in the proxy ADR and runbook
+
+Origin: c53e17e / M7
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+D018 changed how packages reach the golden image. The durable proxy ADR and RUNBOOK_BAKE should state the ordering rationale so the design is not re-derived from the code.
+
+##### Scope
+
+- Record in the proxy ADR and RUNBOOK_BAKE that packages install after the proxy apply through Ansible, not through the cloud-init package module.
+- State the reason: the cloud-init package module runs before the runcmd apply and cannot use the proxy.
+
+Out of scope: proxy contract behavior; changing the install mechanism.
+
+##### Completion Criteria
+
+- The proxy ADR and RUNBOOK_BAKE describe the post-apply package-install ordering and its reason.
+- The text references D018.
+
+##### Dependencies And Decisions
+
+- D018
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+##### Test Plan
+
+To be defined at planning.
+
+##### Verification Results
+
+None observed.
+
+##### Closure Evidence
+
+None.
 
 ## History
 
