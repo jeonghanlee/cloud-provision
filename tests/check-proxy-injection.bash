@@ -1000,6 +1000,10 @@ function run_case {
     fi
 
     expect_exact_artifact_set "${label}" "${os_type}" "${capture_file}"
+    expect_not_contains "${label} drops the cloud-init packages directive" \
+        "${capture_file}" "packages:"
+    expect_not_contains "${label} drops the packages locale entry" \
+        "${capture_file}" "  - locales"
     if [[ "${os_type}" != rocky* ]]; then
         expect_contains "${label} preserves locale generation" \
             "${capture_file}" \

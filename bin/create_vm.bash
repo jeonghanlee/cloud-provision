@@ -685,7 +685,9 @@ function merge_proxy_user_data {
     local merged_path line
     local write_files_count runcmd_count final_message_count
     local merged_write_files_count merged_runcmd_count apply_count
+    local merged_packages_count
     local inserted_write_files=false inserted_apply=false
+    local skipping_packages=false
 
     if [[ -z "${PROXY_FILE}" ]]; then
         return 0
@@ -702,7 +704,22 @@ function merge_proxy_user_data {
     fi
 
     merged_path="$(mktemp "${user_data_path}.proxy-merge.XXXXXX")" || return 1
+    # The cloud-init packages module installs in the config stage, before the
+    # runcmd proxy apply in the final stage. In a no-direct-route topology the
+    # package manager has no proxy yet and cannot fetch, so drop the packages
+    # directive here and let post-apply provisioning install packages through
+    # the applied proxy.
     while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${line}" =~ ^packages: ]]; then
+            skipping_packages=true
+            continue
+        fi
+        if [[ "${skipping_packages}" == true ]]; then
+            if [[ "${line}" =~ ^[[:space:]] ]]; then
+                continue
+            fi
+            skipping_packages=false
+        fi
         if [[ "${inserted_write_files}" == false ]] &&
            { [[ "${runcmd_count}" == 1 && "${line}" =~ ^runcmd: ]] ||
              [[ "${runcmd_count}" == 0 && "${line}" =~ ^final_message: ]]; }; then
@@ -735,9 +752,10 @@ function merge_proxy_user_data {
     apply_count="$(grep -Fxc \
         '  - [sudo, /bin/bash, -p, /run/cloud-provision/proxy_contract.bash, apply]' \
         "${merged_path}" || true)"
+    merged_packages_count="$(grep -Ec '^packages:' "${merged_path}" || true)"
     if [[ "${inserted_write_files}" != true || "${inserted_apply}" != true ||
           "${merged_write_files_count}" != 1 || "${merged_runcmd_count}" != 1 ||
-          "${apply_count}" != 1 ]]; then
+          "${apply_count}" != 1 || "${merged_packages_count}" != 0 ]]; then
         rm -f -- "${merged_path}"
         printf "Error: proxy cloud-init merge did not produce one write_files and runcmd.\n" >&2
         return 1
