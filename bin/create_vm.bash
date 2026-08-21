@@ -680,15 +680,73 @@ function prepare_disk {
 }
 
 # --- Cloud-Init Seed Generation ---
-function append_proxy_user_data {
+function merge_proxy_user_data {
     local user_data_path="$1"
+    local merged_path line
+    local write_files_count runcmd_count final_message_count
+    local merged_write_files_count merged_runcmd_count apply_count
+    local inserted_write_files=false inserted_apply=false
 
     if [[ -z "${PROXY_FILE}" ]]; then
         return 0
     fi
 
-    proxy_contract_render_write_files "${OS_VARIANT}" "${PROXY_URL}" \
-        >> "${user_data_path}"
+    write_files_count="$(grep -Ec '^write_files:' "${user_data_path}" || true)"
+    runcmd_count="$(grep -Ec '^runcmd:' "${user_data_path}" || true)"
+    final_message_count="$(grep -Ec '^final_message:' "${user_data_path}" || true)"
+    if [[ "${write_files_count}" != 0 ||
+          ( "${runcmd_count}" != 0 && "${runcmd_count}" != 1 ) ||
+          "${final_message_count}" != 1 ]]; then
+        printf "Error: unsupported cloud-init structure for proxy merge.\n" >&2
+        return 1
+    fi
+
+    merged_path="$(mktemp "${user_data_path}.proxy-merge.XXXXXX")" || return 1
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        if [[ "${inserted_write_files}" == false ]] &&
+           { [[ "${runcmd_count}" == 1 && "${line}" =~ ^runcmd: ]] ||
+             [[ "${runcmd_count}" == 0 && "${line}" =~ ^final_message: ]]; }; then
+            proxy_contract_render_write_files "${OS_VARIANT}" "${PROXY_URL}" \
+                >> "${merged_path}" || {
+                rm -f -- "${merged_path}"
+                return 1
+            }
+            printf '\n' >> "${merged_path}"
+            inserted_write_files=true
+            if [[ "${runcmd_count}" == 0 ]]; then
+                printf 'runcmd:\n' >> "${merged_path}"
+                printf '%s\n\n' \
+                    '  - [sudo, /bin/bash, -p, /run/cloud-provision/proxy_contract.bash, apply]' \
+                    >> "${merged_path}"
+                inserted_apply=true
+            fi
+        fi
+        printf '%s\n' "${line}" >> "${merged_path}"
+        if [[ "${runcmd_count}" == 1 && "${line}" =~ ^runcmd: ]]; then
+            printf '%s\n' \
+                '  - [sudo, /bin/bash, -p, /run/cloud-provision/proxy_contract.bash, apply]' \
+                >> "${merged_path}"
+            inserted_apply=true
+        fi
+    done < "${user_data_path}"
+
+    merged_write_files_count="$(grep -Ec '^write_files:' "${merged_path}" || true)"
+    merged_runcmd_count="$(grep -Ec '^runcmd:' "${merged_path}" || true)"
+    apply_count="$(grep -Fxc \
+        '  - [sudo, /bin/bash, -p, /run/cloud-provision/proxy_contract.bash, apply]' \
+        "${merged_path}" || true)"
+    if [[ "${inserted_write_files}" != true || "${inserted_apply}" != true ||
+          "${merged_write_files_count}" != 1 || "${merged_runcmd_count}" != 1 ||
+          "${apply_count}" != 1 ]]; then
+        rm -f -- "${merged_path}"
+        printf "Error: proxy cloud-init merge did not produce one write_files and runcmd.\n" >&2
+        return 1
+    fi
+    chmod --reference="${user_data_path}" "${merged_path}" || {
+        rm -f -- "${merged_path}"
+        return 1
+    }
+    mv -f -- "${merged_path}" "${user_data_path}"
 }
 
 function generate_seed {
@@ -730,7 +788,7 @@ function generate_seed {
     export PUB_KEY_DATA="${pub_key_data}"
     perl -pe 's/SSH_AUTHORIZED_KEY_PLACEHOLDER/$ENV{PUB_KEY_DATA}/g' \
         "${user_data_template}" > "${seed_dir}/user-data"
-    append_proxy_user_data "${seed_dir}/user-data"
+    merge_proxy_user_data "${seed_dir}/user-data" || exit 1
 
     if [[ -f "${CLOUD_INIT_ISO}" ]]; then
         rm -f "${CLOUD_INIT_ISO}"

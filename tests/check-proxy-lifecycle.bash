@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Verifies the joined proxy artifact lifecycle through the shipped producer and
-# both shipped bake callers, then proves tuple and source omissions remain red.
+# both supported IOC families, then proves tuple and source omissions remain red.
 
 set -euo pipefail
 
@@ -12,6 +12,7 @@ declare -g WORKSPACE
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
 declare -g TEST_FAILED=0
+declare -g INVENTORY_OMISSION_TOTAL=0
 declare -ag FAILED_DETAILS=()
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -83,7 +84,7 @@ function validate_fixture {
     local actual_inventory
     local valid=true
 
-    if [[ "$(head -n 1 "${FIXTURE}")" == $'os\tidentity\tpath\townership\tmarker\tcleanup\tremnant' ]]; then
+    if [[ "$(head -n 1 "${FIXTURE}")" == $'os\tidentity\tpath\towner\tgroup\tmode\tform\tmarker\tcleanup\tremnant' ]]; then
         record_pass "independent fixture has the fixed schema"
     else
         record_fail "independent fixture has the fixed schema" "unexpected header"
@@ -93,10 +94,13 @@ function validate_fixture {
     for os in debian ubuntu rocky; do
         row_count="$(awk -F '\t' -v os="${os}" 'NR > 1 && $1 == os {count++} END {print count + 0}' \
             "${FIXTURE}")"
-        expected_count=3
+        case "${os}" in
+            debian|ubuntu) expected_count=8 ;;
+            rocky) expected_count=7 ;;
+        esac
         if [[ "${row_count}" == "${expected_count}" ]] &&
            [[ "$(awk -F '\t' -v os="${os}" '
-               NR > 1 && $1 == os && ($6 != "required" || $7 != "required") {count++}
+               NR > 1 && $1 == os && ($9 != "required" || $10 != "required") {count++}
                END {print count + 0}
            ' "${FIXTURE}")" == "0" ]]; then
             record_pass "${os} fixture defines one exact cleanup and remnant set"
@@ -116,7 +120,7 @@ function validate_fixture {
             record_pass "${os} fixture matches the production inventory tuple"
         else
             record_fail "${os} fixture matches the production inventory tuple" \
-                "identity, path, ownership, marker, cleanup, or remnant metadata differs"
+                "path, owner, group, mode, form, marker, cleanup, or remnant differs"
             valid=false
         fi
     done
@@ -131,6 +135,9 @@ function verify_fresh_consumer {
         "${root}/var/lib/cloud" "${root}/var/lib/cloud/instances" \
         "${root}/var/lib/cloud/instances/current" "${root}/var/log"
     printf "ID=debian\n" > "${root}/etc/os-release"
+    printf 'root:x:0:0:root:/root:/bin/bash\n' > "${root}/etc/passwd"
+    printf 'vmadmin:x:%s:%s::/home/vmadmin:/bin/bash\n' \
+        "$(id -u)" "$(id -g)" >> "${root}/etc/passwd"
     printf "fresh consumer state\n" > "${root}/var/lib/cloud/instances/current/user-data.txt"
     printf "fresh consumer log\n" > "${root}/var/log/cloud-init.log"
 
@@ -166,7 +173,8 @@ function expect_fixture_mutation_failure {
         bash "${TOP}/tests/check-proxy-lifecycle.bash" joined \
         > "${output}" 2>&1 || rc=$?
     if [[ "${rc}" != "0" ]] &&
-       ! grep -Fq -e 'shipped IOC bake executes' -e 'shipped EtherCAT bake executes' \
+       ! grep -Fq -e 'shipped Debian IOC bake executes' \
+           -e 'shipped Rocky IOC bake executes' \
            "${output}"; then
         record_pass "${label} fails the public joined gate before publication"
     else
@@ -176,53 +184,70 @@ function expect_fixture_mutation_failure {
 }
 
 function run_inventory_omission {
-    local label="$1"
+    local os_type="$1"
     local identity="$2"
-    local test_path="$3"
-    shift 3
-    local checkout
+    local label="ioc-${os_type}-${identity}-omission"
+    local checkout output rc=0
 
     checkout="$(prepare_mutation_checkout "${label}")"
     sed -i "/# inventory:${identity}$/d" "${checkout}/bin/proxy_contract.bash"
-    expect_failure "${label} blocks stop and publication" \
-        "${WORKSPACE}/${label}.log" \
-        bash "${checkout}/${test_path}" "$@"
+    output="${WORKSPACE}/${label}.log"
+    env PROXY_APPLY_CONTRACT="${TOP}/bin/proxy_contract.bash" \
+        bash "${checkout}/tests/check-iocrunner-bake-provenance.bash" \
+        seal-case "${os_type}" > "${output}" 2>&1 || rc=$?
+    INVENTORY_OMISSION_TOTAL=$((INVENTORY_OMISSION_TOTAL + 1))
+    if [[ "${rc}" != 0 ]] &&
+       grep -Fq "omitted proxy identity ${identity}" "${output}" &&
+       grep -Fq "omits seal completion" "${output}" &&
+       grep -Fq "blocks publication before conversion" "${output}" &&
+       ! grep -Fq 'http://fixture.invalid/' "${output}"; then
+        record_pass "${label} fails before seal completion and publication"
+    else
+        record_fail "${label} fails before seal completion and publication" \
+            "rc=${rc}; identity, seal, conversion, or value-free evidence is missing"
+    fi
 }
 
 function run_mutations {
     local checkout
 
-    run_inventory_omission ioc-profile-omission profile \
-        tests/check-iocrunner-bake-provenance.bash promotion
-    run_inventory_omission ioc-dnf-omission dnf \
-        tests/check-iocrunner-bake-provenance.bash promotion
-    run_inventory_omission ioc-git-omission git \
-        tests/check-iocrunner-bake-provenance.bash promotion
-    run_inventory_omission ethercat-profile-omission profile \
-        tests/check-ethercat-bake-workflow.bash
-    run_inventory_omission ethercat-apt-omission apt \
-        tests/check-ethercat-bake-workflow.bash
-    run_inventory_omission ethercat-git-omission git \
-        tests/check-ethercat-bake-workflow.bash
+    run_inventory_omission debian13 profile
+    run_inventory_omission debian13 environment
+    run_inventory_omission debian13 apt
+    run_inventory_omission debian13 sudo
+    run_inventory_omission debian13 sshd
+    run_inventory_omission debian13 ssh-environment
+    run_inventory_omission debian13 pip
+    run_inventory_omission debian13 git
+    run_inventory_omission rocky8 profile
+    run_inventory_omission rocky8 environment
+    run_inventory_omission rocky8 dnf
+    run_inventory_omission rocky8 sshd
+    run_inventory_omission rocky8 ssh-environment
+    run_inventory_omission rocky8 pip
+    run_inventory_omission rocky8 git
+    if [[ "${INVENTORY_OMISSION_TOTAL}" == 15 ]]; then
+        record_pass "IOC lifecycle executes exactly fifteen inventory omissions"
+    else
+        record_fail "IOC lifecycle executes exactly fifteen inventory omissions" \
+            "observed ${INVENTORY_OMISSION_TOTAL}"
+    fi
 
     checkout="$(prepare_mutation_checkout dispatch-omission)"
     sed -i '/^[[:space:]]*proxy_contract_main "\$@"$/d' \
         "${checkout}/bin/proxy_contract.bash"
     expect_failure "missing stdin dispatch blocks IOC stop and publication" \
         "${WORKSPACE}/dispatch-omission.log" \
-        bash "${checkout}/tests/check-iocrunner-bake-provenance.bash" promotion
+        env PROXY_APPLY_CONTRACT="${TOP}/bin/proxy_contract.bash" \
+        bash "${checkout}/tests/check-iocrunner-bake-provenance.bash" \
+        seal-case rocky8
 
     checkout="$(prepare_mutation_checkout ioc-seal-omission)"
     sed -i '/^seal_proxy_contract$/d' "${checkout}/bin/bake_iocrunner_image.bash"
     expect_failure "missing IOC terminal seal blocks publication" \
         "${WORKSPACE}/ioc-seal-omission.log" \
-        bash "${checkout}/tests/check-iocrunner-bake-provenance.bash" promotion
-
-    checkout="$(prepare_mutation_checkout ethercat-seal-omission)"
-    sed -i '/^seal_proxy_contract$/d' "${checkout}/bin/bake_ethercat_image.bash"
-    expect_failure "missing EtherCAT terminal seal blocks publication" \
-        "${WORKSPACE}/ethercat-seal-omission.log" \
-        bash "${checkout}/tests/check-ethercat-bake-workflow.bash"
+        bash "${checkout}/tests/check-iocrunner-bake-provenance.bash" \
+        seal-case rocky8
 
     checkout="$(prepare_mutation_checkout seed-argument-omission)"
     sed -i 's/PROXY_CONTRACT_CLEAN_ARGS+=(--seed)/: # mutation: omit seed argument/' \
@@ -239,12 +264,14 @@ function run_joined_gate {
     verify_fresh_consumer
     expect_success "shipped producer matches the independent exact set" \
         "${WORKSPACE}/producer.log" bash "${TOP}/tests/check-proxy-injection.bash"
-    expect_success "shipped IOC bake executes and verifies the exact terminal seal" \
-        "${WORKSPACE}/ioc-bake.log" \
-        bash "${TOP}/tests/check-iocrunner-bake-provenance.bash" promotion
-    expect_success "shipped EtherCAT bake executes and verifies the exact terminal seal" \
-        "${WORKSPACE}/ethercat-bake.log" \
-        bash "${TOP}/tests/check-ethercat-bake-workflow.bash"
+    expect_success "shipped Debian IOC bake executes the exact terminal seal" \
+        "${WORKSPACE}/ioc-bake-debian13.log" \
+        bash "${TOP}/tests/check-iocrunner-bake-provenance.bash" \
+        seal-case debian13
+    expect_success "shipped Rocky IOC bake executes the exact terminal seal" \
+        "${WORKSPACE}/ioc-bake-rocky8.log" \
+        bash "${TOP}/tests/check-iocrunner-bake-provenance.bash" \
+        seal-case rocky8
 }
 
 case "${1:-all}" in
@@ -260,8 +287,8 @@ case "${1:-all}" in
             "${WORKSPACE}/stdin-invalid.log" \
             /bin/bash -p -s -- invalid < "${TOP}/bin/proxy_contract.bash"
         expect_fixture_mutation_failure fixture-identity-mutation 2 invalid-identity
-        expect_fixture_mutation_failure fixture-ownership-mutation 4 shared
-        expect_fixture_mutation_failure fixture-marker-mutation 5 invalid-marker
+        expect_fixture_mutation_failure fixture-form-mutation 7 shared
+        expect_fixture_mutation_failure fixture-marker-mutation 8 invalid-marker
         run_mutations
         ;;
     *)

@@ -2,34 +2,110 @@
 
 Date: 2026-08-20
 Status: Accepted
-Decision IDs: D009, D010, D011, D012, D013, D014
+Decision IDs: D009-D017
 
 ## Context
 
-The cloud-init producer and golden-image bakes must agree on every proxy artifact that may reach a build disk. Separate producer and cleanup lists allow a current artifact to survive publication even when each path passes its own local checks.
+The cloud-init producer and golden-image bakes must agree on every proxy
+artifact that may reach a build disk. Non-interactive package installation,
+sudo, SSH, Ansible, pip, and system Git use different environment and
+configuration sources. Separate apply and cleanup lists can therefore leave a
+usable credential-bearing artifact on a published disk even when each path
+passes an isolated check.
 
 ## Decision
 
-`bin/proxy_contract.bash` is the single production authority for the current profile, APT, DNF, and system Git proxy artifacts. The real `create_vm.bash` seed path renders its deterministic files and marked blocks from the already validated proxy URL. The IOC runner and EtherCAT bakes stream the same shipped file to privileged Bash in `seal` mode after manifest validation and sidecar extraction. The contract dispatches that exact `/bin/bash -p -s -- seal` stdin form while remaining source-only when loaded as a library.
+`bin/proxy_contract.bash` is the single production authority for proxy apply,
+use, seal, and value-free clean verification. It accepts a regular
+`/etc/os-release` or a safe relative link to a regular target inside the
+selected root. Absolute, dangling, escaping, parent-link, duplicate-ID,
+invalid-ID, and unsupported-family inputs fail closed. A test root must be an
+existing absolute directory, may not be the selected link itself, and may not
+resolve to `/`. In test mode, `cloud-init`, `visudo`, `sshd`, and `systemctl`
+must be executable regular files at their exact guest paths below that root;
+there is no host fallback.
 
-Seal performs a complete applicable-set preflight before mutation. Dedicated files and shared marked blocks have fixed ownership, mode, and marker rules. Shared-target replacement preserves every byte outside the owned block. The seal then runs supported cloud-init cleanup and verifies the value-free clean state. Each bake retains in-process identity for its exact build VM and disk, then permits only immediate stop, stopped-state confirmation, and publication from that disk.
+The production inventory is exact:
 
-The independent fixture under `tests/fixtures/` is not a production input. Its applicable identity, path, ownership form, marker, cleanup, and remnant tuple must equal the production inventory used by the renderer and both seal consumers. Public tests execute the shipped producer and both shipped bake callers with only outer command, SSH transport, and filesystem-root boundaries replaced. Inventory, stdin dispatch, and terminal-seal omission mutations must return nonzero before stop or publication.
+| Identity | Families | Path | Owner | Mode | Form |
+| --- | --- | --- | --- | --- | --- |
+| `profile` | Debian, Ubuntu, Rocky | `/etc/profile.d/95cloud-provision-proxy.sh` | `root:root` | `0644` | dedicated |
+| `environment` | Debian, Ubuntu, Rocky | `/etc/environment` | `root:root` | preserve safe metadata; `0644` if absent | shared block |
+| `apt` | Debian, Ubuntu | `/etc/apt/apt.conf.d/95cloud-provision-proxy` | `root:root` | `0644` | dedicated |
+| `dnf` | Rocky | `/etc/dnf/dnf.conf` | `root:root` | preserve safe metadata | shared block in `[main]` |
+| `sudo` | Debian, Ubuntu | `/etc/sudoers.d/95cloud-provision-proxy` | `root:root` | `0440` | dedicated |
+| `sshd` | Debian, Ubuntu | `/etc/ssh/sshd_config.d/95cloud-provision-proxy.conf` | `root:root` | `0644` | dedicated drop-in |
+| `sshd` | Rocky | `/etc/ssh/sshd_config` | `root:root` | preserve safe metadata | shared global block before `Match` |
+| `ssh-environment` | Debian, Ubuntu, Rocky | `/home/vmadmin/.ssh/environment` | `vmadmin:vmadmin` | `0600` | dedicated |
+| `pip` | Debian, Ubuntu, Rocky | `/etc/pip.conf` | `root:root` | `0644` | dedicated |
+| `git` | Debian, Ubuntu, Rocky | `/etc/gitconfig` | `root:root` | preserve safe metadata; `0644` if absent | shared block |
 
-The deferred real gates use new run-specific identities, reject domain, disk, or creation-record collisions, and do not restore `-F`. Each fresh consumer's exact creation record must contain one `source_image` equal to the validated just-published producer basename before cleanliness evidence is accepted.
+This yields eight Debian rows, eight Ubuntu rows, and seven Rocky rows. The
+environment artifacts contain lower- and uppercase HTTP, HTTPS, FTP, and
+no-proxy names. Dedicated files have exact content and metadata. Shared files
+preserve safe existing metadata and every byte outside one marked block. A
+non-empty shared file without a final newline fails before mutation because a
+separate marked block cannot be represented without changing existing bytes.
+
+`create_vm.bash` validates the proxy URL as data, substitutes the SSH key, and
+then performs a controlled merge into generated user-data. Supported templates
+must contain no top-level `write_files` and at most one top-level `runcmd`.
+The result contains exactly one of each, preserves existing locale commands,
+and places privileged apply first in `runcmd`. The five source templates remain
+unchanged.
+
+Cloud-init stages only these transient files:
+
+- `/run/cloud-provision/proxy_contract.bash`, `root:root`, `0700`;
+- `/run/cloud-provision/proxy-contract.input`, `root:root`, `0600`;
+- `/run/cloud-provision/proxy-contract.lock`, created by apply as `root:root`,
+  `0600`.
+
+The input is parsed as data and binds the staged script with SHA-256. Apply
+performs a complete conflict preflight, renders all candidates, validates the
+sudo candidate, installs the fixed set, validates installed metadata and the
+effective sshd configuration, and reloads sshd. Debian and Ubuntu require the
+global sshd include for the dedicated drop-in. Rocky rejects a competing active
+`PermitUserEnvironment` and places its owned setting before the first active
+`Match`.
+
+IOC runner and EtherCAT bakes stream the same shipped contract through
+`/bin/bash -p -s -- seal` after manifest validation and sidecar extraction.
+Seal preflights the complete applicable set, removes final artifacts in reverse
+order, reloads sshd, removes transient state, verifies value-free absence, runs
+supported `cloud-init clean` as the terminal guest mutation, and verifies the
+selected cloud-init state and logs are absent. Publication begins only after
+the exact sealed VM is stopped and its exact source disk is confirmed.
+
+The independent fixture under `tests/fixtures/` is not a production input. Its
+ten-field tuples must equal the production inventory. Public local tests run
+the shipped producer and IOC bake caller with only outer command, SSH transport,
+network, image, and filesystem boundaries replaced. The IOC harness covers
+normal Debian 13 and Rocky 8 paths and exactly fifteen one-at-a-time inventory
+omissions. Dedicated EtherCAT tests are deferred; production EtherCAT behavior
+and generic image workflow tests remain unchanged.
 
 ## Scope Boundary
 
-This decision does not add issue #33 SSH, sudo, pip, vmadmin, general-environment, or direct-route behavior. It does not change Ansible, restore `-F`, inspect existing artifacts, or authorize audit or remediation.
+This decision does not change Ansible, restore `-F`, expose proxy values,
+inspect existing images, or authorize audit or remediation.
 
-D014 keeps the existing-artifact audit deferred. Reading, quarantining, replacing, or deleting an existing guest, disk, image, archive, or sidecar requires a separate accepted plan and explicit authorization.
+D014 keeps the existing-artifact audit deferred. Reading, quarantining,
+replacing, or deleting an existing guest, disk, image, archive, or sidecar
+requires a separate accepted plan and explicit authorization.
 
-D013 limits documentation to observed evidence. Local shipped-path checks do not establish the pending real Libvirt/KVM producer-consumer gates or the state of any existing artifact.
+D013 limits documentation to observed evidence. Local shipped-path checks do
+not establish the pending Debian and Rocky Libvirt/KVM producer-consumer gates
+or the state of any existing artifact.
 
 ## Consequences
 
-- Producer and bake cleanup identities cannot change independently.
+- Producer apply and bake cleanup identities cannot change independently.
 - A partial, ambiguous, or malformed owned set blocks publication.
 - A no-proxy build still performs cloud-init cleanup and clean-state verification.
 - Local verification proves only shipped host paths under explicit outer boundaries.
-- Real Libvirt/KVM producer-consumer gates and the existing-artifact audit remain separate evidence.
+- Real Debian and Rocky IOC producer-consumer gates remain required before M3
+  and issue #33 can close.
+- EtherCAT test restoration and runtime acceptance remain Backlog work.
+- The existing-artifact audit remains separate evidence under separate
+  authorization.

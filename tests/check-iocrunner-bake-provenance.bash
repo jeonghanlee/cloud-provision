@@ -116,6 +116,7 @@ function assert_runtime_inventory {
     local label="$1"
     local path_log="$2"
     local snapshot="$3"
+    local os_type="$4"
     local invocation_count=0
     local path_count=0
     local runtime_path=""
@@ -133,12 +134,12 @@ function assert_runtime_inventory {
             "invocations=${invocation_count}, paths=${path_count}"
     fi
 
-    runtime_host="$(awk \
-        '$1 ~ /^testbed-rocky8-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}$/ && \
-         $2 == "ansible_host=192.168.122.198" && $3 == "ansible_user=vmadmin" \
-         {print $1; exit}' "${snapshot}" 2>/dev/null || true)"
+    runtime_host="$(awk -v prefix="testbed-${os_type}-build-" \
+        'index($1, prefix) == 1 && $2 ~ /^ansible_host=192[.]168[.]122[.][0-9]+$/ && \
+         $3 == "ansible_user=vmadmin" {print $1; exit}' \
+        "${snapshot}" 2>/dev/null || true)"
     if [[ -n "${runtime_host}" ]] && \
-       grep -Fxq '[rocky8]' "${snapshot}" && \
+       grep -Fxq "[${os_type}]" "${snapshot}" && \
        grep -Fxq '[nfs_sim_nodes]' "${snapshot}" && \
        grep -Fxq "${runtime_host}" "${snapshot}"; then
         record_pass "${label} assigns the run-specific host to required groups"
@@ -208,48 +209,115 @@ EOF
 
 function prepare_proxy_guest_root {
     local root="$1"
+    local os_type="$2"
+    local mode="$3"
+    local os_family apply_contract script_hash baseline_root config_path mutation_path
 
+    case "${os_type}" in
+        debian13) os_family=debian ;;
+        rocky8) os_family=rocky ;;
+        *) printf 'unsupported proxy guest OS: %s\n' "${os_type}" >&2; return 1 ;;
+    esac
+    apply_contract="${PROXY_APPLY_CONTRACT:-${TOP}/bin/proxy_contract.bash}"
     mkdir -p \
         "${root}/etc/profile.d" \
+        "${root}/etc/apt/apt.conf.d" \
         "${root}/etc/dnf" \
+        "${root}/etc/sudoers.d" \
+        "${root}/etc/ssh/sshd_config.d" \
+        "${root}/home/vmadmin/.ssh" \
+        "${root}/run/cloud-provision" \
         "${root}/usr/bin" \
+        "${root}/usr/sbin" \
         "${root}/var/lib/cloud/instances/fixture" \
         "${root}/var/lib/cloud/seed/nocloud" \
         "${root}/var/log"
-    printf '%s\n' 'ID=rocky' > "${root}/etc/os-release"
-    printf '%s\n' \
-        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
-        'export http_proxy="http://fixture.invalid/"' \
-        'export https_proxy="http://fixture.invalid/"' \
-        'export ftp_proxy="http://fixture.invalid/"' \
-        'export no_proxy="localhost,127.0.0.1,192.168.0.0/16"' \
-        'export HTTP_PROXY="$http_proxy"' \
-        'export HTTPS_PROXY="$https_proxy"' \
-        'export FTP_PROXY="$ftp_proxy"' \
-        'export NO_PROXY="$no_proxy"' \
-        '# END CLOUD-PROVISION PROXY CONTRACT' \
-        > "${root}/etc/profile.d/95cloud-provision-proxy.sh"
-    printf '%s\n' \
-        'keep_dnf=true' \
-        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
-        'proxy=http://fixture.invalid/' \
-        '# END CLOUD-PROVISION PROXY CONTRACT' \
-        > "${root}/etc/dnf/dnf.conf"
-    printf '%s\n' \
-        '[user]' \
-        '    name = Fixture' \
-        '# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
-        '[http]' \
-        '    proxy = http://fixture.invalid/' \
-        '[https]' \
-        '    proxy = http://fixture.invalid/' \
-        '# END CLOUD-PROVISION PROXY CONTRACT' \
-        > "${root}/etc/gitconfig"
-    printf '%s\n' 'instance state' > "${root}/var/lib/cloud/instances/fixture/state"
-    ln -s "instances/fixture" "${root}/var/lib/cloud/instance"
-    printf '%s\n' '#cloud-config' > "${root}/var/lib/cloud/seed/nocloud/user-data"
-    printf '%s\n' 'cloud-init log' > "${root}/var/log/cloud-init.log"
-    printf '%s\n' 'cloud-init output' > "${root}/var/log/cloud-init-output.log"
+    chmod 0755 \
+        "${root}/etc" \
+        "${root}/etc/profile.d" \
+        "${root}/etc/apt/apt.conf.d" \
+        "${root}/etc/dnf" \
+        "${root}/etc/sudoers.d" \
+        "${root}/etc/ssh" \
+        "${root}/etc/ssh/sshd_config.d" \
+        "${root}/run" \
+        "${root}/run/cloud-provision"
+    chmod 0700 "${root}/home/vmadmin/.ssh"
+    printf 'root:x:0:0:root:/root:/bin/bash\n' > "${root}/etc/passwd"
+    printf 'vmadmin:x:%s:%s::/home/vmadmin:/bin/bash\n' \
+        "$(id -u)" "$(id -g)" >> "${root}/etc/passwd"
+    printf 'ID=%s\n' "${os_family}" > "${root}/etc/os-release"
+    printf 'LANG=C\n' > "${root}/etc/environment"
+    chmod 0640 "${root}/etc/environment"
+    printf '[user]\n    name = Fixture\n' > "${root}/etc/gitconfig"
+    chmod 0600 "${root}/etc/gitconfig"
+    if [[ "${os_family}" == rocky ]]; then
+        printf '[main]\nkeep_dnf=true\n' > "${root}/etc/dnf/dnf.conf"
+        chmod 0640 "${root}/etc/dnf/dnf.conf"
+        printf 'Port 22\nMatch User nobody\n    X11Forwarding no\n' \
+            > "${root}/etc/ssh/sshd_config"
+    else
+        printf 'Include /etc/ssh/sshd_config.d/*.conf\nPort 22\n' \
+            > "${root}/etc/ssh/sshd_config"
+    fi
+    chmod 0644 "${root}/etc/ssh/sshd_config"
+
+    baseline_root="${root}.before"
+    mkdir -p "${baseline_root}/etc/dnf" "${baseline_root}/etc/ssh"
+    cp -p -- "${root}/etc/environment" "${baseline_root}/etc/environment"
+    cp -p -- "${root}/etc/gitconfig" "${baseline_root}/etc/gitconfig"
+    if [[ "${os_family}" == rocky ]]; then
+        cp -p -- "${root}/etc/dnf/dnf.conf" "${baseline_root}/etc/dnf/dnf.conf"
+        cp -p -- "${root}/etc/ssh/sshd_config" \
+            "${baseline_root}/etc/ssh/sshd_config"
+    fi
+
+    cp -- "${apply_contract}" "${root}/run/cloud-provision/proxy_contract.bash"
+    chmod 0700 "${root}/run/cloud-provision/proxy_contract.bash"
+    script_hash="$(sha256sum "${apply_contract}")"
+    script_hash="${script_hash%% *}"
+    printf 'schema=1\nproxy_url=http://fixture.invalid/\nscript_sha256=%s\n' \
+        "${script_hash}" > "${root}/run/cloud-provision/proxy-contract.input"
+    chmod 0600 "${root}/run/cloud-provision/proxy-contract.input"
+
+    cat > "${root}/usr/sbin/visudo" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == -cf && -f "$2" ]]
+grep -Fq 'Defaults env_keep +=' "$2"
+EOF
+
+    cat > "${root}/usr/sbin/sshd" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+guest_root="${0%/usr/sbin/sshd}"
+config=""
+previous=""
+for argument in "$@"; do
+    if [[ "${previous}" == -f ]]; then
+        config="${argument}"
+    fi
+    previous="${argument}"
+done
+[[ -n "${config}" && -f "${config}" ]]
+if grep -Fq 'PermitUserEnvironment yes' "${config}" ||
+   grep -Fq 'PermitUserEnvironment yes' "${guest_root}/etc/ssh/sshd_config.d/95cloud-provision-proxy.conf"; then
+    printf '%s\n' 'permituserenvironment yes'
+else
+    printf '%s\n' 'permituserenvironment no'
+fi
+EOF
+
+    cat > "${root}/usr/bin/systemctl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1" == reload ]]
+case "$2" in
+    ssh|sshd) ;;
+    *) exit 2 ;;
+esac
+EOF
+
     cat > "${root}/usr/bin/cloud-init" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -273,13 +341,43 @@ for argument in "$@"; do
     esac
 done
 EOF
+    chmod 0755 \
+        "${root}/usr/sbin/visudo" \
+        "${root}/usr/sbin/sshd" \
+        "${root}/usr/bin/systemctl" \
+        "${root}/usr/bin/cloud-init"
+    "${root}/run/cloud-provision/proxy_contract.bash" \
+        --test-root "${root}" apply > "${root}/proxy-apply.log"
+
+    if [[ "${mode}" == placement-tamper ]]; then
+        config_path="${root}/etc/ssh/sshd_config"
+        mutation_path="${root}/etc/ssh/.sshd_config.placement-tamper"
+        awk \
+            -v begin='# BEGIN CLOUD-PROVISION PROXY CONTRACT' \
+            -v end='# END CLOUD-PROVISION PROXY CONTRACT' '
+            $0 == begin { inside = 1 }
+            inside {
+                block = block $0 ORS
+                if ($0 == end) inside = 0
+                next
+            }
+            { body = body $0 ORS }
+            END { printf "%s%s", body, block }
+        ' "${config_path}" > "${mutation_path}"
+        chmod --reference="${config_path}" "${mutation_path}"
+        mv -- "${mutation_path}" "${config_path}"
+    fi
+
+    printf '%s\n' 'instance state' > "${root}/var/lib/cloud/instances/fixture/state"
+    ln -s "instances/fixture" "${root}/var/lib/cloud/instance"
+    printf '%s\n' '#cloud-config' > "${root}/var/lib/cloud/seed/nocloud/user-data"
+    printf '%s\n' 'cloud-init log' > "${root}/var/log/cloud-init.log"
+    printf '%s\n' 'cloud-init output' > "${root}/var/log/cloud-init-output.log"
     chmod 0644 \
+        "${root}/etc/passwd" \
         "${root}/etc/os-release" \
-        "${root}/etc/profile.d/95cloud-provision-proxy.sh" \
-        "${root}/etc/dnf/dnf.conf" \
-        "${root}/etc/gitconfig"
-    chmod 0755 "${root}/etc" "${root}/etc/profile.d" "${root}/etc/dnf"
-    chmod +x "${root}/usr/bin/cloud-init"
+        "${root}/var/log/cloud-init.log" \
+        "${root}/var/log/cloud-init-output.log"
 }
 
 function run_validator {
@@ -458,7 +556,7 @@ case "$1" in
     convert)
         output="${@: -1}"
         printf "convert %s\n" "${output}" >> "${CALL_LOG}"
-        if [[ "${PROMOTION_MODE}" == "conversion-fail" && "${output}" == *"iocrunner-rocky8-"* ]]; then
+        if [[ "${PROMOTION_MODE}" == "conversion-fail" && "${output}" == *"iocrunner-${CASE_OS_TYPE}-"* ]]; then
             exit 1
         fi
         printf "%s\n" "converted image" > "${output}"
@@ -528,9 +626,9 @@ for argument in "$@"; do
     if [[ "${expect_inventory_path}" == true ]]; then
         expect_inventory_path=false
         if [[ -f "${argument}" ]] && \
-           grep -Eq '^testbed-rocky8-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\.168\.122\.198 ansible_user=vmadmin$' \
+           grep -Eq "^testbed-${CASE_OS_TYPE}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\\.168\\.122\\.[0-9]+ ansible_user=vmadmin$" \
                "${argument}" && \
-           grep -Fxq '[rocky8]' "${argument}" && \
+           grep -Fxq "[${CASE_OS_TYPE}]" "${argument}" && \
            grep -Fxq '[nfs_sim_nodes]' "${argument}"; then
             runtime_inventory="${argument}"
         fi
@@ -602,24 +700,43 @@ esac
 if [[ "${remote_command}" == sudo\ /bin/bash\ -p\ -s* ]]; then
     input_file="${CASE_DIR}/ssh-input"
     cat > "${input_file}"
-    if grep -q 'Defines the proxy artifacts written by cloud-init' "${input_file}"; then
+    if grep -q 'function proxy_contract_seal' "${input_file}"; then
         [[ "${remote_command}" == "sudo /bin/bash -p -s -- seal" ]] || exit 4
         /bin/bash -p -s -- --test-root "${FAKE_GUEST_ROOT}" seal < "${input_file}"
-        while IFS=$'\t' read -r os identity contract_path ownership marker cleanup remnant; do
-            [[ "${os}" == rocky ]] || continue
+        while IFS=$'\t' read -r os identity contract_path owner group mode form marker cleanup remnant; do
+            [[ "${os}" == "${CASE_OS_FAMILY}" ]] || continue
             guest_path="${FAKE_GUEST_ROOT}${contract_path}"
-            case "${ownership}" in
+            case "${form}" in
                 dedicated)
-                    [[ ! -e "${guest_path}" && ! -L "${guest_path}" ]] || exit 4
+                    if [[ -e "${guest_path}" || -L "${guest_path}" ]]; then
+                        printf 'omitted proxy identity %s\n' "${identity}" >&2
+                        exit 4
+                    fi
                     ;;
                 shared)
-                    ! grep -Eqi 'CLOUD-PROVISION PROXY CONTRACT|^[[:space:]]*proxy[[:space:]]*=' \
-                        "${guest_path}" || exit 4
+                    if grep -Eqi 'CLOUD-PROVISION PROXY CONTRACT|^[[:space:]]*(proxy|http_proxy|https_proxy|ftp_proxy|no_proxy|HTTP_PROXY|HTTPS_PROXY|FTP_PROXY|NO_PROXY)[[:space:]]*=' \
+                        "${guest_path}"; then
+                        printf 'omitted proxy identity %s\n' "${identity}" >&2
+                        exit 4
+                    fi
                     ;;
             esac
         done < "${CONTRACT_FIXTURE}"
-        [[ "$(cat "${FAKE_GUEST_ROOT}/etc/dnf/dnf.conf")" == 'keep_dnf=true' ]] || exit 4
-        grep -Fq 'name = Fixture' "${FAKE_GUEST_ROOT}/etc/gitconfig" || exit 4
+        shared_paths=(/etc/environment /etc/gitconfig)
+        if [[ "${CASE_OS_FAMILY}" == rocky ]]; then
+            shared_paths+=(/etc/dnf/dnf.conf /etc/ssh/sshd_config)
+        fi
+        for contract_path in "${shared_paths[@]}"; do
+            baseline_path="${FAKE_GUEST_ROOT}.before${contract_path}"
+            guest_path="${FAKE_GUEST_ROOT}${contract_path}"
+            if ! cmp -s -- "${baseline_path}" "${guest_path}" ||
+               [[ "$(stat -Lc '%u:%g:%a' "${baseline_path}")" != \
+                  "$(stat -Lc '%u:%g:%a' "${guest_path}")" ]]; then
+                printf 'shared proxy identity was not restored: %s\n' \
+                    "${contract_path}" >&2
+                exit 4
+            fi
+        done
         printf '%s\n' seal >> "${PROXY_SEAL_LOG}"
         : > "${FAKE_GUEST_ROOT}/.proxy-sealed"
         exit 0
@@ -666,7 +783,10 @@ EOF
 # failure guidance is silent after a successful publication.
 function run_promotion_case {
     local mode="$1"
-    local case_dir="${WORKSPACE}/promotion-${mode}"
+    local os_type="$2"
+    local os_family base_image_name
+    local label="${mode}-${os_type}"
+    local case_dir="${WORKSPACE}/promotion-${label}"
     local fakebin="${case_dir}/bin"
     local image_dir="${case_dir}/images"
     local home_dir="${case_dir}/home"
@@ -681,14 +801,32 @@ function run_promotion_case {
     local image_name=""
     local image_id=""
     local image_stem=""
+    local image_regex=""
     local epics_commit runner_commit fixture_commit
     local rc=0
     local -a images=()
 
+    case "${os_type}" in
+        debian13)
+            os_family=debian
+            base_image_name=debian-13-genericcloud-amd64-daily.qcow2
+            ;;
+        rocky8)
+            os_family=rocky
+            base_image_name=Rocky-8-GenericCloud-Base.latest.x86_64.qcow2
+            ;;
+        *)
+            record_fail "${label} resolves the requested OS" \
+                "unsupported OS ${os_type}"
+            return 0
+            ;;
+    esac
+    image_regex="^iocrunner-${os_type}-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}[.]qcow2$"
+
     mkdir -p "${fakebin}" "${image_dir}" "${home_dir}/.ssh"
     printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" > "${home_dir}/.ssh/id_ed25519.pub"
     : > "${home_dir}/.ssh/known_hosts"
-    printf "%s\n" "base image" > "${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+    printf "%s\n" "base image" > "${image_dir}/${base_image_name}"
     init_checkout "${epics_checkout}" "https://github.com/jeonghanlee/EPICS-env-distribution"
     init_checkout "${runner_checkout}" "https://github.com/jeonghanlee/epics-ioc-runner"
     epics_commit="$(git -C "${epics_checkout}" rev-parse HEAD)"
@@ -696,7 +834,7 @@ function run_promotion_case {
     fixture_commit="${runner_commit}"
     write_runner "${runner_bin}" "${runner_commit:0:7}"
     write_fake_host_commands "${fakebin}"
-    prepare_proxy_guest_root "${guest_root}"
+    prepare_proxy_guest_root "${guest_root}" "${os_type}" "${mode}"
 
     local -a bake_env=(
         "ANSIBLE_ARG_LOG=${case_dir}/ansible-args.log"
@@ -706,9 +844,11 @@ function run_promotion_case {
         "SLEEP_LOG=${case_dir}/sleep.log"
         "CASE_DIR=${case_dir}"
         "DOMAIN_STATE_FILE=${case_dir}/domain.state"
-        "BASE_IMAGE_PATH=${image_dir}/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+        "BASE_IMAGE_PATH=${image_dir}/${base_image_name}"
         "CALL_LOG=${case_dir}/calls.log"
         "PROMOTION_MODE=${mode}"
+        "CASE_OS_TYPE=${os_type}"
+        "CASE_OS_FAMILY=${os_family}"
         "REMOTE_MANIFEST=${remote_manifest}"
         "FAKE_GUEST_ROOT=${guest_root}"
         "CONTRACT_FIXTURE=${TOP}/tests/fixtures/proxy-artifacts.tsv"
@@ -727,7 +867,8 @@ function run_promotion_case {
         "VM_WAIT_SHUTDOWN_INTERVAL_SECONDS=7"
     )
     local -a bake_command=(
-        "${BAKE}" -o rocky8 -d "${image_dir}" -a "${TOP}/../ansible-provision" -k
+        "${BAKE}" -o "${os_type}" -d "${image_dir}" \
+        -a "${TOP}/../ansible-provision" -k
     )
     if [[ -n "${CASE_RUNNER_REF:-}" ]]; then
         bake_command+=(-r "${CASE_RUNNER_REF}")
@@ -735,9 +876,84 @@ function run_promotion_case {
     env "${bake_env[@]}" "${bake_command[@]}" \
         > "${case_dir}/output.txt" 2>&1 || rc=$?
 
-    assert_runtime_inventory "${mode}" \
-        "${case_dir}/runtime-inventory-args.log" "${case_dir}/runtime-inventory.ini"
-    assert_ssh_multiplexing_off "${mode}" "${case_dir}/ssh-args.log"
+    assert_runtime_inventory "${label}" \
+        "${case_dir}/runtime-inventory-args.log" \
+        "${case_dir}/runtime-inventory.ini" "${os_type}"
+    assert_ssh_multiplexing_off "${label}" "${case_dir}/ssh-args.log"
+
+    if [[ "${mode}" == seal-case ]]; then
+        shopt -s nullglob
+        images=("${image_dir}"/iocrunner-"${os_type}"-*.qcow2)
+        shopt -u nullglob
+        if [[ "${rc}" == 0 ]]; then
+            record_pass "${label} public bake completes"
+            if [[ "$(wc -l < "${case_dir}/proxy-seal.log" 2>/dev/null || true)" == 1 ]]; then
+                record_pass "${label} executes one terminal proxy seal"
+            else
+                record_fail "${label} executes one terminal proxy seal" \
+                    "the seal completion count was not one"
+            fi
+            if (( ${#images[@]} == 1 )) &&
+               [[ -f "${images[0]}.manifest" && -f "${images[0]}.creation-record" ]]; then
+                record_pass "${label} publishes one complete image pair"
+            else
+                record_fail "${label} publishes one complete image pair" \
+                    "the final image, manifest, or creation record is missing"
+            fi
+        else
+            local omission_error
+            omission_error="$(grep -m1 'omitted proxy identity ' \
+                "${case_dir}/output.txt" || true)"
+            record_fail "${label} public bake completes" \
+                "${omission_error:-bake exited ${rc} before seal completion}"
+            if [[ ! -s "${case_dir}/proxy-seal.log" ]]; then
+                record_pass "${label} omits seal completion"
+            else
+                record_fail "${label} omits seal completion" \
+                    "a seal completion record was written"
+            fi
+            if (( ${#images[@]} == 0 )) &&
+               { [[ ! -e "${case_dir}/calls.log" ]] ||
+                 ! grep -q "convert .*iocrunner-${os_type}-" \
+                    "${case_dir}/calls.log"; }; then
+                record_pass "${label} blocks publication before conversion"
+            else
+                record_fail "${label} blocks publication before conversion" \
+                    "a final conversion or published image was observed"
+            fi
+        fi
+        return 0
+    fi
+
+    if [[ "${mode}" == placement-tamper ]]; then
+        if [[ "${rc}" != 0 ]] &&
+           grep -Fq 'identity sshd contract block is not in global scope' \
+            "${case_dir}/output.txt"; then
+            record_pass "${mode} rejects a shared block outside global sshd scope"
+        else
+            record_fail "${mode} rejects a shared block outside global sshd scope" \
+                "the public bake did not report the placement defect"
+        fi
+        if [[ ! -s "${case_dir}/proxy-seal.log" ]]; then
+            record_pass "${mode} omits seal completion"
+        else
+            record_fail "${mode} omits seal completion" \
+                "a seal completion record was written"
+        fi
+        shopt -s nullglob
+        images=("${image_dir}"/iocrunner-"${os_type}"-*.qcow2)
+        shopt -u nullglob
+        if (( ${#images[@]} == 0 )) &&
+           { [[ ! -e "${case_dir}/calls.log" ]] ||
+             ! grep -q "convert .*iocrunner-${os_type}-" \
+                "${case_dir}/calls.log"; }; then
+            record_pass "${mode} blocks publication before conversion"
+        else
+            record_fail "${mode} blocks publication before conversion" \
+                "a final conversion or published image was observed"
+        fi
+        return 0
+    fi
 
     if [[ "${mode}" == "seed-argument-omission" ]]; then
         if [[ "${rc}" != "0" ]]; then
@@ -753,11 +969,11 @@ function run_promotion_case {
                 "the argument-sensitive fake removed seed data"
         fi
         shopt -s nullglob
-        images=("${image_dir}"/iocrunner-rocky8-*.qcow2)
+        images=("${image_dir}"/iocrunner-"${os_type}"-*.qcow2)
         shopt -u nullglob
         if (( ${#images[@]} == 0 )) &&
            { [[ ! -e "${case_dir}/calls.log" ]] ||
-             ! grep -q 'convert .*iocrunner-rocky8-' "${case_dir}/calls.log"; }; then
+             ! grep -q "convert .*iocrunner-${os_type}-" "${case_dir}/calls.log"; }; then
             record_pass "${mode} blocks publication before conversion"
         else
             record_fail "${mode} blocks publication before conversion" \
@@ -782,7 +998,7 @@ function run_promotion_case {
         fi
 
         shopt -s nullglob
-        images=("${image_dir}"/iocrunner-rocky8-*.qcow2)
+        images=("${image_dir}"/iocrunner-"${os_type}"-*.qcow2)
         shopt -u nullglob
         if (( ${#images[@]} == 1 )); then
             output_image="${images[0]}"
@@ -791,9 +1007,9 @@ function run_promotion_case {
             image_name="$(grep '^image_name=' "${record}" | cut -d= -f2- || true)"
             image_id="$(grep '^image_id=' "${record}" | cut -d= -f2- || true)"
             image_stem="${output_image##*/}"
-            image_stem="${image_stem#iocrunner-rocky8-}"
+            image_stem="${image_stem#iocrunner-${os_type}-}"
             image_stem="${image_stem%.qcow2}"
-            if [[ "${output_image##*/}" =~ ^iocrunner-rocky8-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}\.qcow2$ \
+            if [[ "${output_image##*/}" =~ ${image_regex} \
                 && "${image_name}" == "${output_image##*/}" \
                 && "${image_id}" == "${image_stem}" ]]; then
                 record_pass "${mode} names and records the published image"
@@ -820,10 +1036,10 @@ function run_promotion_case {
         fi
 
         if grep -Eq \
-            "VM 'testbed-rocky8-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' is running\. Shutting down \(ACPI\)\.\.\." \
+            "VM 'testbed-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' is running\. Shutting down \(ACPI\)\.\.\." \
             "${case_dir}/output.txt" && \
            grep -Eq \
-            "VM 'testbed-rocky8-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' shut off \[OK\]" \
+            "VM 'testbed-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' shut off \[OK\]" \
             "${case_dir}/output.txt"; then
             record_pass "${mode} uses the shared public stop path"
         else
@@ -892,13 +1108,13 @@ function run_promotion_case {
 
     if [[ "${mode}" == "validator-reject" ]]; then
         if [[ ! -e "${case_dir}/calls.log" ]] || \
-           ! grep -q 'iocrunner-rocky8-' "${case_dir}/calls.log"; then
+           ! grep -q "iocrunner-${os_type}-" "${case_dir}/calls.log"; then
             record_pass "validator rejection prevents conversion"
         else
             record_fail "validator rejection prevents conversion" "final image conversion was called"
         fi
     else
-        if grep -q 'iocrunner-rocky8-' "${case_dir}/calls.log"; then
+        if grep -q "iocrunner-${os_type}-" "${case_dir}/calls.log"; then
             record_pass "conversion failure reaches the real conversion boundary"
         else
             record_fail "conversion failure reaches the real conversion boundary" "conversion was not called"
@@ -921,7 +1137,7 @@ function run_promotion_case {
     else
         record_fail "${mode} names the build VM left behind" "no cleanup guidance printed"
     fi
-    if grep -q 'IMAGE_WORKFLOW_RUN_ID=.*create_vm.bash -o rocky8 -n build .* -p testbed -c' \
+    if grep -q "IMAGE_WORKFLOW_RUN_ID=.*create_vm.bash -o ${os_type} -n build .* -p testbed -c" \
         "${case_dir}/output.txt"; then
         record_pass "${mode} prints a runnable clean-restart command"
     else
@@ -980,26 +1196,40 @@ case "${1:-all}" in
         ;;
     promotion)
         run_ref_guard_tests
-        run_promotion_case validator-reject
-        run_promotion_case conversion-fail
-        run_promotion_case publish-clean
-        run_promotion_case publish-repeat
-        CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
+        run_promotion_case placement-tamper rocky8
+        run_promotion_case validator-reject rocky8
+        run_promotion_case conversion-fail rocky8
+        run_promotion_case publish-clean rocky8
+        run_promotion_case publish-repeat rocky8
+        CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned rocky8
         ;;
     seed-omission)
-        run_promotion_case seed-argument-omission
+        run_promotion_case seed-argument-omission rocky8
+        ;;
+    seal-case)
+        case "${2:-}" in
+            debian13|rocky8) run_promotion_case seal-case "$2" ;;
+            *)
+                printf 'Usage: %s seal-case {debian13|rocky8}\n' \
+                    "$(basename "$0")" >&2
+                exit 2
+                ;;
+        esac
         ;;
     all)
         run_validator_tests
         run_ref_guard_tests
-        run_promotion_case validator-reject
-        run_promotion_case conversion-fail
-        run_promotion_case publish-clean
-        run_promotion_case publish-repeat
-        CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned
+        run_promotion_case seal-case debian13
+        run_promotion_case seal-case rocky8
+        run_promotion_case placement-tamper rocky8
+        run_promotion_case validator-reject rocky8
+        run_promotion_case conversion-fail rocky8
+        run_promotion_case publish-clean rocky8
+        run_promotion_case publish-repeat rocky8
+        CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned rocky8
         ;;
     *)
-        printf "Usage: %s [validator|promotion|seed-omission|all]\n" \
+        printf "Usage: %s [validator|promotion|seed-omission|seal-case|all]\n" \
             "$(basename "$0")" >&2
         exit 2
         ;;

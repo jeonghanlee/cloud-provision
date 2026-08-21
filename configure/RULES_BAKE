@@ -24,22 +24,19 @@ VARS_EXCLUDES += ethercat_bake_targets
 ##@ Image Baking
 
 .PHONY: bake bake.ethercat check-bake check-bake-fresh-inputs check-bake-provenance \
-	check-bake-ethercat-workflow check-proxy-lifecycle help.bake
+	check-proxy-lifecycle help.bake
 
 bake: $(addprefix bake., $(BAKE_OS_TYPES)) ## Bake golden iocrunner images for all bakeable OS types
 
 bake.ethercat: $(addprefix bake.ethercat., $(ETHERCAT_BAKE_OS_TYPES)) ## Bake golden ethercat images for all ethercat-bakeable OS types
 
-check-bake: check-bake-fresh-inputs check-bake-provenance check-bake-ethercat-workflow check-proxy-lifecycle ## Run offline bake contract checks
+check-bake: check-bake-fresh-inputs check-bake-provenance check-proxy-lifecycle ## Run offline bake contract checks
 
 check-bake-fresh-inputs: ## Verify fresh-only VM provisioning safeguards
 	$(QUIET) bash $(TOP)/tests/check-fresh-bake-inputs.bash
 
 check-bake-provenance: ## Verify iocrunner bake provenance validation and promotion boundaries
 	$(QUIET) bash $(TOP)/tests/check-iocrunner-bake-provenance.bash
-
-check-bake-ethercat-workflow: ## Verify the public EtherCAT bake image workflow
-	$(QUIET) bash $(TOP)/tests/check-ethercat-bake-workflow.bash
 
 check-proxy-lifecycle: ## Verify the joined current proxy artifact lifecycle
 	$(QUIET) bash $(TOP)/tests/check-proxy-lifecycle.bash
@@ -52,7 +49,6 @@ help.bake: ## Show dynamically generated bake targets
 	$(QUIET) printf "  make check-bake         Run offline bake contract checks\n"
 	$(QUIET) printf "  make check-bake-fresh-inputs\n"
 	$(QUIET) printf "  make check-bake-provenance\n"
-	$(QUIET) printf "  make check-bake-ethercat-workflow\n"
 	$(QUIET) printf "  make check-proxy-lifecycle\n"
 	$(QUIET) printf "\nPer-OS ethercat bake targets (OS in: %s):\n" "$(ETHERCAT_BAKE_OS_TYPES)"
 	$(QUIET) printf "  make bake.ethercat      Bake all ethercat OS types sequentially\n"

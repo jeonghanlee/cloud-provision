@@ -139,21 +139,40 @@ default discovery directory is `/etc/profile.d`; override it for one run with
 must contain exactly one quoted `PROXY_URL` assignment. The provisioner parses
 that scalar as data and never executes or copies the host script.
 
-The seed writes the current contract only:
+The generated seed stages only the byte-identical shipped contract and its
+validated data input under `/run/cloud-provision`. It creates exactly one
+top-level `write_files` and one top-level `runcmd`, with privileged contract
+apply as the first command. Existing locale commands remain in their original
+order after apply. The source `templates/user-data.*` files are not modified.
 
-- `/etc/profile.d/95cloud-provision-proxy.sh` on Debian, Ubuntu, and Rocky;
-- `/etc/apt/apt.conf.d/95cloud-provision-proxy` on Debian and Ubuntu;
-- one marked block in `/etc/dnf/dnf.conf` on Rocky;
-- one marked block in `/etc/gitconfig` on every supported family.
+Apply writes the exact family set:
+
+- Debian and Ubuntu: profile, environment, APT, sudo, sshd drop-in,
+  `vmadmin` SSH environment, pip, and system Git;
+- Rocky: profile, environment, DNF, global sshd configuration, `vmadmin` SSH
+  environment, pip, and system Git.
+
+Dedicated artifacts use exact content and metadata. Shared targets keep safe
+existing metadata and every byte outside the marked block. A non-empty shared
+target without a final newline fails before mutation. Debian and Ubuntu require
+the global sshd include before using the drop-in. Rocky places
+`PermitUserEnvironment yes` before the first active `Match` and rejects a
+competing active setting. Apply validates sudo, installed metadata, and the
+effective sshd configuration before it reports success.
 
 Both bake callers validate and extract their manifest sidecar, then stream the
 same `bin/proxy_contract.bash` bytes through the exact privileged
-`/bin/bash -p -s -- seal` stdin form. Seal is the last guest command. It removes
-the exact marked contract, runs supported
-`cloud-init clean` handling, verifies only value-free identities and counts,
-and returns nonzero on a missing, duplicate, nested, orphaned, unowned, or
-ownership/mode-conflicting artifact. Publication begins only after the exact
+`/bin/bash -p -s -- seal` stdin form. Seal is the last guest mutation. It
+preflights the complete family set, removes final artifacts in reverse order,
+reloads sshd, removes `/run/cloud-provision` contract state, verifies value-free
+absence, runs supported `cloud-init clean`, and verifies the selected
+cloud-init state and logs are absent. Publication begins only after the exact
 sealed VM is shut off and its exact source disk is confirmed.
+
+Local IOC checks cover the public Debian 13 and Rocky 8 paths. They do not
+constitute production acceptance; accept each family only after one real bake
+and one fresh consumer pass on supported Libvirt/KVM. The IOC-only aggregate
+does not verify EtherCAT.
 
 The control host still needs its own network policy for base-image downloads
 and host-side fetches. That policy is outside the guest artifact contract.
@@ -357,10 +376,11 @@ The target expands to:
 
 - `make check-bake-fresh-inputs`
 - `make check-bake-provenance`
-- `make check-bake-ethercat-workflow`
 - `make check-proxy-lifecycle`
 
 These checks replace only the host boundary commands. The public bake
 scripts, producer, proxy contract, and validator still run through their normal
-entry points. These local checks do not replace the separate supported
+entry points. The aggregate covers the IOC image workflow only and does not run
+a dedicated EtherCAT image workflow test, while production `bake.ethercat`
+targets stay available. These local checks do not replace the supported
 Libvirt/KVM producer-consumer gates or an authorized existing-artifact audit.

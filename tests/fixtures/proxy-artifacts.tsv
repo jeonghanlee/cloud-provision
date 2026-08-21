@@ -1,10 +1,24 @@
-os	identity	path	ownership	marker	cleanup	remnant
-debian	profile	/etc/profile.d/95cloud-provision-proxy.sh	dedicated	cloud-provision-proxy-v1	required	required
-debian	apt	/etc/apt/apt.conf.d/95cloud-provision-proxy	dedicated	cloud-provision-proxy-v1	required	required
-debian	git	/etc/gitconfig	shared	cloud-provision-proxy-v1	required	required
-ubuntu	profile	/etc/profile.d/95cloud-provision-proxy.sh	dedicated	cloud-provision-proxy-v1	required	required
-ubuntu	apt	/etc/apt/apt.conf.d/95cloud-provision-proxy	dedicated	cloud-provision-proxy-v1	required	required
-ubuntu	git	/etc/gitconfig	shared	cloud-provision-proxy-v1	required	required
-rocky	profile	/etc/profile.d/95cloud-provision-proxy.sh	dedicated	cloud-provision-proxy-v1	required	required
-rocky	dnf	/etc/dnf/dnf.conf	shared	cloud-provision-proxy-v1	required	required
-rocky	git	/etc/gitconfig	shared	cloud-provision-proxy-v1	required	required
+os	identity	path	owner	group	mode	form	marker	cleanup	remnant
+debian	profile	/etc/profile.d/95cloud-provision-proxy.sh	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+debian	environment	/etc/environment	root	root	0644	shared	cloud-provision-proxy-v1	required	required
+debian	apt	/etc/apt/apt.conf.d/95cloud-provision-proxy	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+debian	sudo	/etc/sudoers.d/95cloud-provision-proxy	root	root	0440	dedicated	cloud-provision-proxy-v1	required	required
+debian	sshd	/etc/ssh/sshd_config.d/95cloud-provision-proxy.conf	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+debian	ssh-environment	/home/vmadmin/.ssh/environment	vmadmin	vmadmin	0600	dedicated	cloud-provision-proxy-v1	required	required
+debian	pip	/etc/pip.conf	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+debian	git	/etc/gitconfig	root	root	0644	shared	cloud-provision-proxy-v1	required	required
+ubuntu	profile	/etc/profile.d/95cloud-provision-proxy.sh	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+ubuntu	environment	/etc/environment	root	root	0644	shared	cloud-provision-proxy-v1	required	required
+ubuntu	apt	/etc/apt/apt.conf.d/95cloud-provision-proxy	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+ubuntu	sudo	/etc/sudoers.d/95cloud-provision-proxy	root	root	0440	dedicated	cloud-provision-proxy-v1	required	required
+ubuntu	sshd	/etc/ssh/sshd_config.d/95cloud-provision-proxy.conf	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+ubuntu	ssh-environment	/home/vmadmin/.ssh/environment	vmadmin	vmadmin	0600	dedicated	cloud-provision-proxy-v1	required	required
+ubuntu	pip	/etc/pip.conf	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+ubuntu	git	/etc/gitconfig	root	root	0644	shared	cloud-provision-proxy-v1	required	required
+rocky	profile	/etc/profile.d/95cloud-provision-proxy.sh	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+rocky	environment	/etc/environment	root	root	0644	shared	cloud-provision-proxy-v1	required	required
+rocky	dnf	/etc/dnf/dnf.conf	root	root	0644	shared	cloud-provision-proxy-v1	required	required
+rocky	sshd	/etc/ssh/sshd_config	root	root	0644	shared	cloud-provision-proxy-v1	required	required
+rocky	ssh-environment	/home/vmadmin/.ssh/environment	vmadmin	vmadmin	0600	dedicated	cloud-provision-proxy-v1	required	required
+rocky	pip	/etc/pip.conf	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required
+rocky	git	/etc/gitconfig	root	root	0644	shared	cloud-provision-proxy-v1	required	required
