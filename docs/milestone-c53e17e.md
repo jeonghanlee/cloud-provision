@@ -331,6 +331,7 @@ Issue #34 cannot close until a separately planned and authorized value-safe audi
 | Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018 | A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning; [M5 detail](#m5). |
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state packages install post-apply via Ansible, not cloud-init; [M7 detail](#m7). |
+| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes |  | Replace the testbed concept with a role-based base, builder, golden-family, verify, bare, and source-build model grounded in the actual ansible-provision usage; [M8 detail](#m8). |
 
 ### Backlog Details
 
@@ -617,6 +618,57 @@ Out of scope: proxy contract behavior; changing the install mechanism.
 ##### Dependencies And Decisions
 
 - D018
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+##### Test Plan
+
+To be defined at planning.
+
+##### Verification Results
+
+None observed.
+
+##### Closure Evidence
+
+None.
+
+<a id="m8"></a>
+#### M8 - Redesign the image and node model around pipeline roles and retire the testbed concept
+
+Origin: c53e17e / M8
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+The testbed concept conflates three things: the NAT environment name, the default VM prefix, and the plain base-node role. The `debian13`/`rocky8` node is really the shared start of three uses: a builder that bakes a golden image, an un-provisioned node in the lab, and a standalone provisioning target. Redesign the image and node model around explicit pipeline roles, grounded in the actual ansible-provision usage and standard golden-image practice.
+
+##### Scope
+
+- Retire the testbed concept and the server=1/node=2 cluster numbering.
+- Adopt role-based naming: base (upstream input), builder (ephemeral bake VM), golden with a flavor family and a latest pointer (iocrunner, ethercat), verify (fresh-boot consumer), bare (proxy-applied base node), and source-build (epics-env matrix).
+- Reflect the model in `create_vm` OS types, prefixes, and the runbook and ADR.
+- Decide a name for the NAT environment that currently reads testbed, coordinated with the ansible-provision trust-posture wording.
+
+Out of scope: implementing before an accepted plan and authority; proxy contract behavior; ansible-provision role logic; the narrow Backlog M4 testbed-to-bare piece, which keeps its own scope.
+
+##### Completion Criteria
+
+- A decided role-based image and node model is documented.
+- `create_vm` and the durable documentation reflect the model and the testbed term is retired.
+- The golden flavor and latest-pointer convention is defined.
+
+##### Dependencies And Decisions
+
+- Relates to Backlog M4: M4's bare node is the specific testbed-to-bare piece kept at its original scope; this redesign defines the surrounding model.
+- Informed by standard golden-image pipeline practice (builder, golden, and fresh-boot consumer stages; image families; bake heavy and stable, keep cloud-init light) and the ansible-provision usage map.
 
 ##### Implementation Plan
 
