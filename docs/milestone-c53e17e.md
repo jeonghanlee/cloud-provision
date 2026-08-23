@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M9 / T1 through M9 / T3 pass. Run M9 / T4 through `bin/audit_iocrunner_images.bash` with root privileges against the approved image directory, record the observed aggregate, and reconcile issue #36. M2 is Complete after issue #34 was reconciled and observed closed. Keep M1.1 EtherCAT deferred and run no EtherCAT test or runtime action.
+Next session entry point: M9 is Complete and issue #36 is closed; M2 and M3 are Complete and issues #34 and #33 are closed. Pick up the Backlog: M5 (package-parity guard, planned against the P_common set), M6, M7, and M8 (implement the operator definition in `docs/IMAGE_WORKFLOW.md`). Keep M1.1 EtherCAT deferred and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -22,7 +22,7 @@ Next session entry point: M9 / T1 through M9 / T3 pass. Run M9 / T4 through `bin
 | Proxy lifecycle | M3 | Complete proxy injection for non-interactive Ansible and pip | Milestone | Complete | No | D009-D010, D013, D016, D018 | The shared contract owns the exact Debian 8, Ubuntu 8, and Rocky 7 final artifacts, local IOC-only verification passes, and two real IOC producer-consumer gates pass; [M3 detail](#m3). |
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
-| Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | In progress | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
+| Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
 
 ### Decisions
 
@@ -368,7 +368,7 @@ Superseded Plan Artifacts: `work/plan-g2-iocrunner-audit.md`, plan20260822_17192
 Origin: c53e17e / M9
 Identity History: none
 GitHub Issue: [#36](https://github.com/jeonghanlee/cloud-provision/issues/36)
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -429,22 +429,24 @@ Superseded Plan Artifacts: none
 | M9 / T1 | 2026-08-22 19:24 PDT | Local checkout; tracked `bin/audit_iocrunner_images.bash` | Pass | `bash -n` and `shellcheck -S warning` each exited 0; ShellCheck output was empty |
 | M9 / T2 | 2026-08-22 19:24 PDT | Local checkout; tracked command interface | Pass | `-h` exited 0 with the documented default and options; unknown option, missing `-d` value, and extra argument each exited 1 with `stage=usage` before image access |
 | M9 / T3 | 2026-08-22 19:24 PDT | Local checkout; tracked runbook and canonical record | Pass | `make check-docs` passed 3/3 and `git diff --check` exited 0 |
-| M9 / T4 |  |  | Pending | The 2026-08-22 result from the ignored work script is historical evidence only |
+| M9 / T4 | 2026-08-22 PDT | Supported Libvirt/KVM host; tracked `bin/audit_iocrunner_images.bash` at `ad2d7a9` with root privileges against the approved image directory | Pass | All five selected images passed (`debian=2`, `rocky=3`, `failed=0`) and cleanup reported `residue=clean`; recorded in the issue #36 closing comment |
 
 ##### Closure Evidence
 
-- The tracked script, runbook, and canonical projection are implemented. M9 / T4, commit, and observed issue closure remain pending.
+- The tracked script, runbook, and canonical projection are implemented in `ad2d7a9`.
+- M9 / T1 through M9 / T4 pass; T4 ran the tracked entry point against the real image directory.
+- Issue #36 was observed closed on 2026-08-23 05:09:36 UTC after every completion criterion was satisfied.
 
 ##### GitHub Projection
 
 Title: Preserve the IOC runner image audit as a tracked tool
 Labels: enhancement
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: enhancement
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-22; issue created and read back
-Projection State: scope reconciled at creation; implementation status update pending M9 / T4
+Last Compared: 2026-08-22 22:15:49 PDT; remote closed 2026-08-23 05:09:36 UTC
+Projection State: reconciled; remote closed with the M9 / T4 result in its closing comment
 
 ## Backlog
 
