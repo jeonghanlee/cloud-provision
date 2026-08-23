@@ -43,7 +43,7 @@ Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #
 | D017 | Dedicated EtherCAT test surfaces are removed from the current graph without changing production EtherCAT behavior; this supersedes only the current EtherCAT test portion of D011, preserves its `47aeede` result as history, and assigns restoration and update from `733edf0beca51a59ca44782ec3958b00a8fc8bc3` to Backlog M1.1 after M3. | 2026-08-20 |
 | D018 | Under proxy injection, `create_vm` removes the cloud-init `packages:` directive so packages install after the proxy apply through Ansible; the cloud-init package module runs in the config stage before the runcmd apply and cannot use the proxy. This supersedes the accepted M3 plan assumption that apply-before-Ansible was the only ordering constraint and preserves that plan acceptance as history. It also opens the testbed, package-parity, locale, and documentation follow-ups recorded in the Backlog. | 2026-08-21 |
 | D019 | Backlog M4 (testbed-to-bare) is consolidated into Backlog M8 rather than executed separately. Both retire the server=1/node=2 concept and edit the same `create_vm` prefix and node handling, so a narrow M4 pass would rework the surface M8 rewrites. M8 absorbs the bare-node piece and its D018 dependency; the earlier decision to keep M4 at its own narrow scope is preserved as history. | 2026-08-22 |
-| D020 | The M5 package-parity guard is keyed by base OS type, one expected-coverage list per OS template (debian13, rocky8, rocky10, ubuntu24, ubuntu26), owned inside cloud-provision rather than read from ansible-provision. Each list is the P_common set defined in `docs/IMAGE_WORKFLOW.md` (Operator reading): the packages that must be present on that base OS regardless of provisioning role. The guard compares the former cloud-init packages against that definition, not against what any single post-apply path installs today. Locale support is part of P_common (the `locales` package on the debian family), so the guard keeps the `locales` entry; M6 owns only the base-image locale assumption. The list is named by OS type only; naming it as the `bare` role belongs to M8. | 2026-08-22 |
+| D020 | The M5 package-parity guard is keyed by base OS type, one expected-coverage list per OS template (debian13, rocky8, rocky10, ubuntu24, ubuntu26), owned inside cloud-provision rather than read from ansible-provision. Each list is the P_common set defined in `docs/IMAGE_WORKFLOW.md` (Operator definition): the packages that must be present on that base OS regardless of provisioning role. The guard compares the former cloud-init packages against that definition, not against what any single post-apply path installs today. Locale support is part of P_common (the `locales` package on the debian family), so the guard keeps the `locales` entry; M6 owns only the base-image locale assumption. The list is named by OS type only; naming it as the `bare` role belongs to M8. | 2026-08-22 |
 
 ### Assignment History
 
@@ -476,7 +476,7 @@ D018 moved package installation from the cloud-init `packages:` module to post-a
 ##### Scope
 
 - Enumerate the packages each of the five OS templates (`templates/user-data.<os>`) installs through cloud-init `packages:`, including `locales`.
-- Keep one expected-coverage list per base OS type inside this repository, seeded from the P_common set in `docs/IMAGE_WORKFLOW.md` (Operator reading), with package names spelled per OS (D020).
+- Keep one expected-coverage list per base OS type inside this repository, seeded from the P_common set in `docs/IMAGE_WORKFLOW.md` (Operator definition), with package names spelled per OS (D020).
 - Fail a check when a former cloud-init package is absent from its OS list, naming the missing package.
 - Run the check in the offline test graph.
 
@@ -493,7 +493,8 @@ Out of scope: changing the package sets themselves; proxy contract behavior; the
 - D018 and D020
 - Coupling to M8: the lists are keyed by the current `create_vm` OS types and the post-apply paths are today's inventory roles (`generate_ansible_inventory.bash`). When M8 renames OS types or roles, the list keys are re-pointed; the guard itself is not redesigned.
 - Post-apply paths per OS today: `rocky8` and `debian13` through `base_os` (`pkg_base` + `pkg_standard`) for ioc-node, nfs-sim-node, and ioc-runner-build; `debian13` additionally through the ethercat roles; all five through `epics_env_build` plus the `pkg_automation` per-OS package file.
-- No single post-apply path installs the whole P_common set today (the intersection across paths is only git and autoconf), so the list is seeded from the P_common definition, not from the paths; the guard is expected to fail on the shipped templates until P_common exists in ansible-provision.
+- No single post-apply path installs the whole P_common set (the intersection across paths is only git and autoconf), so the list is seeded from the P_common definition, not from the paths.
+- Open planning finding: with the list seeded from the definition, every shipped template entry is already in its list, so T4 passes and the guard verifies only that templates stay within the P_common definition; it does not detect a package that ansible-provision fails to install. Whether M5 keeps that narrower purpose or compares against the actual ansible-provision install set is decided after M8 puts P_common in place. M8 runs first.
 
 ##### Implementation Plan
 
@@ -502,8 +503,8 @@ Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
 
-1. Add `tests/fixtures/expected-post-apply-packages/<os>.txt` for the five OS types, seeded from the P_common set in `docs/IMAGE_WORKFLOW.md` (Operator reading) with each package spelled as that OS names it.
-2. Add `tests/check-package-parity.bash`: extract the `packages:` block of each template and fail naming any entry absent from that OS list. Accept the template directory and list directory as arguments so fixtures can drive the real check.
+1. Add `tests/fixtures/expected-post-apply-packages/<os>.txt` for the five OS types, seeded from the P_common set in `docs/IMAGE_WORKFLOW.md` (Operator definition). Names are identical across families except the two in the definition's family table (ssl-dev, g++); the rocky lists omit the locale items, which the definition assigns to the debian family only.
+2. Add `tests/check-package-parity.bash`: extract the `packages:` block of each template and fail naming any entry absent from that OS list. The check runs one direction only: every template entry must be in the list; the list may hold more. Accept the template directory and list directory as arguments so fixtures can drive the real check.
 3. Add `check-package-parity` to `configure/RULES_BAKE` (`.PHONY`, help line) and to the `check-bake` aggregate.
 4. Run T1 through T4 and record observed results; present any revealed coverage gap as a decision, not as a silent list edit.
 
@@ -514,7 +515,7 @@ Superseded Plan Artifacts: none
 | M5 / T1 | Syntax and static analysis | Run `bash -n` and `shellcheck -S warning` on the new check | Local checkout | Exit 0 and no unreviewed warning |
 | M5 / T2 | Covered fixture | Drive the shipped check with a fixture template whose packages all appear in its list | Local checkout; real check, fixture input | Exit 0 |
 | M5 / T3 | Divergence fixture | Drive the shipped check with a fixture template carrying a package absent from its list | Local checkout; real check, fixture input | Nonzero exit naming that package |
-| M5 / T4 | Shipped templates | Run `make check-package-parity` against the five shipped templates and lists | Local checkout | The exact missing packages per OS; a failure is the expected result until P_common exists in ansible-provision, and a pass is recorded only when observed |
+| M5 / T4 | Shipped templates | Run `make check-package-parity` against the five shipped templates and lists | Local checkout | Every template entry is in its OS list; the exact missing packages per OS otherwise |
 
 ##### Verification Results
 
