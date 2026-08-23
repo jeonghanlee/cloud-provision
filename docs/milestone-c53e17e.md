@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M9 is Complete and issue #36 is closed; M2 and M3 are Complete and issues #34 and #33 are closed. Pick up the Backlog: M5 (package-parity guard, planned against the P_common set), M6, M7, and M8 (implement the operator definition in `docs/IMAGE_WORKFLOW.md`). Keep M1.1 EtherCAT deferred and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M5, M6, M7, and M8 are assigned to the Milestone and Ready; M5 (package-parity guard against the P_common set) needs plan acceptance and implementation authority before editing. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -23,6 +23,10 @@ Next session entry point: M9 is Complete and issue #36 is closed; M2 and M3 are 
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 | Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
+| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018, D020 | A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning; [M5 detail](#m5). |
+| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
+| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state packages install post-apply via Ansible, not cloud-init; [M7 detail](#m7). |
+| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes | D018, D019 | Replace the testbed concept with a role-based base, builder, golden-family, verify, bare, and source-build model grounded in the actual ansible-provision usage, absorbing the testbed-to-bare piece; [M8 detail](#m8). |
 
 ### Decisions
 
@@ -40,6 +44,15 @@ Next session entry point: M9 is Complete and issue #36 is closed; M2 and M3 are 
 | D018 | Under proxy injection, `create_vm` removes the cloud-init `packages:` directive so packages install after the proxy apply through Ansible; the cloud-init package module runs in the config stage before the runcmd apply and cannot use the proxy. This supersedes the accepted M3 plan assumption that apply-before-Ansible was the only ordering constraint and preserves that plan acceptance as history. It also opens the testbed, package-parity, locale, and documentation follow-ups recorded in the Backlog. | 2026-08-21 |
 | D019 | Backlog M4 (testbed-to-bare) is consolidated into Backlog M8 rather than executed separately. Both retire the server=1/node=2 concept and edit the same `create_vm` prefix and node handling, so a narrow M4 pass would rework the surface M8 rewrites. M8 absorbs the bare-node piece and its D018 dependency; the earlier decision to keep M4 at its own narrow scope is preserved as history. | 2026-08-22 |
 | D020 | The M5 package-parity guard is keyed by base OS type, one expected-coverage list per OS template (debian13, rocky8, rocky10, ubuntu24, ubuntu26), owned inside cloud-provision rather than read from ansible-provision. Each list is the P_common set defined in `docs/IMAGE_WORKFLOW.md` (Operator reading): the packages that must be present on that base OS regardless of provisioning role. The guard compares the former cloud-init packages against that definition, not against what any single post-apply path installs today. Locale support is part of P_common (the `locales` package on the debian family), so the guard keeps the `locales` entry; M6 owns only the base-image locale assumption. The list is named by OS type only; naming it as the `bare` role belongs to M8. | 2026-08-22 |
+
+### Assignment History
+
+| Work Identity | From Section | To Section | Target Commit | Authority Moved At |
+| --- | --- | --- | --- | --- |
+| c53e17e / M5 | Backlog | Milestone | this synchronization commit | this synchronization commit |
+| c53e17e / M6 | Backlog | Milestone | this synchronization commit | this synchronization commit |
+| c53e17e / M7 | Backlog | Milestone | this synchronization commit | this synchronization commit |
+| c53e17e / M8 | Backlog | Milestone | this synchronization commit | this synchronization commit |
 
 ### Milestone Details
 
@@ -448,132 +461,6 @@ Observed Milestone: Nimbus - Cloud Provisioning Reliability
 Last Compared: 2026-08-22 22:15:49 PDT; remote closed 2026-08-23 05:09:36 UTC
 Projection State: reconciled; remote closed with the M9 / T4 result in its closing comment
 
-## Backlog
-
-### Work
-
-| Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| M1 Deferred EtherCAT acceptance | M1.1 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D014-D015, D017, M3 | After M3, restore and update the deferred EtherCAT test surfaces from `733edf0`, then run the real bake, consumer, proxy-clean check, and separately authorized image audit; [M1.1 detail](#m11). |
-| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018, D020 | A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning; [M5 detail](#m5). |
-| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
-| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state packages install post-apply via Ansible, not cloud-init; [M7 detail](#m7). |
-| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes | D018, D019 | Replace the testbed concept with a role-based base, builder, golden-family, verify, bare, and source-build model grounded in the actual ansible-provision usage, absorbing the testbed-to-bare piece; [M8 detail](#m8). |
-
-### Backlog Details
-
-<a id="m11"></a>
-#### M1.1 - Validate EtherCAT use of the shared image workflow and proxy seal
-
-Origin: c53e17e / M1.1
-Identity History: none
-GitHub Issue: [#35](https://github.com/jeonghanlee/cloud-provision/issues/35)
-Status: Deferred
-
-##### Summary
-
-Commit `304291b` integrates the EtherCAT bake and consumer with the shared naming, copy, creation-record, and pair-validation code used by ioc-runner. Commit `47aeede` adds the shared proxy artifact contract, the terminal EtherCAT seal, and historical local EtherCAT coverage. D017 removes only the dedicated EtherCAT test surfaces from the current graph and records `733edf0` as their restoration baseline after M3; production EtherCAT behavior remains unchanged. No actual EtherCAT bake, fresh consumer selection, value-redacting proxy check, or existing EtherCAT image audit has been observed on supported Libvirt/KVM in this generation.
-
-##### Scope
-
-- After M3 completes, restore and update the deferred dedicated EtherCAT test surfaces from the recorded `733edf0` baseline.
-- Apply the same SIGPIPE-safe IP-resolution fix already made in the IOC bake to the EtherCAT bake, whose VM-address `awk` still exits on first match while `create_vm -s` is writing and can abort the bake with exit 141 under `set -o pipefail`.
-- Run the shipped Debian 13 EtherCAT bake on supported Libvirt/KVM.
-- Inspect the produced image, manifest, and creation record for matching identity and no backing file.
-- Boot a fresh `debian13-ethercat` consumer and confirm that it selects the exact valid pair produced by the bake.
-- Run a value-redacting verifier against the exact produced image and confirm that no shared-contract proxy artifact remains.
-- Audit current EtherCAT working and archived images under a separate accepted and authorized value-safe plan.
-- Quarantine or replace every affected EtherCAT image and record any required credential rotation outside the repository and GitHub.
-- Record the runtime evidence in this detail section.
-- Verify the EtherCAT bake still installs its packages after the proxy-injection `packages:` strip (D018), since the EtherCAT bake shares the same `create_vm` merge; if it does not install them through a post-apply path, restore that coverage.
-
-Out of scope: Changes to the shared image workflow or proxy contract unless runtime verification exposes a defect; ioc-runner runtime verification and ioc-runner image audit owned by M2 and issue #34; publishing any proxy endpoint or credential.
-
-##### Completion Criteria
-
-- A real EtherCAT bake completes through the shipped entry point.
-- The produced image has no backing file.
-- The image, manifest, and creation record agree on run identifier and artifact identity.
-- A fresh EtherCAT consumer selects the exact verified pair.
-- A value-redacting verifier reports no shared-contract proxy artifact in the exact produced image.
-- Existing EtherCAT working and archived images are audited without emitting proxy values.
-- Every affected EtherCAT image is replaced or quarantined.
-- Any required credential rotation is recorded externally without placing the credential in GitHub or the repository.
-- The observed paths, identifiers, and selection evidence are recorded here.
-- The deferred EtherCAT test surfaces are restored and updated for the post-M3 shared contract before any EtherCAT test command runs.
-
-##### Dependencies And Decisions
-
-- D014-D015, D017, and M3
-- M3 must complete before the deferred EtherCAT tests are restored or run.
-- Supported Libvirt/KVM host with the EtherCAT bake prerequisites
-- Separate plan and authorization before any existing EtherCAT image is read or remediated
-
-##### Deferred Test Restoration Record
-
-Restoration baseline: `733edf0beca51a59ca44782ec3958b00a8fc8bc3`
-
-| Surface | Baseline Blob | Recorded Location |
-| --- | --- | --- |
-| `tests/check-ethercat-bake-workflow.bash` | `2b1cf56c7f65116dac9854878d9604ad0d035c05` | lines 1-473 |
-| `tests/check-proxy-lifecycle.bash` | `97d5dfa83f9fd4c9ad4550656b25588608d719eb` | lines 169-170, 201-206, 221-225, and 245-247 |
-| `configure/RULES_BAKE` | `55a3cef3bbda8752b981437bc2789a8a7d508101` | lines 26-27, 33, 41-42, and 55 |
-| `docs/RUNBOOK_BAKE.md` | `b4588fedf492f57c54221c40271908dc0795dfd5` | lines 348-366 |
-
-The future M1.1 plan must restore these surfaces as source material and update them for the then-current shared contract. It must not overwrite later IOC work with the baseline bytes.
-
-##### Implementation Plan
-
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
-
-1. Wait for M3 to complete and obtain a separate accepted and authorized M1.1 plan.
-2. Restore the deferred test surfaces from `733edf0` as source material, update them for the current shared contract, and verify their direct graph before running them.
-3. Confirm the supported host prerequisites and available source golden pair.
-4. Run the shipped EtherCAT bake entry point.
-5. Inspect the produced image, manifest, creation record, no-backing state, and value-redacting proxy-clean result.
-6. Boot a fresh `debian13-ethercat` consumer and confirm exact pair selection.
-7. Obtain a separate accepted and authorized value-safe plan before auditing existing EtherCAT images.
-8. Quarantine or replace any affected image and record any external credential action without storing proxy values.
-9. Record the evidence and close the work unit if all criteria pass.
-
-##### Test Plan
-
-| Label | Layer | Method | Environment | Expected Result |
-| --- | --- | --- | --- | --- |
-| M1.1 / T1 | Historical local contract | Preserve the observed `47aeede` result; do not run an EtherCAT test in the current M3 graph | Historical checkout only | The prior local result remains evidence for `47aeede`, not current coverage |
-| M1.1 / T2 | Runtime acceptance | Run the shipped EtherCAT bake and a fresh consumer, then inspect the exact output pair, qcow2 metadata, creation record, and value-redacting proxy-clean result | Supported Libvirt/KVM host with EtherCAT bake prerequisites | The bake produces an independent valid pair, the verifier reports no contract proxy artifact, and the consumer selects that exact pair |
-| M1.1 / T3 | Existing-image audit | Run only from a separate accepted and authorized value-safe audit plan | Separately authorized audit environment | Existing EtherCAT images are classified without emitting values and every affected image is replaced or quarantined |
-| M1.1 / T4 | Deferred test restoration | Restore the recorded surfaces from `733edf0`, update them for the post-M3 contract, and run them only under the future accepted M1.1 plan | Repository checkout after M3 | Dedicated EtherCAT tests cover the then-current contract without reverting IOC work |
-
-##### Verification Results
-
-| Label | Observed At | Environment | Result | Evidence |
-| --- | --- | --- | --- | --- |
-| M1.1 / T1 | 2026-08-20 11:38 PDT | Commit `47aeede`; shipped EtherCAT and joined lifecycle paths with only outer boundaries replaced | Pass | `make check-bake-ethercat-workflow` passed 11/11 and `make check-proxy-lifecycle` passed 26/26; this does not satisfy real runtime acceptance or existing-image audit |
-| M1.1 / T2 | Not run | Supported Libvirt/KVM host with EtherCAT bake prerequisites | Pending | Exact real bake, fresh consumer, and value-redacting proxy-clean result |
-| M1.1 / T3 | Not run | Separately authorized audit environment | Pending | Separate value-safe EtherCAT audit plan |
-| M1.1 / T4 | Not run | Repository checkout after M3 | Pending | Restore and update the recorded test surfaces from `733edf0` |
-
-##### Closure Evidence
-
-- Deferred by owner direction on 2026-08-13 and retained separately on 2026-08-20. Real runtime acceptance and existing-image audit have not run.
-- The prior local EtherCAT contract result remains pinned at `tests/check-ethercat-bake-workflow.bash:237-239@c53e17e`; M1.1 / T1 records the later 47aeede rerun.
-- D017 deferred the dedicated EtherCAT tests on 2026-08-20 and recorded their exact `733edf0` baseline above. No EtherCAT test ran during the M3 review or planning session.
-
-##### GitHub Projection
-
-Title: Validate EtherCAT use of the shared image workflow and proxy seal
-Labels: bug
-GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open
-Observed Labels: bug
-Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-20 18:43:18 PDT; remote updated 2026-08-20 18:43:11 PDT
-Projection State: reconciled; remote title and body match the canonical projection and the issue remains open
-
 <a id="m5"></a>
 #### M5 - Guard package-set parity between the retired cloud-init packages and post-apply install
 
@@ -786,6 +673,128 @@ None observed.
 ##### Closure Evidence
 
 None.
+
+## Backlog
+
+### Work
+
+| Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| M1 Deferred EtherCAT acceptance | M1.1 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D014-D015, D017, M3 | After M3, restore and update the deferred EtherCAT test surfaces from `733edf0`, then run the real bake, consumer, proxy-clean check, and separately authorized image audit; [M1.1 detail](#m11). |
+
+### Backlog Details
+
+<a id="m11"></a>
+#### M1.1 - Validate EtherCAT use of the shared image workflow and proxy seal
+
+Origin: c53e17e / M1.1
+Identity History: none
+GitHub Issue: [#35](https://github.com/jeonghanlee/cloud-provision/issues/35)
+Status: Deferred
+
+##### Summary
+
+Commit `304291b` integrates the EtherCAT bake and consumer with the shared naming, copy, creation-record, and pair-validation code used by ioc-runner. Commit `47aeede` adds the shared proxy artifact contract, the terminal EtherCAT seal, and historical local EtherCAT coverage. D017 removes only the dedicated EtherCAT test surfaces from the current graph and records `733edf0` as their restoration baseline after M3; production EtherCAT behavior remains unchanged. No actual EtherCAT bake, fresh consumer selection, value-redacting proxy check, or existing EtherCAT image audit has been observed on supported Libvirt/KVM in this generation.
+
+##### Scope
+
+- After M3 completes, restore and update the deferred dedicated EtherCAT test surfaces from the recorded `733edf0` baseline.
+- Apply the same SIGPIPE-safe IP-resolution fix already made in the IOC bake to the EtherCAT bake, whose VM-address `awk` still exits on first match while `create_vm -s` is writing and can abort the bake with exit 141 under `set -o pipefail`.
+- Run the shipped Debian 13 EtherCAT bake on supported Libvirt/KVM.
+- Inspect the produced image, manifest, and creation record for matching identity and no backing file.
+- Boot a fresh `debian13-ethercat` consumer and confirm that it selects the exact valid pair produced by the bake.
+- Run a value-redacting verifier against the exact produced image and confirm that no shared-contract proxy artifact remains.
+- Audit current EtherCAT working and archived images under a separate accepted and authorized value-safe plan.
+- Quarantine or replace every affected EtherCAT image and record any required credential rotation outside the repository and GitHub.
+- Record the runtime evidence in this detail section.
+- Verify the EtherCAT bake still installs its packages after the proxy-injection `packages:` strip (D018), since the EtherCAT bake shares the same `create_vm` merge; if it does not install them through a post-apply path, restore that coverage.
+
+Out of scope: Changes to the shared image workflow or proxy contract unless runtime verification exposes a defect; ioc-runner runtime verification and ioc-runner image audit owned by M2 and issue #34; publishing any proxy endpoint or credential.
+
+##### Completion Criteria
+
+- A real EtherCAT bake completes through the shipped entry point.
+- The produced image has no backing file.
+- The image, manifest, and creation record agree on run identifier and artifact identity.
+- A fresh EtherCAT consumer selects the exact verified pair.
+- A value-redacting verifier reports no shared-contract proxy artifact in the exact produced image.
+- Existing EtherCAT working and archived images are audited without emitting proxy values.
+- Every affected EtherCAT image is replaced or quarantined.
+- Any required credential rotation is recorded externally without placing the credential in GitHub or the repository.
+- The observed paths, identifiers, and selection evidence are recorded here.
+- The deferred EtherCAT test surfaces are restored and updated for the post-M3 shared contract before any EtherCAT test command runs.
+
+##### Dependencies And Decisions
+
+- D014-D015, D017, and M3
+- M3 must complete before the deferred EtherCAT tests are restored or run.
+- Supported Libvirt/KVM host with the EtherCAT bake prerequisites
+- Separate plan and authorization before any existing EtherCAT image is read or remediated
+
+##### Deferred Test Restoration Record
+
+Restoration baseline: `733edf0beca51a59ca44782ec3958b00a8fc8bc3`
+
+| Surface | Baseline Blob | Recorded Location |
+| --- | --- | --- |
+| `tests/check-ethercat-bake-workflow.bash` | `2b1cf56c7f65116dac9854878d9604ad0d035c05` | lines 1-473 |
+| `tests/check-proxy-lifecycle.bash` | `97d5dfa83f9fd4c9ad4550656b25588608d719eb` | lines 169-170, 201-206, 221-225, and 245-247 |
+| `configure/RULES_BAKE` | `55a3cef3bbda8752b981437bc2789a8a7d508101` | lines 26-27, 33, 41-42, and 55 |
+| `docs/RUNBOOK_BAKE.md` | `b4588fedf492f57c54221c40271908dc0795dfd5` | lines 348-366 |
+
+The future M1.1 plan must restore these surfaces as source material and update them for the then-current shared contract. It must not overwrite later IOC work with the baseline bytes.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Wait for M3 to complete and obtain a separate accepted and authorized M1.1 plan.
+2. Restore the deferred test surfaces from `733edf0` as source material, update them for the current shared contract, and verify their direct graph before running them.
+3. Confirm the supported host prerequisites and available source golden pair.
+4. Run the shipped EtherCAT bake entry point.
+5. Inspect the produced image, manifest, creation record, no-backing state, and value-redacting proxy-clean result.
+6. Boot a fresh `debian13-ethercat` consumer and confirm exact pair selection.
+7. Obtain a separate accepted and authorized value-safe plan before auditing existing EtherCAT images.
+8. Quarantine or replace any affected image and record any external credential action without storing proxy values.
+9. Record the evidence and close the work unit if all criteria pass.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M1.1 / T1 | Historical local contract | Preserve the observed `47aeede` result; do not run an EtherCAT test in the current M3 graph | Historical checkout only | The prior local result remains evidence for `47aeede`, not current coverage |
+| M1.1 / T2 | Runtime acceptance | Run the shipped EtherCAT bake and a fresh consumer, then inspect the exact output pair, qcow2 metadata, creation record, and value-redacting proxy-clean result | Supported Libvirt/KVM host with EtherCAT bake prerequisites | The bake produces an independent valid pair, the verifier reports no contract proxy artifact, and the consumer selects that exact pair |
+| M1.1 / T3 | Existing-image audit | Run only from a separate accepted and authorized value-safe audit plan | Separately authorized audit environment | Existing EtherCAT images are classified without emitting values and every affected image is replaced or quarantined |
+| M1.1 / T4 | Deferred test restoration | Restore the recorded surfaces from `733edf0`, update them for the post-M3 contract, and run them only under the future accepted M1.1 plan | Repository checkout after M3 | Dedicated EtherCAT tests cover the then-current contract without reverting IOC work |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M1.1 / T1 | 2026-08-20 11:38 PDT | Commit `47aeede`; shipped EtherCAT and joined lifecycle paths with only outer boundaries replaced | Pass | `make check-bake-ethercat-workflow` passed 11/11 and `make check-proxy-lifecycle` passed 26/26; this does not satisfy real runtime acceptance or existing-image audit |
+| M1.1 / T2 | Not run | Supported Libvirt/KVM host with EtherCAT bake prerequisites | Pending | Exact real bake, fresh consumer, and value-redacting proxy-clean result |
+| M1.1 / T3 | Not run | Separately authorized audit environment | Pending | Separate value-safe EtherCAT audit plan |
+| M1.1 / T4 | Not run | Repository checkout after M3 | Pending | Restore and update the recorded test surfaces from `733edf0` |
+
+##### Closure Evidence
+
+- Deferred by owner direction on 2026-08-13 and retained separately on 2026-08-20. Real runtime acceptance and existing-image audit have not run.
+- The prior local EtherCAT contract result remains pinned at `tests/check-ethercat-bake-workflow.bash:237-239@c53e17e`; M1.1 / T1 records the later 47aeede rerun.
+- D017 deferred the dedicated EtherCAT tests on 2026-08-20 and recorded their exact `733edf0` baseline above. No EtherCAT test ran during the M3 review or planning session.
+
+##### GitHub Projection
+
+Title: Validate EtherCAT use of the shared image workflow and proxy seal
+Labels: bug
+GitHub Milestone: Nimbus - Cloud Provisioning Reliability
+Observed State: open
+Observed Labels: bug
+Observed Milestone: Nimbus - Cloud Provisioning Reliability
+Last Compared: 2026-08-20 18:43:18 PDT; remote updated 2026-08-20 18:43:11 PDT
+Projection State: reconciled; remote title and body match the canonical projection and the issue remains open
 
 ## History
 
