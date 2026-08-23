@@ -38,6 +38,8 @@ Next session entry point: M9 / T1 through M9 / T3 pass. Run M9 / T4 through `bin
 | D016 | Issue #33 is assigned directly to M3. M2 depends on M3 instead of G1, while D012 remains the historical boundary of the accepted M2 implementation plan. | 2026-08-20 |
 | D017 | Dedicated EtherCAT test surfaces are removed from the current graph without changing production EtherCAT behavior; this supersedes only the current EtherCAT test portion of D011, preserves its `47aeede` result as history, and assigns restoration and update from `733edf0beca51a59ca44782ec3958b00a8fc8bc3` to Backlog M1.1 after M3. | 2026-08-20 |
 | D018 | Under proxy injection, `create_vm` removes the cloud-init `packages:` directive so packages install after the proxy apply through Ansible; the cloud-init package module runs in the config stage before the runcmd apply and cannot use the proxy. This supersedes the accepted M3 plan assumption that apply-before-Ansible was the only ordering constraint and preserves that plan acceptance as history. It also opens the testbed, package-parity, locale, and documentation follow-ups recorded in the Backlog. | 2026-08-21 |
+| D019 | Backlog M4 (testbed-to-bare) is consolidated into Backlog M8 rather than executed separately. Both retire the server=1/node=2 concept and edit the same `create_vm` prefix and node handling, so a narrow M4 pass would rework the surface M8 rewrites. M8 absorbs the bare-node piece and its D018 dependency; the earlier decision to keep M4 at its own narrow scope is preserved as history. | 2026-08-22 |
+| D020 | The M5 package-parity guard is keyed by base OS type, one expected-coverage list per OS template (debian13, rocky8, rocky10, ubuntu24, ubuntu26), owned inside cloud-provision rather than read from ansible-provision. Each list is the P_common set defined in `docs/IMAGE_WORKFLOW.md` (Operator reading): the packages that must be present on that base OS regardless of provisioning role. The guard compares the former cloud-init packages against that definition, not against what any single post-apply path installs today. Locale support is part of P_common (the `locales` package on the debian family), so the guard keeps the `locales` entry; M6 owns only the base-image locale assumption. The list is named by OS type only; naming it as the `bare` role belongs to M8. | 2026-08-22 |
 
 ### Milestone Details
 
@@ -451,11 +453,10 @@ Projection State: scope reconciled at creation; implementation status update pen
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 Deferred EtherCAT acceptance | M1.1 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D014-D015, D017, M3 | After M3, restore and update the deferred EtherCAT test surfaces from `733edf0`, then run the real bake, consumer, proxy-clean check, and separately authorized image audit; [M1.1 detail](#m11). |
-| Proxy ordering follow-up | M4 | Repurpose the testbed VM into a bare base image open to all tests | Milestone | Not started | Yes | D018 | The server=1/node=2 concept is retired and `testbed` becomes a package-minimal `bare` base image any test can use; [M4 detail](#m4). |
-| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018 | A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning; [M5 detail](#m5). |
+| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018, D020 | A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning; [M5 detail](#m5). |
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state packages install post-apply via Ansible, not cloud-init; [M7 detail](#m7). |
-| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes |  | Replace the testbed concept with a role-based base, builder, golden-family, verify, bare, and source-build model grounded in the actual ansible-provision usage; [M8 detail](#m8). |
+| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes | D018, D019 | Replace the testbed concept with a role-based base, builder, golden-family, verify, bare, and source-build model grounded in the actual ansible-provision usage, absorbing the testbed-to-bare piece; [M8 detail](#m8). |
 
 ### Backlog Details
 
@@ -571,55 +572,6 @@ Observed Milestone: Nimbus - Cloud Provisioning Reliability
 Last Compared: 2026-08-20 18:43:18 PDT; remote updated 2026-08-20 18:43:11 PDT
 Projection State: reconciled; remote title and body match the canonical projection and the issue remains open
 
-<a id="m4"></a>
-#### M4 - Repurpose the testbed VM into a bare base image open to all tests
-
-Origin: c53e17e / M4
-Identity History: none
-GitHub Issue: none
-Status: Not started
-
-##### Summary
-
-Under D018 the proxy-injection merge drops the cloud-init `packages:` directive for every VM, so a plain `testbed` VM that runs no post-apply Ansible now installs no packages. The `testbed` role also still carries the older server=1/node=2 concept that no longer matches how it is used. Retire that concept and make `testbed` a package-minimal `bare` base image that any test can boot.
-
-##### Scope
-
-- Retire the server=1/node=2 numbering concept from the `testbed` role.
-- Redefine `testbed` as a `bare`, package-minimal base image open to all tests.
-- Align `create_vm` node and prefix handling with the new `bare` role.
-
-Out of scope: proxy contract behavior; the golden IOC or EtherCAT bake paths; proxy values.
-
-##### Completion Criteria
-
-- A `bare` base image boots with the minimal package set and no test-specific assumptions.
-- No test depends on the retired server=1/node=2 concept.
-- Documentation names the `bare` role and its intended use.
-
-##### Dependencies And Decisions
-
-- D018
-
-##### Implementation Plan
-
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
-
-##### Test Plan
-
-To be defined at planning.
-
-##### Verification Results
-
-None observed.
-
-##### Closure Evidence
-
-None.
-
 <a id="m5"></a>
 #### M5 - Guard package-set parity between the retired cloud-init packages and post-apply install
 
@@ -634,20 +586,25 @@ D018 moved package installation from the cloud-init `packages:` module to post-a
 
 ##### Scope
 
-- Enumerate the packages the OS templates previously installed through cloud-init.
-- Compare that set against what post-apply provisioning installs.
-- Fail a check when a former cloud-init package is not covered.
+- Enumerate the packages each of the five OS templates (`templates/user-data.<os>`) installs through cloud-init `packages:`, including `locales`.
+- Keep one expected-coverage list per base OS type inside this repository, seeded from the P_common set in `docs/IMAGE_WORKFLOW.md` (Operator reading), with package names spelled per OS (D020).
+- Fail a check when a former cloud-init package is absent from its OS list, naming the missing package.
+- Run the check in the offline test graph.
 
-Out of scope: changing the package sets themselves; proxy contract behavior.
+Out of scope: changing the package sets themselves; proxy contract behavior; the base-image locale assumption (M6); naming the list as the `bare` role (M8); closing any coverage gap the check reveals, which is decided from the observed T4 result.
 
 ##### Completion Criteria
 
 - A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning.
 - The check runs in the offline test graph.
+- The check reads the shipped templates through the real shipped check path; the divergence test drives the same check through fixture templates, never a modified shipped template.
 
 ##### Dependencies And Decisions
 
-- D018
+- D018 and D020
+- Coupling to M8: the lists are keyed by the current `create_vm` OS types and the post-apply paths are today's inventory roles (`generate_ansible_inventory.bash`). When M8 renames OS types or roles, the list keys are re-pointed; the guard itself is not redesigned.
+- Post-apply paths per OS today: `rocky8` and `debian13` through `base_os` (`pkg_base` + `pkg_standard`) for ioc-node, nfs-sim-node, and ioc-runner-build; `debian13` additionally through the ethercat roles; all five through `epics_env_build` plus the `pkg_automation` per-OS package file.
+- No single post-apply path installs the whole P_common set today (the intersection across paths is only git and autoconf), so the list is seeded from the P_common definition, not from the paths; the guard is expected to fail on the shipped templates until P_common exists in ansible-provision.
 
 ##### Implementation Plan
 
@@ -656,9 +613,19 @@ Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
 
+1. Add `tests/fixtures/expected-post-apply-packages/<os>.txt` for the five OS types, seeded from the P_common set in `docs/IMAGE_WORKFLOW.md` (Operator reading) with each package spelled as that OS names it.
+2. Add `tests/check-package-parity.bash`: extract the `packages:` block of each template and fail naming any entry absent from that OS list. Accept the template directory and list directory as arguments so fixtures can drive the real check.
+3. Add `check-package-parity` to `configure/RULES_BAKE` (`.PHONY`, help line) and to the `check-bake` aggregate.
+4. Run T1 through T4 and record observed results; present any revealed coverage gap as a decision, not as a silent list edit.
+
 ##### Test Plan
 
-To be defined at planning.
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M5 / T1 | Syntax and static analysis | Run `bash -n` and `shellcheck -S warning` on the new check | Local checkout | Exit 0 and no unreviewed warning |
+| M5 / T2 | Covered fixture | Drive the shipped check with a fixture template whose packages all appear in its list | Local checkout; real check, fixture input | Exit 0 |
+| M5 / T3 | Divergence fixture | Drive the shipped check with a fixture template carrying a package absent from its list | Local checkout; real check, fixture input | Nonzero exit naming that package |
+| M5 / T4 | Shipped templates | Run `make check-package-parity` against the five shipped templates and lists | Local checkout | The exact missing packages per OS; a failure is the expected result until P_common exists in ansible-provision, and a pass is recorded only when observed |
 
 ##### Verification Results
 
@@ -774,24 +741,29 @@ Status: Not started
 
 The testbed concept conflates three things: the NAT environment name, the default VM prefix, and the plain base-node role. The `debian13`/`rocky8` node is really the shared start of three uses: a builder that bakes a golden image, an un-provisioned node in the lab, and a standalone provisioning target. Redesign the image and node model around explicit pipeline roles, grounded in the actual ansible-provision usage and standard golden-image practice.
 
+Under D018 the proxy-injection merge drops the cloud-init `packages:` directive for every VM, so a plain `testbed` VM that runs no post-apply Ansible now installs no packages. The absorbed bare-node piece (D019) makes the `bare` role a package-minimal base image any test can boot and retires the server=1/node=2 concept as part of this redesign.
+
 ##### Scope
 
 - Retire the testbed concept and the server=1/node=2 cluster numbering.
-- Adopt role-based naming: base (upstream input), builder (ephemeral bake VM), golden with a flavor family and a latest pointer (iocrunner, ethercat), verify (fresh-boot consumer), bare (proxy-applied base node), and source-build (epics-env matrix).
+- Implement the image model defined in `docs/IMAGE_WORKFLOW.md` (Operator definition): vacua, operators, and species, with `bare` as the common ancestor species.
+- Decide the two concepts that document does not define because they belong to image life, not to species: builder (the ephemeral bake VM) and verify (the fresh-boot consumer); and settle the golden flavor and latest-pointer convention recorded in that document's Open decisions.
 - Reflect the model in `create_vm` OS types, prefixes, and the runbook and ADR.
 - Decide a name for the NAT environment that currently reads testbed, coordinated with the ansible-provision trust-posture wording.
 
-Out of scope: implementing before an accepted plan and authority; proxy contract behavior; ansible-provision role logic; the narrow Backlog M4 testbed-to-bare piece, which keeps its own scope.
+Out of scope: implementing before an accepted plan and authority; proxy contract behavior; ansible-provision role logic.
 
 ##### Completion Criteria
 
-- A decided role-based image and node model is documented.
+- The species in `docs/IMAGE_WORKFLOW.md` are buildable on every vacuum the definition assigns them, and the builder and verify concepts are documented.
 - `create_vm` and the durable documentation reflect the model and the testbed term is retired.
 - The golden flavor and latest-pointer convention is defined.
+- The `bare` role boots as a package-minimal base image with no test-specific assumptions, and no test depends on the retired server=1/node=2 concept.
 
 ##### Dependencies And Decisions
 
-- Relates to Backlog M4: M4's bare node is the specific testbed-to-bare piece kept at its original scope; this redesign defines the surrounding model.
+- D018 and D019
+- Absorbs the former Backlog M4 testbed-to-bare piece (D019); its bare node is defined here as one role of the surrounding model.
 - Informed by standard golden-image pipeline practice (builder, golden, and fresh-boot consumer stages; image families; bake heavy and stable, keep cloud-init light) and the ansible-provision usage map.
 
 ##### Implementation Plan

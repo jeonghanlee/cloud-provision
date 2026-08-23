@@ -1,7 +1,8 @@
 # Image Workflow
 
 How this repository makes and uses images: terms, the chain, and the rules every image obeys. Settled in the 2026-08-01
-design discussion. The physics reading at the end is a shared shorthand, not normative.
+design discussion. The physics reading is a shared shorthand, not normative. The operator definition after it is
+normative.
 
 ## Terms
 
@@ -154,3 +155,96 @@ a |C_i⟩   = |0⟩                      clean removes the disk and its identity
 old       |golden, C_1, C_2, …⟩      entangled: one file shared, not separable
 new       |B⟩ ⊗ |C_1⟩ ⊗ |C_2⟩ ⊗ …    product state: local stays local
 ```
+
+## Operator definition
+
+Normative. Defines the operators applied to a vacuum, their order, and the species they produce. The operators are
+ansible-provision roles; this repository creates, copies, and destroys the states they act on. The terms vacuum type,
+bare, rtbase, and species are defined here, not in Terms.
+
+### Vacua
+
+The OS type is the vacuum type. An operator is the same operator on every vacuum; only package names differ.
+
+| Vacuum | Family |
+| --- | --- |
+| debian13 | debian |
+| rocky8 | rocky |
+| rocky10 | rocky |
+| ubuntu24 | debian |
+| ubuntu26 | debian |
+
+### Operators
+
+The preparation operator P of the physics reading is the product of the operators below.
+
+| Operator | Role | Order | Content |
+| --- | --- | --- | --- |
+| P_common | `base_os` (target; see Open decisions) | First on every vacuum | Must-have: sudo, chrony, git, wget, unzip, gcc, g++, make, autoconf, automake, libtool, ssl-dev, net-tools. Nice-to-have: vim, tmux, screen, lsof, tree, sysstat, acl, logrotate. Both halves are P_common. Debian family only: the `locales` package, `en_US.UTF-8` enabled in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. |
+| P_rt | `ethercat_base` | After P_common; optional | PREEMPT_RT kernel and headers, running-kernel headers, dkms, build toolchain. Stock kernel stays boot default. The resulting rtbase species is published as its own golden image. |
+| P_provenance | `bake_provenance` | Before P_epics, P_procserv, P_conserver, P_con, P_iocrunner | `/usr/local/sbin/record-iocrunner-source`, the tool application operators call to record their source into the bake manifest. |
+| P_epics | `app_epics` | After P_provenance | Binary EPICS-env distribution and its activation script under `/etc/profile.d`. Alternative to P_epics-build; never both on one vacuum. |
+| P_epics-build | `epics_env_build` | After P_common | EPICS development packages, then EPICS-env built and installed from source. Alternative to P_epics. |
+| P_epics-support | `epics_env_support_build` | After P_epics-build | AreaDetector modules built from source on the installed EPICS-env. |
+| P_procserv | `app_procserv` | After P_common | procServ built and installed from procServ-env. |
+| P_conserver | `app_conserver` | After P_common | conserver built and installed from conserver-env with OpenSSL. |
+| P_con | `app_con` | After P_common | con console client built and installed. |
+| P_nfs-sim | `nfs_sim` | After P_common | A directory exported over NFS from the same host, mounted back under `/home/nfs`, and linked into the user home. |
+| P_iocrunner | `app_ioc_runner` | After P_con, P_procserv, and one of P_epics or P_epics-build | epics-ioc-runner cloned at the pinned ref and its runner binary installed. |
+| P_testusers | `test_users` | After P_iocrunner | Operator, observer, and local-mode test accounts; operators joined to the ioc group. |
+| P_ethercat | `app_ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. |
+
+Package names that differ by family:
+
+| Name in P_common | debian family | rocky |
+| --- | --- | --- |
+| ssl-dev | libssl-dev | openssl-devel |
+| g++ | g++ | gcc-c++ |
+
+Commutation:
+
+```
+[P_rt, P_common] ≠ 0                     P_rt needs P_common's toolchain
+[P_procserv, P_conserver] = [P_procserv, P_con] = [P_con, P_nfs-sim] = 0
+```
+
+### Species
+
+Each bare state is a distinct species, one per vacuum: bare_debian13 is not bare_rocky8 under another name. Every
+other species is one species on every vacuum it is defined for, built on that vacuum's bare state.
+
+| Species | Product | Vacua |
+| --- | --- | --- |
+| bare_debian13 | P_common \|0_debian13⟩ | debian13 |
+| bare_rocky8 | P_common \|0_rocky8⟩ | rocky8 |
+| bare_rocky10 | P_common \|0_rocky10⟩ | rocky10 |
+| bare_ubuntu24 | P_common \|0_ubuntu24⟩ | ubuntu24 |
+| bare_ubuntu26 | P_common \|0_ubuntu26⟩ | ubuntu26 |
+| iocrunner | P_testusers P_iocrunner (P_con P_conserver P_procserv) (P_epics or P_epics-build) P_provenance \|bare⟩ | all |
+| epics-dev | P_epics-support P_epics-build \|bare⟩ | all |
+| nfs-sim | P_nfs-sim \|bare⟩ | all |
+| rtbase | P_rt \|bare⟩ | all |
+| ethercat | P_ethercat \|rtbase⟩ | all |
+
+Legal products that are not named species. Each follows from the commutation rules; naming one is a definition
+decision:
+
+| Product | Meaning |
+| --- | --- |
+| (P_con P_conserver P_procserv) \|bare⟩ | console host without EPICS; any subset and order |
+| P_iocrunner (P_con P_conserver P_procserv) P_epics P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack |
+| P_ethercat P_epics P_provenance \|rtbase⟩ | EtherCAT host with EPICS |
+| P_nfs-sim \|iocrunner⟩ | iocrunner with the NFS-backed path |
+
+### Open decisions
+
+This section exists only while the operator definition is being completed. Each row is a decision the definition
+still needs; once every row is settled the section is removed and later changes are tracked in the work register.
+
+| Decision | Options |
+| --- | --- |
+| Whether P_ethercat may be applied without P_rt | Require P_rt; or allow a non-RT ethercat species |
+| Which of the legal products above become named species | Name console-only, iocrunner-on-RT, ethercat-with-EPICS, nfs-sim-on-iocrunner; or leave unnamed |
+| Whether the nice-to-have half of P_common is mandatory or may be omitted per species | Always install; or allow a species to drop it |
+| Which ansible-provision role owns P_common in full, and where P_epics-build's package list lives | `base_os` for every vacuum; or a new role |
+| How a published golden species is named and which copy a consumer selects by default | A flavor family per species with a latest pointer; or explicit run identifiers only |
