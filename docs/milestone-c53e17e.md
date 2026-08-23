@@ -624,7 +624,7 @@ None.
 
 Origin: c53e17e / M8
 Identity History: none
-GitHub Issue: none
+GitHub Issue: none; ansible-provision side tracked by [jeonghanlee/ansible-provision#17](https://github.com/jeonghanlee/ansible-provision/issues/17)
 Status: Not started
 
 ##### Summary
@@ -641,7 +641,7 @@ Under D018 the proxy-injection merge drops the cloud-init `packages:` directive 
 - Reflect the model in `create_vm` OS types, prefixes, and the runbook and ADR.
 - Decide a name for the NAT environment that currently reads testbed, coordinated with the ansible-provision trust-posture wording.
 
-Out of scope: implementing before an accepted plan and authority; proxy contract behavior; ansible-provision role logic.
+Out of scope: implementing before an accepted plan and authority; proxy contract behavior.
 
 ##### Completion Criteria
 
@@ -653,6 +653,7 @@ Out of scope: implementing before an accepted plan and authority; proxy contract
 ##### Dependencies And Decisions
 
 - D018 and D019
+- The ansible-provision changes (P_common role, vacuum-wide inventory groups, one owner for the EPICS development package list) are part of this work unit and are tracked here; jeonghanlee/ansible-provision#17 is the pointer on that repository.
 - Absorbs the former Backlog M4 testbed-to-bare piece (D019); its bare node is defined here as one role of the surrounding model.
 - Informed by standard golden-image pipeline practice (builder, golden, and fresh-boot consumer stages; image families; bake heavy and stable, keep cloud-init light) and the ansible-provision usage map.
 
