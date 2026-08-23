@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M3 is Complete and issue #33 is closed. Next, authorize and run the G2 ioc-runner existing-artifact audit to unblock M2 / T13, and pick up the proxy-ordering follow-ups M4-M7 in the Backlog. Keep issue #34 open until its audit, keep M1.1 EtherCAT deferred, and run no EtherCAT test or runtime action.
+Next session entry point: M9 / T1 through M9 / T3 pass. Run M9 / T4 through `bin/audit_iocrunner_images.bash` with root privileges against the approved image directory, record the observed aggregate, and reconcile issue #36. M2 is Complete after issue #34 was reconciled and observed closed. Keep M1.1 EtherCAT deferred and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -18,10 +18,11 @@ Next session entry point: M3 is Complete and issue #33 is closed. Next, authoriz
 
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Proxy lifecycle | M2 | Remove every injected proxy artifact before publishing golden images | Milestone | Blocked | No | D009-D017, M3, G2 | M3 completes the exact IOC proxy set, both real IOC producer-consumer gates pass, and the separately authorized ioc-runner existing-artifact audit completes; [M2 detail](#m2). |
+| Proxy lifecycle | M2 | Remove every injected proxy artifact before publishing golden images | Milestone | Complete | No | D009-D017, M3, G2 | M3 completes the exact IOC proxy set, both real IOC producer-consumer gates pass, the separately authorized ioc-runner existing-artifact audit completes, and issue #34 is observed closed; [M2 detail](#m2). |
 | Proxy lifecycle | M3 | Complete proxy injection for non-interactive Ansible and pip | Milestone | Complete | No | D009-D010, D013, D016, D018 | The shared contract owns the exact Debian 8, Ubuntu 8, and Rocky 7 final artifacts, local IOC-only verification passes, and two real IOC producer-consumer gates pass; [M3 detail](#m3). |
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
-| Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Open | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
+| Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
+| Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | In progress | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
 
 ### Decisions
 
@@ -46,7 +47,7 @@ Next session entry point: M3 is Complete and issue #33 is closed. Next, authoriz
 Origin: c53e17e / M2
 Identity History: none
 GitHub Issue: [#34](https://github.com/jeonghanlee/cloud-provision/issues/34)
-Status: Blocked
+Status: Complete
 
 ##### Summary
 
@@ -73,8 +74,8 @@ Out of scope: implementing issue #33 inside the accepted M2 plan because M3 owns
 
 - D009-D017
 - D012 remains the historical boundary of the accepted M2 plan; D016 assigns issue #33 implementation to M3 without rewriting that plan.
-- M3 is Complete; G2 remains the only Open gate, so M2 stays Blocked on G2 and resumes as In progress when G2 completes.
-- G2 remains Open and independently blocks M2 / T13; M3 does not depend on G2.
+- M3 and G2 are Complete; M2 / T11 through M2 / T13 pass through their real authorized paths.
+- Issue #34 was reconciled and observed closed on 2026-08-22, satisfying the final M2 closure condition.
 
 ##### Implementation Plan
 
@@ -131,9 +132,9 @@ The accepted plan above remains historical. D016 and D017 do not add issue #33 o
 | M2 / T9 | 2026-08-20 18:32:23 PDT | Local checkout at `733edf0` with the corrected uncommitted M3 implementation | Pass | M3 V009 `git diff --check` exited 0; three selected production and generic EtherCAT files matched `733edf0`; five user-data template hashes remained unchanged |
 | M2 / T10 | 2026-08-20 10:03:44 PDT | Fresh Reviewer `codex_gpt5_signal`; final uncommitted implementation in `hand20260820_095313` | Pass | V011 accepted with zero blocking findings and zero required decisions in `work/review_sessions/20260819_235119_proxy-lifecycle/reviews/fup20260820_100344_codex_gpt5_signal_on_hand20260820_095313.md` |
 | M2 / T10 | 2026-08-20 18:32:23 PDT | Fresh implementation Reviewer on the corrected combined proxy lifecycle | Pass | M3 V010 resolved the root-environment finding and accepted P001-P010 with zero blocking findings and zero required decisions |
-| M2 / T11 | Not run | Supported Libvirt/KVM after M3 | Pending | Exact public Debian IOC bake and consumer |
-| M2 / T12 | Not run | Supported Libvirt/KVM after M3 | Pending | Exact public Rocky IOC bake and consumer |
-| M2 / T13 | Not run | Separately authorized audit environment after G2 | Pending | Separate value-safe ioc-runner audit plan |
+| M2 / T11 | 2026-08-22 16:29:38 PDT | Supported Libvirt/KVM host at `18a1667`; new Debian bake and fresh consumer | Pass | The exact public Debian IOC bake completed all 10 steps, terminal proxy seal and provenance validation passed, and `iocrunner-debian13-20260822T231755Z-610a9cd3f35f.qcow2` was published; its fresh consumer creation record selected that exact basename and reached READY before consumer cleanup |
+| M2 / T12 | 2026-08-22 16:33:53 PDT | Supported Libvirt/KVM host at `18a1667`; new Rocky bake and fresh consumer | Pass | The exact public Rocky IOC bake completed all 10 steps, terminal proxy seal and provenance validation passed, and `iocrunner-rocky8-20260822T232958Z-6ee4986b0420.qcow2` was published; its fresh consumer creation record selected that exact basename and reached READY before consumer cleanup |
+| M2 / T13 | 2026-08-22 18:16 PDT | Supported Libvirt/KVM host; read-only libguestfs 1.54.1 against the approved image directory | Pass | The accepted `plan20260822_g2_guestfish_audit` checked five image/manifest pairs: qcow2 metadata and integrity passed, one guest root was inspected per image, and the guestfish-backed contract check returned clean for Debian 2 and Rocky 3; no host mount or NBD connection remained, no guest command ran, and no proxy value or guest file content was emitted |
 
 ##### Closure Evidence
 
@@ -143,18 +144,19 @@ The accepted plan above remains historical. D016 and D017 do not add issue #33 o
 - D015 moved EtherCAT real-bake verification and EtherCAT image audit to Backlog M1.1 and issue #35 on 2026-08-20 without removing the shared contract or local shipped-path coverage delivered in 47aeede.
 - D016 replaced G1 with M3 on 2026-08-20 without claiming that issue #33 had been delivered.
 - D017 preserved the local EtherCAT results only as historical evidence at `47aeede` and assigned future test restoration to M1.1.
-- Issue #34 remains open until every completion criterion and external gate is satisfied.
+- G2 completed on 2026-08-22 under `plan20260822_g2_guestfish_audit`; M2 / T13 passed for five existing IOC runner images without remediation or value exposure.
+- Issue #34 body was reconciled to the completed criteria, the final result comment was recorded, and the issue was observed closed at 2026-08-22 21:47 PDT.
 
 ##### GitHub Projection
 
 Title: Remove every injected proxy artifact before publishing golden images
 Labels: bug
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: bug
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-08-20 18:43:18 PDT; remote updated 2026-08-20 18:43:11 PDT
-Projection State: reconciled; remote body matches the canonical projection and the issue remains open
+Last Compared: 2026-08-22 21:47 PDT; remote issue observed closed
+Projection State: reconciled; completed body, close comment, and closed state observed
 
 <a id="m3"></a>
 #### M3 - Complete proxy injection for non-interactive Ansible and pip
@@ -300,25 +302,147 @@ D016 retires this external-gate identity because issue #33 is now registered dir
 
 Origin: c53e17e / G2
 GitHub Issue: none
-Status: Open
+Status: Complete
 
 ##### Summary
 
-Issue #34 cannot close until a separately planned and authorized value-safe audit determines the state of existing ioc-runner artifacts. This gate grants no permission to inspect or remediate them.
+The separately planned and authorized value-safe audit determined the state of the existing ioc-runner artifacts. All five selected images passed, and no remediation was authorized or performed.
+
+##### Scope
+
+Audit existing published `iocrunner-*.qcow2` artifacts and matching `.manifest` sidecars under the approved image directory using read-only metadata checks, read-only libguestfs root inspection, and a guestfish-backed verifier pinned to the shipped proxy contract inventory and marker/key rules.
+
+Out of scope: new bakes; EtherCAT artifacts; guest execution; proxy values or guest file contents; remediation, quarantine, deletion, replacement, and credential rotation.
 
 ##### Completion Criteria
 
-- A named value-safe ioc-runner audit plan is accepted, separately authorized, executed, and recorded as M2 / T13.
+- The named value-safe audit plan is accepted and separately authorized.
+- Every selected existing ioc-runner artifact passes the read-only metadata, guest-root inspection, and value-free proxy-clean checks.
+- Audit resources are removed, no host mount or NBD connection remains, no guest command runs, and the observed aggregate is recorded as M2 / T13 without exposing values.
+
+##### Dependencies And Decisions
+
+- D014 requires a separate plan and authorization for existing-artifact inspection or remediation.
+- This audit uses a read-only libguestfs inspection path and does not authorize remediation.
+
+##### Implementation Plan
+
+Plan ID: `plan20260822_g2_guestfish_audit`
+Plan Status: accepted
+Plan Acceptance: owner selected the guestfish method in chat on 2026-08-22
+Implementation Authorization: owner direction and approval in chat on 2026-08-22
+Superseded Plan Artifacts: `work/plan-g2-iocrunner-audit.md`, plan20260822_171920_g2_iocrunner_audit
+
+1. Enumerate regular, non-symlink `iocrunner-*.qcow2` files and require one matching `.manifest` sidecar per image.
+2. Run read-only `qemu-img info` and `qemu-img check`; reject backing files, malformed metadata, or nonzero check errors.
+3. Open one image at a time through the read-only libguestfs appliance and let `guestfish` inspect the guest root without a host `mount` or NBD connection.
+4. Run a guestfish-backed value-safe proxy-clean verifier over the shipped contract inventory, retaining only exit status and the value-free result line.
+5. Close the libguestfs appliance, remove temporary state, and verify no host mount, NBD connection, or audit residue remains.
+6. Record the aggregate by OS and artifact count as M2 / T13 without emitting filenames, proxy values, or guest file contents.
+
+##### Test Plan
+
+| Label | Layer | Method | Expected Result |
+| --- | --- | --- | --- |
+| M2 / T13-a | Inventory | Enumerate existing IOC runner qcow2 and manifest pairs from the approved directory | Every selected qcow2 has one matching regular sidecar |
+| M2 / T13-b | Image metadata | Run read-only `qemu-img info` and `qemu-img check` for each selected image | No backing file and zero check errors |
+| M2 / T13-c | Guest root and proxy state | Inspect one guest root through read-only libguestfs and run the guestfish-backed proxy-clean verifier | One inspected root per image and `clean=true` for every image |
+| M2 / T13-d | Resource cleanup | Close libguestfs, remove temporary state, and recheck host state | No host mount, NBD connection, or audit residue remains |
 
 ##### Verification Results
 
 | Observed At | Result | Evidence |
 | --- | --- | --- |
-| Not run | Pending | Separate audit plan and authorization |
+| 2026-08-22 18:16 PDT | Pass | `plan20260822_g2_guestfish_audit` completed for five image/manifest pairs: Debian 2 and Rocky 3 passed qcow2 metadata and integrity, single-root inspection, value-safe proxy-clean verification, and residue checks without host mount, NBD, guest command execution, remediation, or value exposure |
 
 ##### Closure Evidence
 
-- None.
+- 2026-08-22: The accepted and authorized guestfish audit completed with `images=5 debian=2 rocky=3 passed=5 failed=0 residue=clean`.
+- M9 and issue #36 preserve the verifier at `bin/audit_iocrunner_images.bash`; M9 / T4 owns verification through that tracked entry point and does not replace the historical G2 result.
+
+<a id="m9"></a>
+#### M9 - Preserve the IOC runner existing-image audit as a tracked tool
+
+Origin: c53e17e / M9
+Identity History: none
+GitHub Issue: [#36](https://github.com/jeonghanlee/cloud-provision/issues/36)
+Status: In progress
+
+##### Summary
+
+The successful existing-image audit currently depends on an ignored work script. Preserve its read-only guestfish path as a tracked cloud-provision operator tool so the audit can be repeated without reconstructing the code.
+
+##### Scope
+
+- Add `bin/audit_iocrunner_images.bash` as the supported entry point.
+- Resolve the repository root from the installed script path instead of a workstation-specific checkout path.
+- Accept `-d <image_dir>` with `/data/libvirt/images` as the default.
+- Retain read-only qcow2 metadata checks, guestfish root inspection, and the value-free proxy artifact checks pinned to the shipped proxy contract.
+- Document privileges, required commands and packages, usage, output, and failure behavior in `docs/RUNBOOK_BAKE.md`.
+- Update the G2 record to reference the tracked entry point.
+
+Out of scope: proxy remediation, quarantine, deletion, replacement, or credential rotation; EtherCAT images; arbitrary qcow2 images outside the supported IOC runner Debian 13 and Rocky 8 naming contract; changes to proxy apply or seal behavior; printing proxy values, guest file contents, or per-image identifiers.
+
+##### Completion Criteria
+
+- The tracked script contains no workstation-specific checkout path.
+- `-h` documents the interface and `-d` selects an absolute image directory.
+- Every image is opened read-only without a host mount, NBD attachment, or guest command execution.
+- Contract drift, unsupported image names, missing, symbolic-link, or empty sidecars, image corruption, ambiguous roots, proxy artifacts, and cleanup failures stop the audit.
+- Output remains limited to value-free failure stages and aggregate counts.
+- The runbook names the required packages and provides copy-safe commands.
+- M9 / T1 through M9 / T4 pass through the tracked entry point and documented path.
+
+##### Dependencies And Decisions
+
+- G2 is Complete and its 2026-08-22 read-only result establishes the behavior to preserve, but it does not verify the new tracked entry point.
+- This work is related to issue #34 and does not expand its proxy lifecycle contract.
+- Issue #36 was created with label `enhancement`, milestone `Nimbus - Cloud Provisioning Reliability`, and assignee `jeonghanlee` before implementation began.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: owner approved the `bin/` and `docs/RUNBOOK_BAKE.md` locations on 2026-08-22
+Implementation Authorization: owner directed issue-first implementation on 2026-08-22
+Superseded Plan Artifacts: none
+
+1. Promote the accepted guestfish audit into `bin/` and replace only the workstation-specific configuration with the documented command interface.
+2. Add runbook instructions and package requirements.
+3. Update the G2 path and issue #36 projection metadata.
+4. Run all planned checks and record only observed results.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M9 / T1 | Syntax and static analysis | Run `bash -n` and `shellcheck -S warning` on the tracked script | Local checkout | Exit 0 with no unreviewed warning |
+| M9 / T2 | Command interface | Run the shipped help and invalid-argument paths | Local checkout | Help is complete and invalid input fails before image access |
+| M9 / T3 | Documentation | Run `make check-docs` and `git diff --check` | Local checkout | Documentation checks pass and no whitespace error is present |
+| M9 / T4 | Existing images | Run the tracked script with root privileges against the approved image directory | Supported Libvirt/KVM host | Every selected IOC runner image and manifest pair passes with `residue=clean` |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M9 / T1 | 2026-08-22 19:24 PDT | Local checkout; tracked `bin/audit_iocrunner_images.bash` | Pass | `bash -n` and `shellcheck -S warning` each exited 0; ShellCheck output was empty |
+| M9 / T2 | 2026-08-22 19:24 PDT | Local checkout; tracked command interface | Pass | `-h` exited 0 with the documented default and options; unknown option, missing `-d` value, and extra argument each exited 1 with `stage=usage` before image access |
+| M9 / T3 | 2026-08-22 19:24 PDT | Local checkout; tracked runbook and canonical record | Pass | `make check-docs` passed 3/3 and `git diff --check` exited 0 |
+| M9 / T4 |  |  | Pending | The 2026-08-22 result from the ignored work script is historical evidence only |
+
+##### Closure Evidence
+
+- The tracked script, runbook, and canonical projection are implemented. M9 / T4, commit, and observed issue closure remain pending.
+
+##### GitHub Projection
+
+Title: Preserve the IOC runner image audit as a tracked tool
+Labels: enhancement
+GitHub Milestone: Nimbus - Cloud Provisioning Reliability
+Observed State: open
+Observed Labels: enhancement
+Observed Milestone: Nimbus - Cloud Provisioning Reliability
+Last Compared: 2026-08-22; issue created and read back
+Projection State: scope reconciled at creation; implementation status update pending M9 / T4
 
 ## Backlog
 

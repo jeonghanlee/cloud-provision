@@ -177,6 +177,46 @@ does not verify EtherCAT.
 The control host still needs its own network policy for base-image downloads
 and host-side fetches. That policy is outside the guest artifact contract.
 
+## Auditing published IOC runner images
+
+`bin/audit_iocrunner_images.bash` audits every regular, non-symlink `iocrunner-*.qcow2` file in one image directory. Each image must follow the `iocrunner-debian13-<run-id>.qcow2` or `iocrunner-rocky8-<run-id>.qcow2` naming contract and have a non-empty regular `<image>.manifest` sidecar.
+
+The entry point requires root privileges. It checks qcow2 metadata and integrity, starts one read-only guestfish appliance per image, finds exactly one guest root, and tests the value-free proxy artifact paths, markers, and key names pinned to the shipped `bin/proxy_contract.bash`. It does not create a host mount, attach an NBD device, execute a command in the guest, print a proxy value or guest file content, or modify an image. EtherCAT images and remediation are outside this command.
+
+On the verified Debian 13 control host, install the runtime packages with:
+
+```bash
+sudo apt-get install bash coreutils findutils guestfish jq mawk qemu-utils sed
+```
+
+The key package mapping is `guestfish` from `guestfish`, `qemu-img` from `qemu-utils`, and `jq` from `jq`. The remaining packages provide the Bash interpreter and the standard `awk`, `find`, `realpath`, `sed`, `sha256sum`, `sleep`, and `sort` commands. `shellcheck` is required only for repository validation, not for an audit run.
+
+From the repository root, audit the default `/data/libvirt/images` directory:
+
+```bash
+sudo /bin/bash -p bin/audit_iocrunner_images.bash
+```
+
+Select another absolute image directory with `-d`:
+
+```bash
+sudo /bin/bash -p bin/audit_iocrunner_images.bash -d /absolute/image/directory
+```
+
+Show the command interface without root privileges:
+
+```bash
+bin/audit_iocrunner_images.bash -h
+```
+
+Success prints one aggregate line and no per-image identifier:
+
+```
+audit: completed images=<count> debian=<count> rocky=<count> passed=<count> failed=0 residue=clean
+```
+
+Failure prints `audit: failed stage=<stage>` and exits nonzero. A `proxy-contract-drift` failure means `bin/proxy_contract.bash` changed after the audit inventory and digest were reviewed; update the value-free inventory and pinned digest together before running the audit against the changed contract.
+
 ## VM wait policy
 
 The provisioner and ioc-runner bake use the same validated wait settings. Each
