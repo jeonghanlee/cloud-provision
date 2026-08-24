@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M5, M6, M7, and M8 are assigned to the Milestone and Ready; M5 (package-parity guard against the P_common set) needs plan acceptance and implementation authority before editing. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M5, M6, M7, and M8 are assigned to the Milestone and Ready; M8 runs first and its plan awaits acceptance and implementation authority, while M5 is planned and held behind M8. The M8 plan and the operator definition ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -23,10 +23,10 @@ Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 | Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
-| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018, D020 | A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning; [M5 detail](#m5). |
+| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | No | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
-| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state packages install post-apply via Ansible, not cloud-init; [M7 detail](#m7). |
-| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes | D018, D019 | Replace the testbed concept with a role-based base, builder, golden-family, verify, bare, and source-build model grounded in the actual ansible-provision usage, absorbing the testbed-to-bare piece; [M8 detail](#m8). |
+| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
+| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
 
 ### Decisions
 
@@ -484,7 +484,7 @@ Out of scope: changing the package sets themselves; proxy contract behavior; the
 
 ##### Completion Criteria
 
-- A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning.
+- A check fails when a former cloud-init `packages:` entry is absent from its OS's P_common-seeded list.
 - The check runs in the offline test graph.
 - The check reads the shipped templates through the real shipped check path; the divergence test drives the same check through fixture templates, never a modified shipped template.
 
@@ -645,7 +645,7 @@ Out of scope: implementing before an accepted plan and authority; proxy contract
 
 ##### Completion Criteria
 
-- The species in `docs/IMAGE_WORKFLOW.md` are buildable on every vacuum the definition assigns them, and the builder and verify concepts are documented.
+- Every vacuum-species pair the definition assigns is accepted by the model and tooling (M8 / T3), the species the Test Plan runs are actually built (M8 / T4 through T6), and the builder and verify concepts are documented. Real builds of the remaining pairs are observed by the later work that first uses them.
 - `create_vm` and the durable documentation reflect the model and the testbed term is retired.
 - The golden flavor and latest-pointer convention is defined.
 - The `bare` species boots as a package-minimal base image with no test-specific assumptions, and no test depends on the retired server=1/node=2 concept.
