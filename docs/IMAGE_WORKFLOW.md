@@ -103,6 +103,17 @@ leftover VMs - not correctness.
 A stays after B exists. Deleting A once B was built was raised by the assistant and rejected by the owner. A is read-
 only ground; nothing we make ever writes to it.
 
+## Golden naming carries identity and a newest-wins default
+
+A published golden species is named on two layers, not one. The identity layer is the run timestamp and hash carried
+in the file name and the paired creation record, exactly as "Identity by pair" defines — this is what keeps every image
+unique, verifiable as a pair, and fresh by construction, and it is unchanged. The selection layer sits on top of it: a
+consumer that names no run identifier gets the newest published image of that species by default. This is not a separate
+pointer artifact; the run timestamp leads the run id, so sorting the unique names of a `<kind>-<platform>` family in
+descending order puts the newest first, and `image_workflow_select_latest_image` returns the newest one whose pair
+validates. The default never replaces the identity; it only picks among the unique images, so it can cost a convenience,
+never correctness.
+
 ## Delivered workflow
 
 `bin/image_workflow.bash` owns image and VM naming, VM disk paths, independent
@@ -181,7 +192,7 @@ The preparation operator P of the physics reading is the product of the operator
 
 | Operator | Role | Order | Content |
 | --- | --- | --- | --- |
-| P_common | `common` | First on every vacuum | Must-have: sudo, chrony, git, wget, unzip, gcc, g++, make, autoconf, automake, libtool, ssl-dev, net-tools. Nice-to-have: vim, tmux, screen, lsof, tree, sysstat, acl, logrotate. Both halves are P_common. Debian family only: the `locales` package, `en_US.UTF-8` enabled in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
+| P_common | `common` | First on every vacuum | Must-have: sudo, chrony, git, wget, unzip, gcc, g++, make, autoconf, automake, libtool, ssl-dev, net-tools. Core utilities: vim, tmux, lsof, tree, sysstat, logrotate, acl. Both halves are P_common and always installed. Debian family only: the `locales` package, `en_US.UTF-8` enabled in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
 | P_rt | `rt` | After P_common; optional | PREEMPT_RT kernel and headers, running-kernel headers, dkms, build toolchain. Stock kernel stays boot default. The resulting rtbase species is published as its own golden image. |
 | P_provenance | `provenance` | Before P_epics, P_procserv, P_conserver, P_con, P_iocrunner | `/usr/local/sbin/record-iocrunner-source`, the tool application operators call to record their source into the bake manifest. |
 | P_epics | `epics` | After P_provenance | Binary EPICS-env distribution and its activation script under `/etc/profile.d`; on rocky, firewalld enabled with the EPICS CA and PVA ports open. Alternative to P_epics-build; never both on one vacuum. |
@@ -193,7 +204,7 @@ The preparation operator P of the physics reading is the product of the operator
 | P_nfs-sim | `nfs_sim` | After P_common | A directory exported over NFS from the same host, mounted back under `/home/nfs`, and linked into the user home. |
 | P_iocrunner | `iocrunner` | After P_con, P_procserv, and one of P_epics or P_epics-build | epics-ioc-runner cloned at the pinned ref and its runner binary installed. |
 | P_testusers | `testusers` | After P_iocrunner | Operator, observer, and local-mode test accounts; operators joined to the ioc group. |
-| P_ethercat | `ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. |
+| P_ethercat | `ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. P_ethercat can apply on a non-RT bare state, but the `ethercat` species is defined on rtbase because a real EtherCAT deployment runs the RT kernel. |
 
 Package names that differ by family:
 
@@ -228,23 +239,11 @@ other species is one species on every vacuum it is defined for, built on that va
 | rtbase | P_rt \|bare⟩ | all |
 | ethercat | P_ethercat \|rtbase⟩ | all |
 
-Legal products that are not named species. Each follows from the commutation rules; naming one is a definition
-decision:
+Legal products that are not named species. Each follows from the commutation rules and stays a recorded product
+rather than a named species; a real use for one is what promotes it, and none is needed today:
 
 | Product | Meaning |
 | --- | --- |
-| (P_con P_conserver P_procserv) \|bare⟩ | console host without EPICS; any subset and order |
-| P_iocrunner (P_con P_conserver P_procserv) P_epics P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack |
-| P_ethercat P_epics P_provenance \|rtbase⟩ | EtherCAT host with EPICS |
-
-### Open decisions
-
-This section exists only while the operator definition is being completed. Each row is a decision the definition
-still needs; once every row is settled the section is removed and later changes are tracked in the work register.
-
-| Decision | Options |
-| --- | --- |
-| Whether P_ethercat may be applied without P_rt | Require P_rt; or allow a non-RT ethercat species |
-| Which of the legal products above become named species | Name console-only, iocrunner-on-RT, ethercat-with-EPICS; or leave unnamed |
-| Whether the nice-to-have half of P_common is mandatory or may be omitted per species | Always install; or allow a species to drop it |
-| How a published golden species is named and which copy a consumer selects by default | A flavor family per species with a latest pointer; or explicit run identifiers only |
+| (P_con P_conserver P_procserv) \|bare⟩ | console host without EPICS; any subset and order. The three are base software of the iocrunner species, not a standalone host. |
+| P_iocrunner (P_con P_conserver P_procserv) P_epics P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack; reachable from rtbase and the iocrunner operators. |
+| P_ethercat P_epics P_provenance \|rtbase⟩ | EtherCAT host with EPICS. A real EtherCAT host runs EPICS IOCs, so this is the anticipated end state; the `ethercat` species stays EtherCAT-only until end-to-end work reaches the EPICS layer. |

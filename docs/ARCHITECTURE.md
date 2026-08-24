@@ -3,8 +3,8 @@
 ## 1. Overview
 
 A cloud-init based VM provisioner for libvirt/KVM. Provisions reproducible
-multi-node test environments from official cloud images without manual
-OS installation.
+test VMs across the supported OS variants from official cloud images without
+manual OS installation.
 
 ---
 

@@ -1,7 +1,7 @@
 # cloud-provision
 
 Cloud-init based VM provisioner for libvirt/KVM.
-Provisions reproducible multi-node test environments from official cloud images.
+Provisions reproducible test VMs across the supported OS variants from official cloud images.
 
 * Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 * Image workflow: [docs/IMAGE_WORKFLOW.md](docs/IMAGE_WORKFLOW.md) — how images are made and used, from upstream base to VM disk
