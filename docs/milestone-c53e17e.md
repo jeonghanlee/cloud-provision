@@ -690,11 +690,14 @@ Both repositories work on the `m8-operator-model` branch and merge to master whe
 
 ##### Verification Results
 
-None observed.
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M8 / T1 | 2026-08-24 | Local checkouts on `m8-operator-model` | Pass | `bash -n` and `shellcheck -S warning` exited 0 for every changed Bash file in both repositories; `ansible-playbook --syntax-check` passed all 20 rewritten playbooks |
+| M8 / T2 | 2026-08-24 | Local checkouts on `m8-operator-model`; steps 1-3 implementation | Pass | cloud-provision `make check-bake` (7/107/35), `check-proxy-injection` 129/129, `check-runtime-inventory` (58+2), `check-docs` 3/3; ansible-provision tests 35/35, 22/22, 3/3 — all updated for the new names |
 
 ##### Closure Evidence
 
-None.
+- Steps 1 through 3 are implemented and pushed: ansible-provision `f319df2` (inventory), `724b381` (operators and species rewrite) with the common role in its branch history, and cloud-provision `eaee660` (bake and build callers). Step 4 was absorbed by the rewrite (`pkg_standard` retired with `base_os`). The provenance manifest labels stay `app_*` as the durable manifest schema (Keep, 2026-08-24). Steps 5 through 10 remain.
 
 ## Backlog
 
