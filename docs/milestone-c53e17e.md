@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M5, M6, M7, and M8 are assigned to the Milestone and Ready; M5 (package-parity guard against the P_common set) needs plan acceptance and implementation authority before editing. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M8 is In progress under its accepted plan; the plan, the operator definition, and the current register updates ride the `m8-operator-model` branch until M8 closes and merges to master, so read the register on that branch. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
