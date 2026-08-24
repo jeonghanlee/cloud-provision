@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M5, M6, M7, and M8 are assigned to the Milestone and Ready; M8 runs first and its plan awaits acceptance and implementation authority, while M5 is planned and held behind M8. The M8 plan and the operator definition ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M5, M6, M7, and M8 are assigned to the Milestone and Ready; M8 is In progress under its accepted plan, and M5 is planned and held behind it. The M8 plan and the operator definition ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -26,7 +26,7 @@ Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #
 | Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | No | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
-| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
+| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | In progress | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
 
 ### Decisions
 
@@ -625,7 +625,7 @@ None.
 Origin: c53e17e / M8
 Identity History: none
 GitHub Issue: none; ansible-provision side tracked by [jeonghanlee/ansible-provision#17](https://github.com/jeonghanlee/ansible-provision/issues/17)
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -659,9 +659,9 @@ Out of scope: implementing before an accepted plan and authority; proxy contract
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted the reviewed ten-step plan on 2026-08-24
+Implementation Authorization: owner direction to proceed on 2026-08-24
 Superseded Plan Artifacts: none
 
 Both repositories work on the `m8-operator-model` branch and merge to master when M8 closes. The ansible-provision side is rewritten from the operator definition; existing ansible code is not preserved. The rewrite is total: one role per operator named as the definition's Role column, one playbook per operator under `playbooks/operators/`, one assembly per species under `playbooks/species/`, and the numbered playbooks, `site.yml`, `base_os`, and `pkg_standard` retire. Every variable in today's `group_vars/all.yml` moves to the `defaults/` of the operator role that consumes it; only values consumed by more than one operator (for example `epics_ioc_engineers`) stay in `group_vars/all.yml`, and the existing site-override precedence is unchanged. Every numbered step closes with a third-person review before the next; steps 8 and 9 and every operator-definition edit add a second-person pass; a joint two-repository review precedes the merges.
