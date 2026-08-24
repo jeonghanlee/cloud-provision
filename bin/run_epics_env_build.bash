@@ -13,8 +13,8 @@ SC_TOP="$(realpath "${SC_TOP}")"
 
 declare -g ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${SC_TOP}/../ansible-provision}"
 declare -g IMAGE_DIR="${IMAGE_DIR:-${HOME}/libvirt/images}"
-declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
-declare -g NODE_ID="server"
+declare -g VM_PREFIX="${VM_PREFIX:-lab}"
+declare -g NODE_ID="main"
 declare -g INVENTORY="${EPICS_ENV_INVENTORY:-inventory/lab.ini}"
 declare -g PLAYBOOK="${EPICS_ENV_PLAYBOOK:-playbooks/species/epics_dev.yml}"
 declare -g CREATE_VM="${SC_TOP}/bin/create_vm.bash"
@@ -36,12 +36,12 @@ function print_usage {
     printf "Run the EPICS-env build playbook against existing cloud-provision VMs.\n"
     printf "\n"
     printf "Options:\n"
-    printf "  -o <os_type>    Add an EPICS-env OS selector; may be repeated\n"
-    printf "                  (default: epics-env-rocky8 and epics-env-debian13)\n"
+    printf "  -o <os_type>    Add an epics-dev OS selector; may be repeated\n"
+    printf "                  (default: rocky8-epics-dev and debian13-epics-dev)\n"
     printf "  -a <dir>        ansible-provision directory\n"
     printf "  -d <dir>        VM image directory\n"
-    printf "  -p <prefix>     VM name prefix (default: testbed)\n"
-    printf "  -n <node_id>    VM node identifier (default: server)\n"
+    printf "  -p <prefix>     VM name prefix (default: lab)\n"
+    printf "  -n <instance>   VM instance label (default: main)\n"
     printf "  -i <inventory>  Maintained group inventory relative to ansible-provision\n"
     printf "  -P <playbook>   Playbook relative to ansible-provision\n"
     printf "  -h              Show this help\n"
@@ -63,7 +63,7 @@ while getopts ":o:a:d:p:n:i:P:h" opt; do
 done
 
 if [[ "${#OS_TYPES[@]}" -eq 0 ]]; then
-    OS_TYPES=(epics-env-rocky8 epics-env-debian13)
+    OS_TYPES=(rocky8-epics-dev debian13-epics-dev)
 fi
 
 function cleanup_runtime_inventories {
@@ -96,29 +96,17 @@ fi
 ANSIBLE_PLAYBOOK_BIN="$(command -v ansible-playbook 2>/dev/null || true)"
 [[ -n "${ANSIBLE_PLAYBOOK_BIN}" ]] || die "ansible-playbook not found in PATH"
 
-declare -g HAS_CORE=false
-declare -g HAS_MATRIX=false
 for os_type in "${OS_TYPES[@]}"; do
     case "${os_type}" in
-        epics-env-rocky8|epics-env-debian13)
-            HAS_CORE=true
-            ;;
-        epics-env-rocky10|epics-env-ubuntu24|epics-env-ubuntu26)
-            HAS_MATRIX=true
-            ;;
+        rocky8-epics-dev|debian13-epics-dev|rocky10-epics-dev|ubuntu24-epics-dev|ubuntu26-epics-dev) ;;
         *)
-            die "unsupported EPICS-env OS selector: ${os_type}"
+            die "unsupported epics-dev OS selector: ${os_type}"
             ;;
     esac
 done
 
-if [[ "${HAS_CORE}" == true && "${HAS_MATRIX}" == true ]]; then
-    ANSIBLE_LIMIT="epics_env_build"
-elif [[ "${HAS_CORE}" == true ]]; then
-    ANSIBLE_LIMIT="epics_env_core"
-else
-    ANSIBLE_LIMIT="epics_env_matrix"
-fi
+# Every generated host lands in the epics_dev species group.
+ANSIBLE_LIMIT="epics_dev"
 
 for os_type in "${OS_TYPES[@]}"; do
     runtime_inventory="$(mktemp /tmp/cloud-provision-ansible-inventory.XXXXXX)"
@@ -130,7 +118,7 @@ for os_type in "${OS_TYPES[@]}"; do
     if ! "${INVENTORY_GENERATOR}" \
         --status-input \
         --os-type "${os_type}" \
-        --role epics-env-build <<< "${status_report}" > "${runtime_inventory}"; then
+        --species epics-dev <<< "${status_report}" > "${runtime_inventory}"; then
         die "failed to generate runtime inventory for ${os_type}"
     fi
     printf "Generated inventory for %s [OK]\n" "${os_type}"

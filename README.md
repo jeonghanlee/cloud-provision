@@ -53,15 +53,13 @@ image's backing file.
 ### Provision
 
 ```bash
-make rocky8               # server + node1 + node2
-make debian13             # server + node1 + node2
+make rocky8               # lab-rocky8-main
+make debian13             # lab-debian13-main
 make all                  # base OS types only
 ```
 
 ```bash
-make rocky8.server
-make rocky8.node1
-make rocky8.node2
+make rocky8.main
 ```
 
 ### EPICS-env from-source build
@@ -84,7 +82,7 @@ make help.epics-env               # show this workflow
 
 ### Ansible inventory
 
-`ansible-provision/inventory/testbed.ini` contains group relationships and no
+`ansible-provision/inventory/lab.ini` contains group relationships and no
 fixed VM host rows. Generate each host entry from the actual VM status with
 `bin/generate_ansible_inventory.bash`, then pass the generated file as the
 second inventory source. The ioc-runner bake, EtherCAT bake, and `make
@@ -97,8 +95,8 @@ ordinary VMs, consumer VMs, and direct Ansible use.
 
 ```bash
 make status               # base OS types only
-make rocky8.status        # all rocky8 nodes
-make rocky8.server.status
+make rocky8.status        # all rocky8 instances
+make rocky8.main.status
 ```
 
 ```bash
@@ -111,16 +109,16 @@ make net                  # libvirt network list
 
 ```bash
 make stop                 # graceful shutdown, base OS types only
-make rocky8.stop          # all rocky8 nodes
-make rocky8.server.stop
+make rocky8.stop          # all rocky8 instances
+make rocky8.main.stop
 ```
 
 ### Cleanup
 
 ```bash
 make clean                # all VMs
-make rocky8.clean         # all rocky8 nodes
-make rocky8.server.clean
+make rocky8.clean         # all rocky8 instances
+make rocky8.main.clean
 ```
 
 ### Reset to Baseline
@@ -130,9 +128,9 @@ downstream provisioner (e.g. ansible-provision) leaves partial state
 and the cleanest path is to rebuild the baseline before re-running.
 
 ```bash
-make rocky8.server.clean rocky8.server      # one VM
+make rocky8.main.clean rocky8.main          # one VM
 make rocky8.clean rocky8                    # one OS group
-make clean all                              # every VM type, then the 6 base VMs
+make clean all                              # every VM type, then the two base VMs
 ```
 
 `clean` removes the VM domain, independent qcow2 disk, matching creation
@@ -143,20 +141,22 @@ image and re-runs cloud-init from scratch. Per-VM time is roughly one minute.
 
 The `rocky8-iocrunner` / `debian13-iocrunner` OS variants boot from
 pre-baked golden images that already contain the full software stack
-(`site.yml`, `04_nfs_sim.yml`, and `07_test_users.yml` from
-ansible-provision). Bake once, then provision repeatedly without
-re-running ansible at first boot.
+(the `iocrunner` species assembly from ansible-provision; the
+`iocrunner-nfs` flavor adds the `nfs_sim` operator). Bake once, then
+provision repeatedly without re-running ansible at first boot.
 
 ```bash
 make bake.rocky8
 make bake.debian13
 make bake                              # both base OS types
+make bake.iocrunner-nfs.debian13       # iocrunner-nfs flavor for one OS
+make bake.iocrunner-nfs                # iocrunner-nfs flavor for both
 ```
 
 Once baked, the variants are usable through the standard Makefile:
 
 ```bash
-make rocky8-iocrunner.server
+make rocky8-iocrunner.main
 make debian13-iocrunner
 ```
 
@@ -169,10 +169,12 @@ Bake script options:
 | Flag | Description                                                                            | Default                   |
 |------|----------------------------------------------------------------------------------------|---------------------------|
 | `-o` | OS type: `rocky8`, `debian13` (required)                                               |                           |
+| `-f` | Golden flavor: `iocrunner` or `iocrunner-nfs`                                          | `iocrunner`               |
 | `-d` | Image storage directory                                                                | `~/libvirt/images`        |
 | `-a` | ansible-provision directory                                                            | `../ansible-provision`    |
 | `-k` | Keep build VM after bake                                                               | destroy                   |
 | `-r` | Pin the epics-ioc-runner ref baked into the image                                      | resolved by the inventory |
+
 ### Bake EtherCAT variant
 
 The EtherCAT path is separate from IOC runner. It bakes from the Debian 13 RT base selector and produces the local image consumed by `debian13-ethercat`.
@@ -180,7 +182,7 @@ The EtherCAT path is separate from IOC runner. It bakes from the Debian 13 RT ba
 ```bash
 make bake.ethercat.debian13
 make bake.ethercat
-make debian13-ethercat.server
+make debian13-ethercat.main
 ```
 
 ### Configuration
@@ -195,25 +197,25 @@ make PRINT.IMAGE_DIR
 ## Direct CLI Workflow
 
 ```bash
-bin/create_vm.bash -o rocky8   -n server
-bin/create_vm.bash -o rocky8   -n node1
-bin/create_vm.bash -o debian13 -n server
+bin/create_vm.bash -o rocky8   -n main
+bin/create_vm.bash -o debian13 -n main
+bin/create_vm.bash -o rocky8   -n aux    # named instance, hashed address
 ```
 
 ```bash
-bin/create_vm.bash -o rocky8 -n server -s   # status check
-bin/create_vm.bash -o rocky8 -n server -S   # graceful shutdown
-bin/create_vm.bash -o rocky8 -n server -c   # cleanup
+bin/create_vm.bash -o rocky8 -n main -s   # status check
+bin/create_vm.bash -o rocky8 -n main -S   # graceful shutdown
+bin/create_vm.bash -o rocky8 -n main -c   # cleanup
 ```
 
 Options:
 
 | Flag | Description                              | Default            |
 |------|------------------------------------------|--------------------|
-| `-o` | OS type: `rocky8`, `debian13`, `rocky8-iocrunner`, `debian13-iocrunner`, `debian13-ethercat`, `debian13-rtbase`, `epics-env-rocky8`, `epics-env-debian13`, `epics-env-rocky10`, `epics-env-ubuntu26`, `epics-env-ubuntu24` | `rocky8` |
-| `-n` | Node ID: `server`, `node1`, `node2`, ... | `test` (DHCP)      |
+| `-o` | OS type — bare vacua: `rocky8`, `debian13`, `rocky10`, `ubuntu24`, `ubuntu26`; golden consumers: `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat`, `debian13-rtbase`; EPICS build hosts: `rocky8-epics-dev`, `debian13-epics-dev`, `rocky10-epics-dev`, `ubuntu24-epics-dev`, `ubuntu26-epics-dev` | `rocky8` |
+| `-n` | Instance label: `main` (static base IP), `dhcp` (DHCP), other labels hash to 160-254 | `main` |
 | `-d` | Image storage directory                  | `~/libvirt/images` |
-| `-p` | VM name prefix                           | `testbed`          |
+| `-p` | VM name prefix                           | `lab`              |
 | `-m` | VM memory in MB                          | `4096`             |
 | `-F` | Refuse if domain or disk exists (provisioning only) |         |
 | `-s` | Check domain, IP, SSH, and cloud-init readiness |             |

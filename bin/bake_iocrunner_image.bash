@@ -20,8 +20,8 @@ declare -g IOC_RUNNER_VERSION=""
 declare -g IOC_RUNNER_VERSION_GIVEN=false
 declare -g FLAVOR="iocrunner"
 declare -g ASSEMBLY=""
-declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
-declare -g NODE_ID="server"
+declare -g VM_PREFIX="${VM_PREFIX:-lab}"
+declare -g NODE_ID="build"
 declare -g IMAGE_WORKFLOW_RUN_ID="${IMAGE_WORKFLOW_RUN_ID:-}"
 declare -g INVENTORY="${BAKE_INVENTORY:-inventory/lab.ini}"
 declare -g ANSIBLE_USER="vmadmin"
@@ -126,7 +126,7 @@ function write_runtime_inventory {
         --vm-name "${VM_NAME}" \
         --address "${VM_IP}" \
         --os-type "${OS_TYPE}" \
-        --role ioc-runner-build \
+        --species "${FLAVOR}" \
         --ansible-user "${ANSIBLE_USER}" > "${RUNTIME_INVENTORY}"; then
         rm -f -- "${RUNTIME_INVENTORY}"
         RUNTIME_INVENTORY=""
@@ -397,8 +397,8 @@ stamp_manifest_header "${BAKE_DATE}" "${CLOUD_HEAD}" "${ANSIBLE_HEAD}" \
 printf "  base image: %s sha256=%s [OK]\n" "${BASE_NAME}" "${BASE_DIGEST}"
 
 printf "\nStep 4/8: Apply the %s species assembly on %s\n" "${FLAVOR}" "${VM_NAME}"
-# The runner version selector goes to the assembly run; issue #26 keeps the
-# precedent narrow, and the assembly is the only ansible-playbook invocation.
+# The runner version selector goes to the assembly run; the pin stays
+# deliberately narrow, and the assembly is the only ansible-playbook invocation.
 if [[ -n "${IOC_RUNNER_VERSION}" ]]; then
     (cd "${ANSIBLE_DIR}" && ansible-playbook -i "${INVENTORY_PATH}" \
         -i "${RUNTIME_INVENTORY}" --limit "${VM_NAME}" \

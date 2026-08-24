@@ -83,7 +83,7 @@ function expect_failure {
     fi
 }
 
-# Pins that every ssh this repository makes to a testbed VM refuses connection
+# Pins that every ssh this repository makes to a lab VM refuses connection
 # multiplexing. A bake reaches the VM through its own call sites and through
 # create_vm.bash's readiness probe, so one recorded log covers both scripts.
 #
@@ -134,13 +134,13 @@ function assert_runtime_inventory {
             "invocations=${invocation_count}, paths=${path_count}"
     fi
 
-    runtime_host="$(awk -v prefix="testbed-${os_type}-build-" \
+    runtime_host="$(awk -v prefix="lab-${os_type}-build-" \
         'index($1, prefix) == 1 && $2 ~ /^ansible_host=192[.]168[.]122[.][0-9]+$/ && \
          $3 == "ansible_user=vmadmin" {print $1; exit}' \
         "${snapshot}" 2>/dev/null || true)"
     if [[ -n "${runtime_host}" ]] && \
        grep -Fxq "[${os_type}]" "${snapshot}" && \
-       grep -Fxq '[nfs_sim_nodes]' "${snapshot}" && \
+       grep -Fxq '[iocrunner]' "${snapshot}" && \
        grep -Fxq "${runtime_host}" "${snapshot}"; then
         record_pass "${label} assigns the run-specific host to required groups"
     else
@@ -444,7 +444,7 @@ function run_validator_tests {
     expect_failure "validator rejects installed hash-prefix mismatch" \
         run_validator "${manifest}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
 
-    # The optional requested= field, issue #26. ansible-provision writes it on
+    # The optional requested= field: ansible-provision writes it on
     # app_ioc_runner when a selector is set, recording what the caller asked
     # for beside the commit that was resolved. The unset manifest above is the
     # guard for the no-op path and must stay green.
@@ -626,10 +626,10 @@ for argument in "$@"; do
     if [[ "${expect_inventory_path}" == true ]]; then
         expect_inventory_path=false
         if [[ -f "${argument}" ]] && \
-           grep -Eq "^testbed-${CASE_OS_TYPE}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\\.168\\.122\\.[0-9]+ ansible_user=vmadmin$" \
+           grep -Eq "^lab-${CASE_OS_TYPE}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\\.168\\.122\\.[0-9]+ ansible_user=vmadmin$" \
                "${argument}" && \
            grep -Fxq "[${CASE_OS_TYPE}]" "${argument}" && \
-           grep -Fxq '[nfs_sim_nodes]' "${argument}"; then
+           grep -Fxq '[iocrunner]' "${argument}"; then
             runtime_inventory="${argument}"
         fi
     elif [[ "${argument}" == "-i" ]]; then
@@ -1036,10 +1036,10 @@ function run_promotion_case {
         fi
 
         if grep -Eq \
-            "VM 'testbed-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' is running\. Shutting down \(ACPI\)\.\.\." \
+            "VM 'lab-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' is running\. Shutting down \(ACPI\)\.\.\." \
             "${case_dir}/output.txt" && \
            grep -Eq \
-            "VM 'testbed-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' shut off \[OK\]" \
+            "VM 'lab-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' shut off \[OK\]" \
             "${case_dir}/output.txt"; then
             record_pass "${mode} uses the shared public stop path"
         else
@@ -1064,7 +1064,7 @@ function run_promotion_case {
                 "cleanup guidance printed after a successful bake"
         fi
 
-        # Where the version selector went, issue #26. Asserting only that the
+        # Where the version selector went: asserting only that the
         # bake succeeded would pass whether or not the selector reached the
         # species assembly run.
         local arg_log="${case_dir}/ansible-args.log"
@@ -1137,7 +1137,7 @@ function run_promotion_case {
     else
         record_fail "${mode} names the build VM left behind" "no cleanup guidance printed"
     fi
-    if grep -q "IMAGE_WORKFLOW_RUN_ID=.*create_vm.bash -o ${os_type} -n build .* -p testbed -c" \
+    if grep -q "IMAGE_WORKFLOW_RUN_ID=.*create_vm.bash -o ${os_type} -n build .* -p lab -c" \
         "${case_dir}/output.txt"; then
         record_pass "${mode} prints a runnable clean-restart command"
     else

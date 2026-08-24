@@ -53,8 +53,8 @@ help.vm: ## Show dynamically generated VM targets
 	$(QUIET) printf "  make <os>.<node>.stop   Graceful shutdown of single VM\n"
 	$(QUIET) printf "\nExamples:\n"
 	$(QUIET) printf "  make rocky8\n"
-	$(QUIET) printf "  make rocky8.server\n"
-	$(QUIET) printf "  make debian13.node1.clean\n"
+	$(QUIET) printf "  make rocky8.main\n"
+	$(QUIET) printf "  make debian13.main.clean\n"
 
 check-vm-help: ## Verify documented VM OS type lists
 	$(QUIET) output="$$($(CREATE_VM) -h)"; \
@@ -105,6 +105,6 @@ stop: ## Stop default VMs (continues on per-OS failure, aggregates exit code)
 $(foreach os,  $(OS_TYPES), $(eval $(call os_group_targets,$(os))))
 $(foreach os,  $(OS_TYPES), \
   $(foreach node, $(NODE_IDS), \
-    $(eval $(call vm_targets,$(os),$(node),$(if $(filter epics-env-%,$(os)),$(EPICS_ENV_RAM),)))))
+    $(eval $(call vm_targets,$(os),$(node),$(if $(filter %-epics-dev,$(os)),$(EPICS_ENV_RAM),)))))
 
 FORCE:

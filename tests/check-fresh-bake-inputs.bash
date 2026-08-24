@@ -78,7 +78,7 @@ function run_case {
     local case_dir="${WORKSPACE}/${name}"
     local image_dir="${case_dir}/images"
     local home_dir="${case_dir}/home"
-    local disk="${image_dir}/testbed-rocky8-server.qcow2"
+    local disk="${image_dir}/lab-rocky8-main.qcow2"
     local output_file="${case_dir}/output.txt"
     local before_hash=""
     local after_hash=""
@@ -96,7 +96,7 @@ function run_case {
     HOME="${home_dir}" \
     USER="$(id -un)" \
     REQUIRED_GROUP="$(id -gn)" \
-    "${TOP}/bin/create_vm.bash" -o rocky8 -n server -d "${image_dir}" -p testbed -F \
+    "${TOP}/bin/create_vm.bash" -o rocky8 -n main -d "${image_dir}" -p lab -F \
         > "${output_file}" 2>&1 || rc=$?
 
     if [[ "${rc}" != "0" ]]; then

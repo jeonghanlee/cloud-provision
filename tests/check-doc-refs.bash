@@ -21,7 +21,7 @@
 # a coordinate reproducible, not true; a reader who doubts one runs
 # git show <hash>:<path> and reads it.
 #
-# Paths outside this repository - the ansible-provision roles cited by M5.5,
+# Paths outside this repository - ansible-provision roles cited by the docs,
 # for instance - are not resolvable here and are left alone.
 
 set -euo pipefail

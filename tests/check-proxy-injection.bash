@@ -950,7 +950,7 @@ function run_case {
         VM_WAIT_SSH_ATTEMPTS=1 \
         VM_WAIT_CLOUD_INIT_ATTEMPTS=1 \
         "${TOP}/bin/create_vm.bash" \
-        -o "${os_type}" -n server -d "${image_dir}" -p "proxy-${label}" \
+        -o "${os_type}" -n main -d "${image_dir}" -p "proxy-${label}" \
         > "${output_file}" 2>&1 || rc=$?
 
     if [[ "${proxy_count}" == "multiple" ]]; then
@@ -1032,10 +1032,10 @@ write_fake_commands
 qemu-img create -f qcow2 "${BASE_FIXTURE}" 32M >/dev/null
 
 run_case no-proxy debian13 none
-run_case ubuntu24-locale epics-env-ubuntu24 none
-run_case ubuntu26-locale epics-env-ubuntu26 none
+run_case ubuntu24-locale ubuntu24 none
+run_case ubuntu26-locale ubuntu26 none
 run_case debian-proxy debian13 one
-run_case ubuntu-proxy epics-env-ubuntu24 one
+run_case ubuntu-proxy ubuntu24 one
 run_case rocky-proxy rocky8 one
 run_case multiple-proxy debian13 multiple
 run_case shell-active-proxy debian13 shell-active

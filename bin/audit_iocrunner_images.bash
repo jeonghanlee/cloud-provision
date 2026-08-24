@@ -364,10 +364,10 @@ rocky=0
 for image_name in "${image_names[@]}"; do
     image_path="${IMAGE_DIR}/${image_name}"
     case "${image_name}" in
-        iocrunner-debian13-*.qcow2)
+        iocrunner-debian13-*.qcow2|iocrunner-nfs-debian13-*.qcow2)
             IMAGE_OS="debian"
             ;;
-        iocrunner-rocky8-*.qcow2)
+        iocrunner-rocky8-*.qcow2|iocrunner-nfs-rocky8-*.qcow2)
             IMAGE_OS="rocky"
             ;;
         *)
