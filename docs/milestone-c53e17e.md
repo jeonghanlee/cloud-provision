@@ -535,7 +535,7 @@ Status: Not started
 
 ##### Summary
 
-After the `packages:` strip, the runcmd locale commands rely on the base image already shipping locale support (Debian ships `locales`; Rocky ships glibc langpacks). This assumption is now load-bearing and undocumented, and breaks silently if a base image drops it.
+Under proxy injection the `packages:` strip means the runcmd locale commands rely on the base image already shipping locale support (Debian ships `locales`; Rocky ships glibc langpacks). This assumption is now load-bearing and undocumented, and breaks silently if a base image drops it.
 
 ##### Scope
 
@@ -586,7 +586,7 @@ D018 changed how packages reach the golden image. The durable proxy ADR and RUNB
 
 ##### Scope
 
-- Record in the proxy ADR and RUNBOOK_BAKE that packages install after the proxy apply through Ansible, not through the cloud-init package module.
+- Record in the proxy ADR and RUNBOOK_BAKE that under proxy injection packages install after the proxy apply through Ansible, not through the cloud-init package module; without proxy injection the cloud-init baseline installs them at first boot (the hand-off subset defined in `docs/IMAGE_WORKFLOW.md`, Operator definition).
 - State the reason: the cloud-init package module runs before the runcmd apply and cannot use the proxy.
 
 Out of scope: proxy contract behavior; changing the install mechanism.
@@ -631,14 +631,14 @@ Status: Not started
 
 The testbed concept conflates three things: the NAT environment name, the default VM prefix, and the plain base-node role. The `debian13`/`rocky8` node is really the shared start of three uses: a builder that bakes a golden image, an un-provisioned node in the lab, and a standalone provisioning target. Redesign the image and node model around explicit pipeline roles, grounded in the actual ansible-provision usage and standard golden-image practice.
 
-Under D018 the proxy-injection merge drops the cloud-init `packages:` directive for every VM, so a plain `testbed` VM that runs no post-apply Ansible now installs no packages. The absorbed bare-node piece (D019) makes the `bare` role a package-minimal base image any test can boot and retires the server=1/node=2 concept as part of this redesign.
+Under D018 the proxy-injection merge drops the cloud-init `packages:` directive for every VM, so a plain `testbed` VM that runs no post-apply Ansible now installs no packages. The absorbed bare-node piece (D019) makes the `bare` species a package-minimal base image any test can boot and retires the server=1/node=2 concept as part of this redesign.
 
 ##### Scope
 
 - Retire the testbed concept and the server=1/node=2 cluster numbering.
 - Implement the image model defined in `docs/IMAGE_WORKFLOW.md` (Operator definition): vacua, operators, and species, with `bare` as the common ancestor species.
 - Decide the two concepts that document does not define because they belong to image life, not to species: builder (the ephemeral bake VM) and verify (the fresh-boot consumer); and settle the golden flavor and latest-pointer convention recorded in that document's Open decisions.
-- Reflect the model in `create_vm` OS types, prefixes, and the runbook and ADR.
+- Reflect the model in `create_vm` OS types, prefixes, the runbooks, and the operator definition in `docs/IMAGE_WORKFLOW.md`; the ADR set in `docs/decisions/` stays as it is.
 - Decide a name for the NAT environment that currently reads testbed, coordinated with the ansible-provision trust-posture wording.
 
 Out of scope: implementing before an accepted plan and authority; proxy contract behavior.
@@ -648,13 +648,13 @@ Out of scope: implementing before an accepted plan and authority; proxy contract
 - The species in `docs/IMAGE_WORKFLOW.md` are buildable on every vacuum the definition assigns them, and the builder and verify concepts are documented.
 - `create_vm` and the durable documentation reflect the model and the testbed term is retired.
 - The golden flavor and latest-pointer convention is defined.
-- The `bare` role boots as a package-minimal base image with no test-specific assumptions, and no test depends on the retired server=1/node=2 concept.
+- The `bare` species boots as a package-minimal base image with no test-specific assumptions, and no test depends on the retired server=1/node=2 concept.
 
 ##### Dependencies And Decisions
 
 - D018 and D019
 - The ansible-provision changes (P_common role, vacuum-wide inventory groups, one owner for the EPICS development package list) are part of this work unit and are tracked here; jeonghanlee/ansible-provision#17 is the pointer on that repository.
-- Absorbs the former Backlog M4 testbed-to-bare piece (D019); its bare node is defined here as one role of the surrounding model.
+- Absorbs the former Backlog M4 testbed-to-bare piece (D019); its bare node is defined here as one species of the surrounding model.
 - Informed by standard golden-image pipeline practice (builder, golden, and fresh-boot consumer stages; image families; bake heavy and stable, keep cloud-init light) and the ansible-provision usage map.
 
 ##### Implementation Plan
@@ -664,9 +664,29 @@ Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
 
+Both repositories work on the `m8-operator-model` branch and merge to master when M8 closes. The ansible-provision side is rewritten from the operator definition; existing ansible code is not preserved. The rewrite is total: one role per operator named as the definition's Role column, one playbook per operator under `playbooks/operators/`, one assembly per species under `playbooks/species/`, and the numbered playbooks, `site.yml`, `base_os`, and `pkg_standard` retire. Every variable in today's `group_vars/all.yml` moves to the `defaults/` of the operator role that consumes it; only values consumed by more than one operator (for example `epics_ioc_engineers`) stay in `group_vars/all.yml`, and the existing site-override precedence is unchanged. Every numbered step closes with a third-person review before the next; steps 8 and 9 and every operator-definition edit add a second-person pass; a joint two-repository review precedes the merges.
+
+1. ansible-provision: write `roles/common` new, implementing P_common exactly as the operator definition states it: the package halves with the per-family names, the debian-family locale items, and the configuration content (chrony, sudoers includedir, rocky EPEL/PowerTools and `secure_path`). The package list is authored in the role with the pkg_automation per-OS lists as the reference baseline, not read from that repository.
+2. ansible-provision: rebuild the inventory as five vacuum groups (`debian13`, `rocky8`, `rocky10`, `ubuntu24`, `ubuntu26`) under a `vacua` parent plus the species groups in underscore form (`iocrunner`, `iocrunner_nfs`, `epics_dev`, `nfs_sim`, `rtbase`, `ethercat`), with `group_vars` for the three new vacua; the inventory file renames from `testbed.ini` to `lab.ini`.
+3. ansible-provision: rewrite the playbook layer one playbook per operator, plus one assembly playbook per species that imports its operator playbooks in the definition's order; the EPICS operators carry their configuration content (P_epics the rocky firewalld EPICS ports, P_epics-build Python and pip). Update the repository README command examples and its `testbed` trust wording (README, `docs/STANDALONE.md`, the `ansible.cfg` inventory path) to `lab`, and keep its `tests/` checks passing. Regenerate the ansible-provision make targets (`configure/RULES_ANSIBLE`) for the operator and species playbooks, retiring the `<pb>.<os>.<node>` forms. The cloud-provision callers that hardcode playbook names (`bin/bake_iocrunner_image.bash` with `site.yml`, `04_nfs_sim`, and `07_test_users`, which now publishes the iocrunner and iocrunner-nfs species as separate golden flavors selected by a flavor flag defaulting to iocrunner; `bin/bake_ethercat_image.bash` with `05_ethercat_base`; `bin/run_epics_env_build.bash`, whose default playbook retires with the rewrite) move to the new species assemblies in the same step.
+4. ansible-provision: the EPICS development package list follows the pkg_automation `epics` lists as the reference baseline; `pkg_standard` retires with the rewrite.
+5. cloud-provision: rework `create_vm` OS types to `<vacuum>` and `<vacuum>-<species>`, rename `epics-env-<os>` to `<os>-epics-dev`, add the `<vacuum>-iocrunner-nfs` consumer type for the second golden flavor, redefine the IP bases as a vacuum-by-species table, retire the server/node numbering, and replace the `testbed` default prefix with `lab`; add the plain `rocky10`, `ubuntu24`, and `ubuntu26` bare types that do not exist yet, and update every other reader of the old names and of the retired `-n server` interface: `configure/CONFIG_SITE`, `bin/run_epics_env_build.bash`, `bin/bake_ethercat_image.bash`, `tests/check-proxy-injection.bash`, `bin/audit_iocrunner_images.bash` (whose kind and platform cases widen with the golden flavors and the new vacua), and the cloud-init and inventory tests.
+6. cloud-provision: rewrite `generate_ansible_inventory.bash` to accept species names on every vacuum the definition assigns and emit hosts into both their vacuum group and their species group; a bare host's group is its vacuum group alone, since bare has no separate species group.
+7. cloud-provision: regenerate the make targets in `configure/RULES_VM`, `RULES_EPICS_ENV`, and `RULES_BAKE` for the new names and drop the `.server`/`.node1` forms.
+8. cloud-provision: update `README.md`, `ARCHITECTURE.md`, `RUNBOOK_BAKE.md`, `RUNBOOK_ANSIBLE_INVENTORY.md`, and `VIRSH_CLI.md` to the definition's terms and rename the NAT environment to `lab`.
+9. Settle the golden-naming Open decision by deciding whether the existing `image_workflow_select_latest_image` selection becomes the defined convention, reflect it in the bake publish names, and document builder and verify in the image-life sections of `docs/IMAGE_WORKFLOW.md`.
+10. Keep the operator definition current as the implementation lands: the Role column tracks the delivered role names and each settled Open decisions row is removed in the change that settles it.
+
 ##### Test Plan
 
-To be defined at planning.
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M8 / T1 | Syntax and static analysis | Run `bash -n` and `shellcheck -S warning` on every changed Bash file in both repositories and `ansible-playbook --syntax-check` on every rewritten playbook | Local checkouts | Exit 0 and no unreviewed warning |
+| M8 / T2 | Offline contract checks | Run `make check-bake`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-docs` in cloud-provision and the ansible-provision `tests/` checks, updated for the new names | Local checkouts | Every check passes against the new model |
+| M8 / T3 | Inventory matrix | Drive the shipped `generate_ansible_inventory.bash` with every vacuum-species pair the definition assigns | Local checkout; real generator | Every assigned pair is accepted; bare pairs land in the vacuum group alone, and every other pair lands in both its vacuum and species groups |
+| M8 / T4 | P_common on every vacuum | Boot one fresh VM per vacuum and apply only the bare assembly (`playbooks/species/bare.yml`) with a generated host inventory and `ansible-playbook` | Supported Libvirt/KVM | Every must-have and nice-to-have package is installed, the configuration content is in place, and the debian family generates `en_US.UTF-8` |
+| M8 / T5 | Golden regression | Run the debian13 and rocky8 iocrunner bakes, one iocrunner-nfs bake, and fresh consumers through the shipped entry points | Supported Libvirt/KVM | Every bake publishes its flavor and every consumer selects the exact just-published pair |
+| M8 / T6 | Source-build vacuum | Run one epics-dev build through `bin/run_epics_env_build.bash` on a vacuum outside the former core pair | Supported Libvirt/KVM | The build completes on the new inventory structure |
 
 ##### Verification Results
 
