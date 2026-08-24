@@ -22,8 +22,8 @@ ETHERCAT_BAKE_OS_TYPES := debian13
 # EPICS-env from-source build hosts. Inventory and playbook are relative
 # to ANSIBLE_DIR.
 EPICS_ENV_RAM       := 4096
-EPICS_ENV_INVENTORY := inventory/testbed.ini
-EPICS_ENV_PLAYBOOK  := playbooks/08_epics_env_build.yml
+EPICS_ENV_INVENTORY := inventory/lab.ini
+EPICS_ENV_PLAYBOOK  := playbooks/species/epics_dev.yml
 
 -include $(TOP)/../CONFIG_SITE.local
 -include $(TOP)/configure/CONFIG_SITE.local

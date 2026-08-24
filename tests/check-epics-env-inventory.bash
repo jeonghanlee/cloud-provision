@@ -104,7 +104,7 @@ grep -Fq 'testbed-epics-env-rocky8-server ansible_host=192.168.122.120 ansible_u
 grep -Fq 'testbed-epics-env-debian13-server ansible_host=192.168.122.20 ansible_user=vmadmin' \
     "${runtime_inventories[0]}" "${runtime_inventories[1]}"
 [[ "$*" == *"--limit epics_env_core"* ]]
-[[ "$*" == *"playbooks/08_epics_env_build.yml"* ]]
+[[ "$*" == *"playbooks/species/epics_dev.yml"* ]]
 printf "%s\n" "${runtime_inventories[@]}" > "${RUNTIME_INVENTORY_ARG_LOG}"
 printf "%s\n" "$*" > "${ANSIBLE_ARG_LOG}"
 EOF

@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "${SCRIPT_DIR}/.." && pwd)"
 GENERATOR="${TOP}/bin/generate_ansible_inventory.bash"
 ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${TOP}/../ansible-provision}"
-STATIC_INVENTORY="${ANSIBLE_DIR}/inventory/testbed.ini"
+STATIC_INVENTORY="${ANSIBLE_DIR}/inventory/lab.ini"
 WORKSPACE="$(mktemp -d /tmp/generated-ansible-inventory-test.XXXXXX)"
 
 function cleanup {
@@ -169,20 +169,20 @@ else
     record_pass "maintained inventory contains no fixed host rows"
 fi
 
-run_case rocky8-runtime rocky8 ioc-node "rocky8" "ioc_nodes all_nodes" 192.168.122.100
-run_case debian13-runtime debian13 ioc-node "debian13" "ioc_nodes all_nodes" 192.168.122.10
-run_case rocky8-iocrunner rocky8-iocrunner ioc-node "rocky8" "ioc_nodes all_nodes" 192.168.122.150
-run_case debian13-iocrunner debian13-iocrunner ioc-node "debian13" "ioc_nodes all_nodes" 192.168.122.50
+run_case rocky8-runtime rocky8 ioc-node "rocky8" "vacua" 192.168.122.100
+run_case debian13-runtime debian13 ioc-node "debian13" "vacua" 192.168.122.10
+run_case rocky8-iocrunner rocky8-iocrunner ioc-node "rocky8" "vacua" 192.168.122.150
+run_case debian13-iocrunner debian13-iocrunner ioc-node "debian13" "vacua" 192.168.122.50
 run_case ethercat-runtime debian13-ethercat ethercat-node "ethercat_nodes" "" 192.168.122.70
 run_case ethercat-build debian13-rtbase ethercat-build "ethercat_build" "" 192.168.122.198
-run_case epics-rocky8 epics-env-rocky8 epics-env-build "epics_env_core" epics_env_build 192.168.122.120
-run_case epics-debian13 epics-env-debian13 epics-env-build "epics_env_core" epics_env_build 192.168.122.20
-run_case epics-rocky10 epics-env-rocky10 epics-env-build "epics_env_matrix" epics_env_build 192.168.122.130
-run_case epics-ubuntu24 epics-env-ubuntu24 epics-env-build "epics_env_matrix" epics_env_build 192.168.122.40
-run_case epics-ubuntu26 epics-env-ubuntu26 epics-env-build "epics_env_matrix" epics_env_build 192.168.122.30
-run_case rocky8-nfs rocky8 nfs-sim-node "rocky8 nfs_sim_nodes" "ioc_nodes all_nodes" 192.168.122.177
-run_case rocky8-bake rocky8 ioc-runner-build "rocky8 nfs_sim_nodes" "ioc_nodes all_nodes" 192.168.122.178
-run_case debian13-bake debian13 ioc-runner-build "debian13 nfs_sim_nodes" "ioc_nodes all_nodes" 192.168.122.179
+run_case epics-rocky8 epics-env-rocky8 epics-env-build "epics_env_core" vacua 192.168.122.120
+run_case epics-debian13 epics-env-debian13 epics-env-build "epics_env_core" vacua 192.168.122.20
+run_case epics-rocky10 epics-env-rocky10 epics-env-build "epics_env_matrix" vacua 192.168.122.130
+run_case epics-ubuntu24 epics-env-ubuntu24 epics-env-build "epics_env_matrix" vacua 192.168.122.40
+run_case epics-ubuntu26 epics-env-ubuntu26 epics-env-build "epics_env_matrix" vacua 192.168.122.30
+run_case rocky8-nfs rocky8 nfs-sim-node "rocky8 nfs_sim_nodes" "vacua" 192.168.122.177
+run_case rocky8-bake rocky8 ioc-runner-build "rocky8 nfs_sim_nodes" "vacua" 192.168.122.178
+run_case debian13-bake debian13 ioc-runner-build "debian13 nfs_sim_nodes" "vacua" 192.168.122.179
 
 status_inventory="${WORKSPACE}/status-input.ini"
 printf "%s\n" \

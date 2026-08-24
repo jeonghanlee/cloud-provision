@@ -2,7 +2,7 @@
 #
 # Bake an EtherCAT/RT base image from a standard cloud-provision VM.
 # Boots a run-specific testbed build VM, applies ansible-provision's
-# 05_ethercat_base.yml (build toolchain, kernel headers, dkms, RT kernel +
+# rtbase species assembly (build toolchain, kernel headers, dkms, RT kernel +
 # headers installed but NOT made the boot default), then converts the
 # independent VM disk into ${IMAGE_DIR}/ethercat-<platform>-<run-id>.qcow2
 # ready for the debian13-ethercat OS variant in cloud-provision.
@@ -32,7 +32,7 @@ declare -g NODE_ID="server"
 declare -g IMAGE_WORKFLOW_RUN_ID="${IMAGE_WORKFLOW_RUN_ID:-}"
 declare -g LIBVIRT_URI="qemu:///system"
 # Ansible inventory for the playbook call; env-overridable per site.
-declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
+declare -g INVENTORY="${BAKE_INVENTORY:-inventory/lab.ini}"
 declare -g ANSIBLE_USER="vmadmin"
 declare -g RUNTIME_INVENTORY=""
 declare -g MANIFEST_TEMP=""
@@ -118,7 +118,7 @@ declare -g BUILD_OS_TYPE="${OS_TYPE}-rtbase"
 declare -g CREATE_VM="${SC_TOP}/bin/create_vm.bash"
 declare -g INVENTORY_GENERATOR="${SC_TOP}/bin/generate_ansible_inventory.bash"
 declare -g PROXY_CONTRACT="${SC_TOP}/bin/proxy_contract.bash"
-declare -g ETHERCAT_BASE_PLAYBOOK="playbooks/05_ethercat_base.yml"
+declare -g ETHERCAT_BASE_PLAYBOOK="playbooks/species/rtbase.yml"
 declare -g ANSIBLE_PLAYBOOK_BIN
 declare -g INVENTORY_PATH
 declare -g SEALED_VM_NAME=""
