@@ -37,13 +37,13 @@ B' only. B is read, never written, never held by a running VM.
 
 ## What this resolves
 
-B is held by no VM, which removes the root under three issues:
+B is held by no VM, which removes the root under three recorded defects:
 
-- #24 — libvirt claimed the backing file's ownership when a consumer started; with no backing chain there is no
+- libvirt claimed the backing file's ownership when a consumer started; with no backing chain there is no
   file to claim
-- #25 — consumers held the golden so it could not be rebaked; the in-use guard (`protect_output_consumers`) and
+- consumers held the golden so it could not be rebaked; the in-use guard (`protect_output_consumers`) and
   its first-transition refusal become unnecessary on this stretch
-- #2 — rebaking B cannot disturb any VM already made from it
+- rebaking B cannot disturb any VM already made from it
 - the bake's flatten step (`qemu-img convert`) disappears: the disk is independent from birth
 
 Cost, stated once: a VM disk grows from the current overlay (~106 M observed) to the full size of B (several GB), and
@@ -70,7 +70,8 @@ while their creation record carries the generated run ID for provenance. A
 This covers the two problems left open above:
 
 - "did this run make this VM" — answered by the creation record beside the VM disk, which names its maker; a domain
-  merely existing never decides it (the root of #29 and the in-use misreport)
+  merely existing never decides it (the root of the in-use misreport: an unlabeled, merely-existing domain was read
+  as a live consumer of the image, blocking work on an image nothing actually held)
 - where provenance lives with no purpose golden — the record file beside B carries what the manifest/sidecar carries
   today
 
@@ -82,9 +83,9 @@ build VMs carry the run timestamp / hash. The rule is defined in ONE place from
 the start, and every consumer — provisioning and bake alike — calls that one
 place.
 
-This absorbs #7: today `create_vm.bash` and the bake scripts each compute `VM_NAME` and disk paths on their own,
+This absorbs the duplicated-naming defect: today `create_vm.bash` and the bake scripts each compute `VM_NAME` and disk paths on their own,
 two copies that must agree. The approved resolver plan (`plan20260723_234700`) wanted to extract that computation; the
-new naming scheme starts extracted, so #7 is resolved by the redesign rather than as separate work.
+new naming scheme starts extracted, so that defect is resolved by the redesign rather than as separate work.
 
 ## Build VMs are always fresh by construction (settled 2026-08-01)
 
@@ -131,14 +132,14 @@ stands on the plain terms above; this section is how the two of us recall it.
   a virtual particle — it exists only while mediating A' → B and appears in no final state. A leftover build VM is an
   unclosed internal line.
 - C's are many particles of the same species, and identical particles are indistinguishable — "which one is mine" has no
-  answer for unlabeled VMs, which was the root of this month's loop (#29, the in-use misreport). The pair rule breaks
+  answer for unlabeled VMs, which was the root of the in-use misreport loop. The pair rule breaks
   exchange symmetry with labels: timestamp / hash plus creation record make the particles distinguishable.
 - Each C evolves its own history from birth (an excited state); the record captures only the birth conditions, never the
   later state. Annihilation (clean) returns the disk and its identity record to vacuum together.
 - The purpose work is a set of operators applied to the particle, classified as packages (what was installed) and
   configuration (what was changed) — today's manifest already records that operator list.
 - The old backing chain was entanglement: a local operation on a consumer (starting it) changed the base's state
-  (ownership, #24, #25). Copying separates the system into a product state — local operations stay local. Full copies
+  (the ownership and held-golden defects). Copying separates the system into a product state — local operations stay local. Full copies
   are allowed because images are classical information; no-cloning does not apply.
 
 In equations:
