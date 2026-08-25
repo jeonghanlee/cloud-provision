@@ -996,6 +996,8 @@ function run_case {
             "${capture_file}" "  - [locale-gen, en_US.UTF-8]"
         expect_contains "${label} sets the default locale" \
             "${capture_file}" "  - [update-locale, LANG=en_US.UTF-8]"
+        expect_contains "${label} carries the locale self-check" \
+            "${capture_file}" "en_US.utf8 ||"
         return 0
     fi
 
@@ -1012,6 +1014,8 @@ function run_case {
             "${capture_file}" "  - [locale-gen, en_US.UTF-8]"
         expect_contains "${label} preserves update-locale" \
             "${capture_file}" "  - [update-locale, LANG=en_US.UTF-8]"
+        expect_contains "${label} preserves the locale self-check" \
+            "${capture_file}" "en_US.utf8 ||"
     fi
 
     case "${label}" in
@@ -1035,6 +1039,71 @@ run_case no-proxy debian13 none
 run_case ubuntu24-locale ubuntu24 none
 run_case ubuntu26-locale ubuntu26 none
 run_case debian-proxy debian13 one
+# Offline locale-contract lint over the debian-family template files directly.
+# A template that keeps the locale-gen runcmd must also carry the `locales`
+# package entry (so a non-proxy boot installs it) and the first-boot self-check
+# (so a proxy boot on a base image lacking locale support fails loudly instead
+# of silently). This is a pure file lint reading the template path; it does not
+# run create_vm.
+function template_locale_contract_ok {
+    local template="$1"
+    local last_list_item
+
+    grep -Fq '  - locales' "${template}" || return 1
+    grep -Fq '  - [locale-gen, en_US.UTF-8]' "${template}" || return 1
+    grep -Fq 'en_US.utf8 ||' "${template}" || return 1
+    # The self-check must be the LAST list item in the template. cloud-init
+    # flattens runcmd into one set-e-less sh script whose exit status is only
+    # its last line, so a runcmd appended after the self-check would keep it
+    # printing to stderr while the script still exits 0 - the bake would pass
+    # silently. The self-check is the final runcmd entry and runcmd is the last
+    # list-bearing block, so it must be the last `  - ` line in the file.
+    last_list_item="$(grep '^  - ' "${template}" | tail -n 1)"
+    [[ "${last_list_item}" == *'en_US.utf8 ||'* ]] || return 1
+    return 0
+}
+
+function run_template_locale_contract {
+    local template scratch drop
+
+    for template in debian13 ubuntu24 ubuntu26; do
+        if template_locale_contract_ok "${TOP}/templates/user-data.${template}"; then
+            record_pass "template ${template} keeps the full locale contract"
+        else
+            record_fail "template ${template} keeps the full locale contract" \
+                "a shipped debian-family template is missing part of the locale contract"
+        fi
+    done
+
+    for drop in locales locale-gen self-check; do
+        scratch="${WORKSPACE}/contract-drop-${drop}.user-data"
+        cp "${TOP}/templates/user-data.debian13" "${scratch}"
+        case "${drop}" in
+            locales)    sed -i '/^  - locales$/d' "${scratch}" ;;
+            locale-gen) sed -i '/locale-gen, en_US.UTF-8/d' "${scratch}" ;;
+            self-check) sed -i '/en_US.utf8 ||/d' "${scratch}" ;;
+        esac
+        if template_locale_contract_ok "${scratch}"; then
+            record_fail "locale contract catches a missing ${drop}" \
+                "the lint accepted a template with ${drop} removed"
+        else
+            record_pass "locale contract catches a missing ${drop}"
+        fi
+    done
+
+    # A runcmd item appended after the self-check defeats it: the appended line
+    # becomes the script's last, so its zero exit masks the self-check failure.
+    scratch="${WORKSPACE}/contract-appended-runcmd.user-data"
+    cp "${TOP}/templates/user-data.debian13" "${scratch}"
+    sed -i '/en_US.utf8 ||/a\  - [true]' "${scratch}"
+    if template_locale_contract_ok "${scratch}"; then
+        record_fail "locale contract catches a runcmd after the self-check" \
+            "the lint accepted a template with a runcmd item after the self-check"
+    else
+        record_pass "locale contract catches a runcmd after the self-check"
+    fi
+}
+
 run_case ubuntu-proxy ubuntu24 one
 run_case rocky-proxy rocky8 one
 run_case multiple-proxy debian13 multiple
@@ -1053,6 +1122,7 @@ expect_renderer_rejects_shell_active "history expansion introducer" "${active_ch
 
 run_os_release_boundary_cases
 run_test_root_boundary_cases
+run_template_locale_contract
 
 printf "Summary: %s passed / %s total\n" "${TEST_PASSED}" "${TEST_TOTAL}"
 if [[ "${TEST_FAILED}" -gt 0 ]]; then

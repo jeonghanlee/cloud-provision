@@ -2,7 +2,7 @@
 
 Date: 2026-08-20
 Status: Accepted
-Decision IDs: D009-D017
+Decision IDs: D009-D018
 
 ## Context
 
@@ -109,3 +109,26 @@ or the state of any existing artifact.
 - EtherCAT test restoration and runtime acceptance remain Backlog work.
 - The existing-artifact audit remains separate evidence under separate
   authorization.
+
+### Package install ordering under proxy injection (D018)
+
+Under proxy injection `create_vm` strips the cloud-init `packages:` directive,
+so packages install after the proxy apply through Ansible, not through the
+cloud-init package module. The reason: the cloud-init package module runs in the
+config stage, before the runcmd proxy apply in the final stage, so it has no
+proxy yet and cannot fetch. Without proxy injection the cloud-init baseline (the
+hand-off subset of P_common defined in `docs/IMAGE_WORKFLOW.md`) installs them at
+first boot.
+
+### Base-image locale dependency under proxy injection (D018)
+
+Stripping `packages:` removes the `locales` entry with it, while the runcmd
+locale commands (`locale-gen en_US.UTF-8` and its siblings) are kept and still
+run at first boot. Those commands therefore depend on the base image already
+shipping locale support — the `locales` package on the Debian family, glibc
+langpacks on Rocky. A base image lacking it fails locale generation silently at
+first boot; a first-boot self-check in the debian-family templates surfaces the
+absence instead. That self-check must stay the last `runcmd` entry: cloud-init
+flattens `runcmd` into one `set -e`-less script whose exit status is its last
+line, so any command appended after the self-check would mask its failure and
+let the bake pass.

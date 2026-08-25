@@ -146,6 +146,23 @@ top-level `write_files` and one top-level `runcmd`, with privileged contract
 apply as the first command. Existing locale commands remain in their original
 order after apply. The source `templates/user-data.*` files are not modified.
 
+Package install ordering (D018): under proxy injection the `packages:` directive
+is stripped, so packages install after the proxy apply through Ansible, not
+through the cloud-init package module. The cloud-init package module runs in the
+config stage, before the runcmd proxy apply, so it has no proxy yet and cannot
+fetch. Without proxy injection the cloud-init baseline (the hand-off subset of
+P_common in `docs/IMAGE_WORKFLOW.md`) installs them at first boot.
+
+Base-image locale dependency (D018): stripping `packages:` removes the `locales`
+entry with it, while the runcmd locale commands are kept and still run at first
+boot. On a proxy-injected build those commands rely on the base image already
+shipping locale support (the `locales` package on the Debian family, glibc
+langpacks on Rocky). A base image lacking it fails locale generation; the
+debian-family templates carry a first-boot self-check that makes the absence
+surface instead of passing silently. Keep that self-check as the last `runcmd`
+entry: cloud-init runs `runcmd` as one `set -e`-less script whose exit status is
+its last line, so a command placed after it would mask the self-check failure.
+
 Apply writes the exact family set:
 
 - Debian and Ubuntu: profile, environment, APT, sudo, sshd drop-in,
