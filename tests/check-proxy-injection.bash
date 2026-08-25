@@ -779,6 +779,75 @@ function run_missing_guest_command_case {
     fi
 }
 
+function run_identity_symlink_cases {
+    local name="$1"
+    local root="${WORKSPACE}/${name}.identity-root"
+    local out rc
+
+    # Mirror resolute's sudo-rs layout: visudo is a relative symlink chain
+    # through /etc/alternatives to a regular executable, all inside the root.
+    mkdir -p "${root}/usr/sbin" "${root}/etc/alternatives" \
+        "${root}/usr/lib/cargo/bin"
+    printf '#!/bin/sh\n' > "${root}/usr/lib/cargo/bin/visudo"
+    chmod 0755 "${root}/usr/lib/cargo/bin/visudo"
+    ln -s ../../usr/lib/cargo/bin/visudo "${root}/etc/alternatives/visudo"
+    ln -s ../../etc/alternatives/visudo "${root}/usr/sbin/visudo"
+
+    rc=0
+    out="$(bash -c 'source "$1"; PROXY_CONTRACT_ROOT="$2"; \
+        proxy_contract_resolve_guest_command visudo RESOLVED && \
+        printf "%s\n" "${RESOLVED}"' \
+        resolve "${TOP}/bin/proxy_contract.bash" "${root}" 2>&1)" || rc=$?
+    if [[ "${rc}" == 0 && "${out}" == *"/usr/lib/cargo/bin/visudo" ]] &&
+       [[ -f "${out}" && -x "${out}" ]]; then
+        record_pass "${name} accepts an in-root relative symlink identity command"
+    else
+        record_fail "${name} accepts an in-root relative symlink identity command" \
+            "rc=${rc} out=${out}"
+    fi
+
+    # Symlink through a missing intermediate directory: readlink -f cannot
+    # canonicalize it, so resolution is impossible; fail closed.
+    ln -sf ../../usr/lib/nodir/visudo "${root}/usr/sbin/visudo"
+    rc=0
+    out="$(bash -c 'source "$1"; PROXY_CONTRACT_ROOT="$2"; \
+        proxy_contract_resolve_guest_command visudo RESOLVED' \
+        resolve "${TOP}/bin/proxy_contract.bash" "${root}" 2>&1)" || rc=$?
+    if [[ "${rc}" != 0 ]] && grep -Fq 'does not resolve' <<< "${out}"; then
+        record_pass "${name} rejects a symlink through a missing directory"
+    else
+        record_fail "${name} rejects a symlink through a missing directory" \
+            "rc=${rc} out=${out}"
+    fi
+
+    # Symlink to an absent in-root target: the resolved path is not a regular
+    # executable; fail closed.
+    ln -sf ../../usr/lib/cargo/bin/absent "${root}/usr/sbin/visudo"
+    rc=0
+    out="$(bash -c 'source "$1"; PROXY_CONTRACT_ROOT="$2"; \
+        proxy_contract_resolve_guest_command visudo RESOLVED' \
+        resolve "${TOP}/bin/proxy_contract.bash" "${root}" 2>&1)" || rc=$?
+    if [[ "${rc}" != 0 ]] && grep -Fq 'requires exact guest command' <<< "${out}"; then
+        record_pass "${name} rejects a symlink to an absent target"
+    else
+        record_fail "${name} rejects a symlink to an absent target" \
+            "rc=${rc} out=${out}"
+    fi
+
+    # Absolute symlink whose target leaves the root: fail closed on escape.
+    ln -sf /bin/sh "${root}/usr/sbin/visudo"
+    rc=0
+    out="$(bash -c 'source "$1"; PROXY_CONTRACT_ROOT="$2"; \
+        proxy_contract_resolve_guest_command visudo RESOLVED' \
+        resolve "${TOP}/bin/proxy_contract.bash" "${root}" 2>&1)" || rc=$?
+    if [[ "${rc}" != 0 ]] && grep -Fq 'escapes the selected root' <<< "${out}"; then
+        record_pass "${name} rejects an escaping absolute symlink identity command"
+    else
+        record_fail "${name} rejects an escaping absolute symlink identity command" \
+            "rc=${rc} out=${out}"
+    fi
+}
+
 function expect_renderer_rejects_shell_active {
     local name="$1"
     local active_character="$2"
@@ -1110,6 +1179,7 @@ run_case multiple-proxy debian13 multiple
 run_case shell-active-proxy debian13 shell-active
 
 run_missing_guest_command_case debian-proxy
+run_identity_symlink_cases identity-symlink
 run_hostile_environment_lifecycle
 run_shared_newline_boundary_case
 
