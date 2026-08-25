@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M5, M6, M7, and M8 are assigned to the Milestone and Ready; M8 is In progress under its accepted plan, and M5 is planned and held behind it. The M8 plan and the operator definition ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch, with the real-environment checks (M8 T4-T6) remaining. M6 is In progress with its offline items done (documented locale dependency and runcmd-last invariant, first-boot self-check, and the two lints) and closes on its real self-check (M6 T4-T5) in the same M8 real-environment stage. M5 stays planned and held behind M8. The operator definition and all M8/M6/M7 work ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -24,8 +24,8 @@ Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 | Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
 | Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | No | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
-| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
-| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
+| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | In progress | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done, closes on the real self-check in the M8 stage; [M6 detail](#m6). |
+| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
 | Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | In progress | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
 
 ### Decisions
@@ -531,7 +531,7 @@ None.
 Origin: c53e17e / M6
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -547,30 +547,101 @@ Out of scope: changing locale selection; proxy contract behavior.
 ##### Completion Criteria
 
 - The runbook and ADR record the base-image locale dependency.
-- A guard fails when the base image lacks the required locale support.
+- A guard fails when the base image lacks the required locale support, observed
+  through the negative real-boot case (M6 / T5), not only asserted.
+
+Closure note: the offline items (T1-T3) can be implemented and verified now, but
+the milestone closes only with the real positive and negative self-check
+observations (T4, T5), which run in the M8 real-environment stage. M6 step 2
+edits the same three debian-family templates M8 rewrites on
+`m8-operator-model`; sequence the template edit after M8's template rework to
+avoid a collision.
 
 ##### Dependencies And Decisions
 
 - D018
+- M8 (real-environment stage carries T4 and T5; template edit follows M8's
+  template rework)
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted the reviewed plan on 2026-08-24
+Implementation Authorization: owner authorized implementation on 2026-08-24
 Superseded Plan Artifacts: none
+
+Guard shape: first-boot self-check plus offline template contract (owner
+direction 2026-08-24). The heavier base-image content inspection is deferred to
+the M8 real-environment stage.
+
+1. Documentation. In the proxy ADR and RUNBOOK_BAKE, record that under proxy
+   injection the first-boot `locale-gen` depends on the base image already
+   shipping locale support (Debian family: the `locales` package; Rocky: glibc
+   langpacks), because `create_vm` strips the cloud-init `packages:` directive
+   and the `locales` entry with it while keeping the runcmd locale commands.
+   Reference D018, and extend the ADR `Decision IDs` header to include D018.
+2. First-boot self-check. In each debian-family cloud-init template
+   (`user-data.debian13`, `user-data.ubuntu24`, `user-data.ubuntu26`), append a
+   runcmd assertion after the locale commands that verifies `en_US.utf8` is
+   present (`locale -a`) and, when absent, both writes a distinct failure marker
+   and exits nonzero. Because a nonzero runcmd exit does not by itself fail a
+   bake, wire the signal to a state the bake's readiness/cloud-init completion
+   gate already treats as failure (for example failing cloud-init so
+   `wait_for_cloud_init` does not report done), so the absence surfaces and
+   stops publication instead of passing silently.
+3. Offline contract guard. In `tests/check-proxy-injection.bash`, add a
+   template locale-contract lint: a helper that, given a template file path,
+   asserts the `locales` package entry, the three locale-gen runcmd commands,
+   and the new self-check line are all present together. Run it over the shipped
+   debian-family templates for the positive case, and for the negative case
+   write scratch copies of a shipped template into the test workspace with one
+   element removed and assert the lint fails on each. This is a pure file lint
+   reading the template path directly, so it needs no template-directory
+   override in `create_vm`; the `expect_contains`/`expect_not_contains` helpers
+   already take an arbitrary (file, text) pair and the file's `WORKSPACE`/mktemp/
+   trap-cleanup pattern already exists, so the lint reuses those helpers and that
+   workspace. The existing locale assertions the plan cites operate on captured
+   `create_vm` output, not a template path, so this file-based lint does not
+   reuse their capture setup; co-locate it in the same test file rather than a
+   parallel file. The genuinely new artifact is the first-boot self-check line
+   and this negative-case lint, not the already-pinned positive invariant.
+4. Documentation content guard. Add `tests/check-proxy-doc-statements.bash`
+   asserting by grep that the proxy ADR and RUNBOOK_BAKE carry the base-image
+   locale dependency and the D018 reference (M6), and — shared with M7 — the
+   post-apply package-install ordering and its reason. The grep target is a
+   phrase from the doc text this milestone writes in step 1, so the assertion
+   and the prose are authored together and cannot drift apart. Wire it into
+   `make check-docs` as a `check-doc-refs` sibling prerequisite in
+   `configure/RULES_DOCS`, since `check-doc-refs` validates only source-coordinate
+   pins and cannot assert prose content.
 
 ##### Test Plan
 
-To be defined at planning.
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M6 / T1 | Syntax and static analysis | `bash -n` and `shellcheck -S warning` on any changed Bash; `make check-docs` | Local checkout | Exit 0 and no unreviewed warning; doc checks pass |
+| M6 / T2 | Template locale contract | Run the `check-proxy-injection.bash` locale-contract lint over the shipped debian-family templates (positive) and over scratch copies with the `locales` entry, the locale-gen runcmd, or the self-check line removed (negative) | Local checkout; shipped templates | The lint passes the shipped templates and fails each scratch copy missing any one of the three |
+| M6 / T3 | Documentation content | Run `tests/check-proxy-doc-statements.bash` (new, wired into `make check-docs`) and `make check-docs` | Local checkout | The lint confirms the base-image locale dependency and D018 reference are present in the ADR and RUNBOOK_BAKE, and the doc checks pass |
+| M6 / T4 | First-boot self-check, positive (real) | Boot one fresh debian-family VM on a base image that ships locale support and read the self-check result | Supported Libvirt/KVM after M8 | `en_US.utf8` is present and the self-check reports success; the bake completes |
+| M6 / T5 | First-boot self-check, negative (real) | Boot a debian-family VM whose base image lacks locale support (a fixture or a prepared base with the locale package removed) and observe the self-check | Supported Libvirt/KVM after M8 | The self-check fails loudly, the readiness/completion gate treats it as failure, and publication does not proceed |
 
 ##### Verification Results
 
-None observed.
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M6 / T1 | 2026-08-24 | Local checkout on `m8-operator-model`; uncommitted implementation | Pass | `bash -n` and `shellcheck -S warning` exited 0 for the changed Bash (`tests/check-proxy-injection.bash`, `tests/check-proxy-doc-statements.bash`); `make check-docs` 3/3 |
+| M6 / T2 | 2026-08-24 | Local checkout; shipped templates and scratch fixtures | Pass | `make check-proxy-injection` 141/141; the locale-contract lint passes the three shipped debian-family templates and fails a scratch copy with the `locales` entry, the locale-gen runcmd, the self-check line, or the self-check ordering removed |
+| M6 / T3 | 2026-08-24 | Local checkout | Pass | `tests/check-proxy-doc-statements.bash` 8/8 confirms the base-image locale dependency and D018 reference in the ADR and RUNBOOK_BAKE; `make check-docs` 3/3 |
 
 ##### Closure Evidence
 
-None.
+Offline items (T1-T3) are implemented and verified in the `m8-operator-model`
+working tree on 2026-08-24: the ADR and RUNBOOK_BAKE record the base-image
+locale dependency and the runcmd-last invariant referencing D018, the
+debian-family templates carry the first-boot self-check, and both the
+template-contract lint and the documentation-content lint pass. The milestone
+closes only with the real positive and negative self-check observations (T4,
+T5), which run in the M8 real-environment stage.
 
 <a id="m7"></a>
 #### M7 - Record the package-install ordering in the proxy ADR and runbook
@@ -578,7 +649,7 @@ None.
 Origin: c53e17e / M7
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: Complete
 
 ##### Summary
 
@@ -602,22 +673,52 @@ Out of scope: proxy contract behavior; changing the install mechanism.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted the reviewed plan on 2026-08-24
+Implementation Authorization: owner authorized implementation on 2026-08-24
 Superseded Plan Artifacts: none
+
+1. Proxy ADR. Add a package-install-ordering statement to the Consequences (or
+   a dedicated subsection): under proxy injection packages install post-apply
+   through Ansible because the cloud-init package module runs in the config
+   stage before the runcmd proxy apply and cannot fetch through the proxy;
+   without proxy injection the cloud-init baseline (the hand-off subset of
+   P_common defined in `docs/IMAGE_WORKFLOW.md`) installs them at first boot.
+   Reference D018, and extend the ADR `Decision IDs` header to include D018.
+2. RUNBOOK_BAKE. State the same ordering and reason in the "Baking behind a site
+   proxy" section so an operator does not re-derive it from the code.
+3. Content assertion. Add M7's ordering-statement assertions (a phrase from the
+   text of step 1 and step 2, plus the D018 reference) to the shared
+   `tests/check-proxy-doc-statements.bash` introduced in M6 step 4. Because M7
+   writes both the doc prose and the assertion, the grep target is a phrase M7
+   controls; there is no cross-milestone wording-mismatch risk.
+
+Coordinated with M6: both edit the same two documents in one pass and assert
+content through the same shared lint. `make check-docs`
+(`tests/check-doc-refs.bash`) validates only source-coordinate pins, not prose
+content, so this shared lint is what catches a later edit that removes the
+statements.
 
 ##### Test Plan
 
-To be defined at planning.
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M7 / T1 | Documentation content | Run `tests/check-proxy-doc-statements.bash` (shared with M6, wired into `make check-docs`) asserting the post-apply ordering, its reason, and the D018 reference in the proxy ADR and RUNBOOK_BAKE, plus `make check-docs` | Local checkout | The ordering statement and D018 reference are present in both documents and the doc checks pass |
 
 ##### Verification Results
 
-None observed.
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M7 / T1 | 2026-08-24 | Local checkout on `m8-operator-model`; uncommitted implementation | Pass | `tests/check-proxy-doc-statements.bash` 8/8 confirms the post-apply package-install ordering, its reason, and the D018 reference in both the proxy ADR and RUNBOOK_BAKE; `make check-docs` 3/3 |
 
 ##### Closure Evidence
 
-None.
+The proxy ADR (Consequences) and RUNBOOK_BAKE ("Baking behind a site proxy")
+state the post-apply package-install ordering and its reason, referencing D018;
+the ADR `Decision IDs` header now covers D009-D018. `tests/check-proxy-doc-statements.bash`,
+wired into `make check-docs`, guards the statements against later removal. All
+of M7 is offline documentation, so the milestone is complete; the carrying
+commit is recorded by the next register update.
 
 <a id="m8"></a>
 #### M8 - Redesign the image and node model around pipeline roles and retire the testbed concept
