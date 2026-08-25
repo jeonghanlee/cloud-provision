@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch. M8 / T4 real verification passed on debian13, rocky8, rocky10, and ubuntu24; ubuntu26 is blocked by the proxy-contract identity-command symlink defect and deferred to M10 (D021), so M8 / T5 and T6 remain. M10 is Not started and Ready: adjust `bin/proxy_contract.bash` so an identity command that resolves through a symbolic link to a regular executable inside the guest root is accepted, then re-run M8 / T4 on ubuntu26. M6 is In progress with its offline items done (documented locale dependency and runcmd-last invariant, first-boot self-check, and the two lints) and closes on its real self-check (M6 T4-T5) in the same M8 real-environment stage. M5 stays planned and held behind M8. The operator definition and all M8/M6/M7/M10 work ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch. M8 / T4 real verification now passes on all five vacua: the M10 proxy-contract fix unblocked ubuntu26, so M8 / T5 and T6 remain. M10 is In progress: `bin/proxy_contract.bash` resolves an in-root symlinked identity command, the ADR invariant is updated with D022, four `check-proxy-injection` identity cases pass, and T1 through T4 are verified; the change is in the working tree and a second-person pass on the ADR and register precedes its commit. M6 is In progress with its offline items done (documented locale dependency and runcmd-last invariant, first-boot self-check, and the two lints) and closes on its real self-check (M6 T4-T5) in the same M8 real-environment stage. M5 stays planned and held behind M8. The operator definition and all M8/M6/M7/M10 work ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -27,7 +27,7 @@ Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: it
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | In progress | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done, closes on the real self-check in the M8 stage; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
 | Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | In progress | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
-| Proxy contract portability | M10 | Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute | Milestone | Not started | Yes | D009, D021 | The proxy contract's identity-command validation accepts a command path that resolves through a symbolic link to a regular executable inside the guest root, ubuntu26 proxy apply writes its artifacts, and M8 / T4 passes on ubuntu26; [M10 detail](#m10). |
+| Proxy contract portability | M10 | Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute | Milestone | In progress | No | D009, D021 | The proxy contract's identity-command validation accepts a command path that resolves through a symbolic link to a regular executable inside the guest root, ubuntu26 proxy apply writes its artifacts, and M8 / T4 passes on ubuntu26; [M10 detail](#m10). |
 
 ### Decisions
 
@@ -801,6 +801,7 @@ Both repositories work on the `m8-operator-model` branch and merge to master whe
 | M8 / T2 | 2026-08-24 | Local checkouts on `m8-operator-model`; steps 5-7 working tree | Pass | Re-run after the steps 5-7 rework: cloud-provision `make check-bake` (7/107/35), `check-proxy-injection` 129/129, `check-runtime-inventory` (165+2, matrix expanded per T3), `check-docs` 3/3, `check-vm-help` (16 OS types), `check-cloud-init-status` 152/152; ansible-provision tests 35/35, 22/22, 3/3 |
 | M8 / T3 | 2026-08-24 | Local checkout on `m8-operator-model`; real generator | Pass | `tests/check-generated-ansible-inventory.bash` drives all 35 vacuum-species pairs plus five suffixed selectors (165/165): bare pairs land in the vacuum group alone, every other pair in vacuum plus its underscore-form species group |
 | M8 / T4 | 2026-08-25 | Supported Libvirt/KVM host; one fresh bare VM per vacuum on the `lab` NAT network, `playbooks/species/bare.yml` applied with `ansible-playbook` over the maintained `inventory/lab.ini` plus the generated per-host inventory | Fail (4 of 5 vacua pass) | debian13, rocky8, rocky10, and ubuntu24 each install the full P_common set (13 must-have plus 8 core); the debian family generates `en_US.UTF-8`, and the rocky family enables EPEL and PowerTools/CRB and writes the `/etc/sudoers.d/secure-path` drop-in that wins through the final `includedir`. ubuntu26 fails: proxy apply aborts with a `visudo crosses a symbolic link` identity error because resolute ships sudo-rs with `visudo` as an alternatives symlink, so no proxy artifact is written and apt cannot reach the configured site proxy to fetch the universe index (the `tree` package). Tracked as M10 (D021). |
+| M8 / T4 | 2026-08-25 | Supported Libvirt/KVM; fresh ubuntu26 bare VM after the M10 proxy-contract fix | Pass | With M10 applied, ubuntu26 proxy apply succeeds and `playbooks/species/bare.yml` installs the full P_common set (21 packages including `tree`, `en_US.UTF-8` generated), so all five vacua now pass M8 / T4 |
 
 ##### Closure Evidence
 
@@ -812,8 +813,8 @@ Both repositories work on the `m8-operator-model` branch and merge to master whe
 
 Origin: c53e17e / M10
 Identity History: none
-GitHub Issue: pending
-Status: Not started
+GitHub Issue: [#37](https://github.com/jeonghanlee/cloud-provision/issues/37)
+Status: In progress
 
 ##### Summary
 
@@ -848,7 +849,7 @@ Out of scope: Changing any other proxy artifact identity, path, owner, mode, or 
 
 Plan Status: accepted
 Plan Acceptance: owner accepted the review-reflected plan on 2026-08-25
-Implementation Authorization: none
+Implementation Authorization: owner authorized implementation on 2026-08-25
 Superseded Plan Artifacts: none
 
 1. Reproduce the identity-command rejection against a resolute root in the proxy contract's test mode.
@@ -871,22 +872,25 @@ Superseded Plan Artifacts: none
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| M10 / T1 | Not run | Local checkout | Pending | In-root relative symlink accepted; unsafe forms rejected |
-| M10 / T2 | Not run | Local checkout | Pending | Offline contract and bake caller regression |
-| M10 / T3 | Not run | Supported Libvirt/KVM | Pending | debian-family and rocky-family identity commands are regular files |
-| M10 / T4 | Not run | Supported Libvirt/KVM | Pending | ubuntu26 proxy apply and P_common install |
+| M10 / T1 | 2026-08-25 | Local checkout; real shipped `proxy_contract_resolve_guest_command` against fixture roots | Pass | An in-root relative-symlink `visudo` resolves and is accepted; a symlink through a missing directory fails with `does not resolve`; a symlink to an absent target fails with `requires exact guest command`; an absolute symlink whose target leaves the root fails with `escapes the selected root` |
+| M10 / T2 | 2026-08-25 | Local checkout | Pass | `make check-proxy-injection` 145/145 (four new identity cases, 141 prior unchanged), `make check-bake` 7/107/35, `make check-docs` 8/8 |
+| M10 / T3 | 2026-08-25 | Supported Libvirt/KVM; fresh debian13 and rocky8 bare VMs | Pass | All four identity commands (`cloud-init`, `visudo`, `sshd`, `systemctl`) are regular executables on both, so the relaxation is a no-op for them |
+| M10 / T4 | 2026-08-25 | Supported Libvirt/KVM; fresh ubuntu26 bare VM with the fixed contract | Pass | Proxy apply writes the `95cloud-provision-proxy` artifact with no symbolic-link error in the cloud-init log, and `playbooks/species/bare.yml` installs the full P_common set including `tree`, with `en_US.UTF-8` generated |
 
 ##### Closure Evidence
 
 - Opened 2026-08-25 from the M8 / T4 real-environment observation (D021). ubuntu26 is not shipped until this resolves.
+- Implemented and verified in the `m8-operator-model` working tree on 2026-08-25: the identity-command symlink resolution in `bin/proxy_contract.bash`, the ADR invariant update with D022, and the four `check-proxy-injection` identity cases. T1 through T4 observed Pass; a fresh ubuntu26 bare VM applies P_common through the now-written proxy artifact, and debian13 and rocky8 keep regular-file identity commands. The carrying commit is recorded by the next register update; a second-person pass on the ADR and register precedes the commit.
 
 ##### GitHub Projection
 
-Title: Proxy contract rejects resolute's alternatives-symlinked visudo and blocks ubuntu26 proxy apply
+Title: Proxy contract rejects resolute's symlinked visudo and blocks ubuntu26 proxy apply
 Labels: bug
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: pending creation
-Projection State: not yet created; create with the drafted title, label, and body
+Observed State: open (issue #37)
+Observed Labels: bug
+Observed Milestone: Nimbus - Cloud Provisioning Reliability
+Projection State: reconciled; remote issue #37 created with the drafted title, label, milestone, and body
 
 ## Backlog
 
