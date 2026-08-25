@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch, with the real-environment checks (M8 T4-T6) remaining. M6 is In progress with its offline items done (documented locale dependency and runcmd-last invariant, first-boot self-check, and the two lints) and closes on its real self-check (M6 T4-T5) in the same M8 real-environment stage. M5 stays planned and held behind M8. The operator definition and all M8/M6/M7 work ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch. M8 / T4 real verification passed on debian13, rocky8, rocky10, and ubuntu24; ubuntu26 is blocked by the proxy-contract identity-command symlink defect and deferred to M10 (D021), so M8 / T5 and T6 remain. M10 is Not started and Ready: adjust `bin/proxy_contract.bash` so an identity command that resolves through a symbolic link to a regular executable inside the guest root is accepted, then re-run M8 / T4 on ubuntu26. M6 is In progress with its offline items done (documented locale dependency and runcmd-last invariant, first-boot self-check, and the two lints) and closes on its real self-check (M6 T4-T5) in the same M8 real-environment stage. M5 stays planned and held behind M8. The operator definition and all M8/M6/M7/M10 work ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -27,6 +27,7 @@ Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: it
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | In progress | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done, closes on the real self-check in the M8 stage; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
 | Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | In progress | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
+| Proxy contract portability | M10 | Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute | Milestone | Not started | Yes | D009, D021 | The proxy contract's identity-command validation accepts a command path that resolves through a symbolic link to a regular executable inside the guest root, ubuntu26 proxy apply writes its artifacts, and M8 / T4 passes on ubuntu26; [M10 detail](#m10). |
 
 ### Decisions
 
@@ -44,6 +45,7 @@ Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: it
 | D018 | Under proxy injection, `create_vm` removes the cloud-init `packages:` directive so packages install after the proxy apply through Ansible; the cloud-init package module runs in the config stage before the runcmd apply and cannot use the proxy. This supersedes the accepted M3 plan assumption that apply-before-Ansible was the only ordering constraint and preserves that plan acceptance as history. It also opens the testbed, package-parity, locale, and documentation follow-ups recorded in the Backlog. | 2026-08-21 |
 | D019 | Backlog M4 (testbed-to-bare) is consolidated into Backlog M8 rather than executed separately. Both retire the server=1/node=2 concept and edit the same `create_vm` prefix and node handling, so a narrow M4 pass would rework the surface M8 rewrites. M8 absorbs the bare-node piece and its D018 dependency; the earlier decision to keep M4 at its own narrow scope is preserved as history. | 2026-08-22 |
 | D020 | The M5 package-parity guard is keyed by base OS type, one expected-coverage list per OS template (debian13, rocky8, rocky10, ubuntu24, ubuntu26), owned inside cloud-provision rather than read from ansible-provision. Each list is the P_common set defined in `docs/IMAGE_WORKFLOW.md` (Operator definition): the packages that must be present on that base OS regardless of provisioning role. The guard compares the former cloud-init packages against that definition, not against what any single post-apply path installs today. Locale support is part of P_common (the `locales` package on the debian family), so the guard keeps the `locales` entry; M6 owns only the base-image locale assumption. The list is named by OS type only; naming it as the `bare` role belongs to M8. | 2026-08-22 |
+| D021 | M8 / T4 real verification passes on debian13, rocky8, rocky10, and ubuntu24. ubuntu26 (resolute) fails because it ships sudo-rs with `visudo` as an alternatives symbolic link, and the proxy contract's fail-closed identity-command check rejects any symbolic link in that path, so the proxy apply aborts, no proxy artifact is written, and the VM cannot fetch packages through the configured site proxy. The owner records this as defect M10 and proceeds; ubuntu26 is not shipped until M10 resolves it. The other four vacua satisfy M8 / T4. | 2026-08-25 |
 
 ### Assignment History
 
@@ -797,10 +799,86 @@ Both repositories work on the `m8-operator-model` branch and merge to master whe
 | M8 / T2 | 2026-08-24 | Local checkouts on `m8-operator-model`; steps 1-3 implementation | Pass | cloud-provision `make check-bake` (7/107/35), `check-proxy-injection` 129/129, `check-runtime-inventory` (58+2), `check-docs` 3/3; ansible-provision tests 35/35, 22/22, 3/3 — all updated for the new names |
 | M8 / T2 | 2026-08-24 | Local checkouts on `m8-operator-model`; steps 5-7 working tree | Pass | Re-run after the steps 5-7 rework: cloud-provision `make check-bake` (7/107/35), `check-proxy-injection` 129/129, `check-runtime-inventory` (165+2, matrix expanded per T3), `check-docs` 3/3, `check-vm-help` (16 OS types), `check-cloud-init-status` 152/152; ansible-provision tests 35/35, 22/22, 3/3 |
 | M8 / T3 | 2026-08-24 | Local checkout on `m8-operator-model`; real generator | Pass | `tests/check-generated-ansible-inventory.bash` drives all 35 vacuum-species pairs plus five suffixed selectors (165/165): bare pairs land in the vacuum group alone, every other pair in vacuum plus its underscore-form species group |
+| M8 / T4 | 2026-08-25 | Supported Libvirt/KVM host; one fresh bare VM per vacuum on the `lab` NAT network, `playbooks/species/bare.yml` applied with `ansible-playbook` over the maintained `inventory/lab.ini` plus the generated per-host inventory | Fail (4 of 5 vacua pass) | debian13, rocky8, rocky10, and ubuntu24 each install the full P_common set (13 must-have plus 8 core); the debian family generates `en_US.UTF-8`, and the rocky family enables EPEL and PowerTools/CRB and writes the `/etc/sudoers.d/secure-path` drop-in that wins through the final `includedir`. ubuntu26 fails: proxy apply aborts with a `visudo crosses a symbolic link` identity error because resolute ships sudo-rs with `visudo` as an alternatives symlink, so no proxy artifact is written and apt cannot reach the configured site proxy to fetch the universe index (the `tree` package). Tracked as M10 (D021). |
 
 ##### Closure Evidence
 
 - Steps 1 through 3 are implemented and pushed: ansible-provision `f319df2` (inventory), `724b381` (operators and species rewrite) with the common role in its branch history, and cloud-provision `eaee660` (bake and build callers). Step 4 was absorbed by the rewrite (`pkg_standard` retired with `base_os`). The provenance manifest labels stay `app_*` as the durable manifest schema (Keep, 2026-08-24). Steps 5 through 7 are implemented and verified in the `m8-operator-model` working tree (T1-T3 observed 2026-08-24; iterative third-person and second-person review passes applied until convergence, declared 2026-08-24); the carrying commits are recorded by the next register update; steps 8 through 10 remain. Step 8 is partially consumed by the review-driven corrections: the testbed-to-lab rename is complete across the five named documents (the only remaining `testbed` strings are this register and one deliberate test regex), and the retired-interface passages in README, ARCHITECTURE, RUNBOOK_BAKE, RUNBOOK_ANSIBLE_INVENTORY, and VIRSH_CLI were corrected to executed behavior; step 8's remainder is the definition-terms restructuring of those documents.
+- M8 / T4 real verification (2026-08-25) passes on debian13, rocky8, rocky10, and ubuntu24; ubuntu26 is blocked by the proxy-contract identity-command symlink defect and deferred to M10 by D021. T5 and T6 remain.
+
+<a id="m10"></a>
+#### M10 - Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute
+
+Origin: c53e17e / M10
+Identity History: none
+GitHub Issue: pending
+Status: Not started
+
+##### Summary
+
+M8 / T4 booted one fresh bare VM per vacuum and applied `playbooks/species/bare.yml`. Four vacua pass. ubuntu26 (resolute) fails at proxy apply: `bin/proxy_contract.bash` validates its fixed identity commands (`cloud-init`, `visudo`, `sshd`, `systemctl`) and dies when any component of the resolved command path is a symbolic link. Resolute ships sudo-rs, whose `visudo` is an alternatives symlink (`/usr/sbin/visudo` to `/etc/alternatives/visudo` to a regular executable). The identity check rejects it, the proxy apply aborts before writing any artifact, and because the site reaches package repositories only through a proxy, the VM cannot fetch packages. The bare install then fails on the first universe-only package it needs. The other four vacua ship a regular-file `visudo` and pass.
+
+##### Scope
+
+- Adjust the proxy contract's identity-command validation so a command path that resolves through a symbolic link to a regular executable inside the guest root is accepted, while keeping every other fail-closed property (unsafe absolute, dangling, escaping, and parent-link inputs still fail).
+- Re-run M8 / T4 on ubuntu26 and confirm the proxy artifacts are written and the full P_common set installs.
+- Keep the independent fixture and both bake callers passing.
+
+Out of scope: Changing any other proxy artifact identity, path, owner, mode, or form; relaxing the `/etc/os-release` link rules; the package-set parity guard (M5); any change to the four passing vacua.
+
+##### Completion Criteria
+
+- The proxy contract accepts an identity command that resolves through a symbolic link to a regular executable inside the guest root and still rejects unsafe absolute, dangling, escaping, and parent-link inputs.
+- ubuntu26 proxy apply writes its full applicable artifact set.
+- M8 / T4 passes on ubuntu26: the full P_common set installs and the configuration content is in place.
+- The offline contract checks and both bake callers still pass.
+
+##### Dependencies And Decisions
+
+- D009 and D021
+- Supported Libvirt/KVM host with a resolute base image for the real re-run
+- resume as Not started
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Reproduce the identity-command rejection against a resolute root in the proxy contract's test mode.
+2. Change the identity validation to resolve the command path and accept a symbolic link whose target is a regular executable inside the selected root, preserving every other fail-closed branch.
+3. Add a test-mode case that a safe in-root symlinked identity command is accepted and that unsafe symlink forms still fail closed.
+4. Re-run the offline contract checks and both bake caller checks.
+5. Re-run M8 / T4 on a fresh ubuntu26 bare VM and record the observed result.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M10 / T1 | Identity symlink acceptance | Run the proxy contract test mode against a root whose identity command is a safe in-root symlink, and against unsafe symlink forms | Local checkout | The safe in-root symlink is accepted; unsafe absolute, dangling, escaping, and parent-link forms still fail closed |
+| M10 / T2 | Offline contract regression | Run `make check-proxy-injection`, `make check-bake`, and the independent fixture checks | Local checkout | Every check passes with the adjusted identity validation |
+| M10 / T3 | ubuntu26 bare apply | Boot a fresh ubuntu26 bare VM and apply `playbooks/species/bare.yml` | Supported Libvirt/KVM | Proxy apply writes its artifacts and the full P_common set installs |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M10 / T1 | Not run | Local checkout | Pending | Identity symlink acceptance and unsafe-form rejection |
+| M10 / T2 | Not run | Local checkout | Pending | Offline contract and bake caller regression |
+| M10 / T3 | Not run | Supported Libvirt/KVM | Pending | ubuntu26 proxy apply and P_common install |
+
+##### Closure Evidence
+
+- Opened 2026-08-25 from the M8 / T4 real-environment observation (D021). ubuntu26 is not shipped until this resolves.
+
+##### GitHub Projection
+
+Title: Proxy contract rejects resolute's alternatives-symlinked visudo and blocks ubuntu26 proxy apply
+Labels: bug
+GitHub Milestone: Nimbus - Cloud Provisioning Reliability
+Observed State: pending creation
+Projection State: not yet created; create with the drafted title, label, and body
 
 ## Backlog
 
