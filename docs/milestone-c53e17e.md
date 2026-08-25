@@ -46,6 +46,7 @@ Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: it
 | D019 | Backlog M4 (testbed-to-bare) is consolidated into Backlog M8 rather than executed separately. Both retire the server=1/node=2 concept and edit the same `create_vm` prefix and node handling, so a narrow M4 pass would rework the surface M8 rewrites. M8 absorbs the bare-node piece and its D018 dependency; the earlier decision to keep M4 at its own narrow scope is preserved as history. | 2026-08-22 |
 | D020 | The M5 package-parity guard is keyed by base OS type, one expected-coverage list per OS template (debian13, rocky8, rocky10, ubuntu24, ubuntu26), owned inside cloud-provision rather than read from ansible-provision. Each list is the P_common set defined in `docs/IMAGE_WORKFLOW.md` (Operator definition): the packages that must be present on that base OS regardless of provisioning role. The guard compares the former cloud-init packages against that definition, not against what any single post-apply path installs today. Locale support is part of P_common (the `locales` package on the debian family), so the guard keeps the `locales` entry; M6 owns only the base-image locale assumption. The list is named by OS type only; naming it as the `bare` role belongs to M8. | 2026-08-22 |
 | D021 | M8 / T4 real verification passes on debian13, rocky8, rocky10, and ubuntu24. ubuntu26 (resolute) fails because it ships sudo-rs with `visudo` as an alternatives symbolic link, and the proxy contract's fail-closed identity-command check rejects any symbolic link in that path, so the proxy apply aborts, no proxy artifact is written, and the VM cannot fetch packages through the configured site proxy. The owner records this as defect M10 and proceeds; ubuntu26 is not shipped until M10 resolves it. The other four vacua satisfy M8 / T4. | 2026-08-25 |
+| D022 | The proxy contract's identity-command validation (`proxy_contract_resolve_guest_command`) accepts a fixed identity command whose path resolves, through one or more symbolic links, to a regular executable inside the guest root; this relaxes the ADR-20260820 rule that those commands be regular files at their exact paths, so alternatives-managed commands such as resolute's sudo-rs `visudo` pass. Every other fail-closed property is kept: an unsafe absolute, dangling, parent-link, or root-escaping input, or a resolved target that is not an in-root regular executable, still fails. The relaxation covers only the four identity commands, not any proxy artifact or the `/etc/os-release` rules. | 2026-08-25 |
 
 ### Assignment History
 
@@ -820,53 +821,60 @@ M8 / T4 booted one fresh bare VM per vacuum and applied `playbooks/species/bare.
 
 ##### Scope
 
-- Adjust the proxy contract's identity-command validation so a command path that resolves through a symbolic link to a regular executable inside the guest root is accepted, while keeping every other fail-closed property (unsafe absolute, dangling, escaping, and parent-link inputs still fail).
+- Adjust the proxy contract's identity-command validation (`proxy_contract_resolve_guest_command`) so a fixed identity command whose path resolves, through one or more symbolic links, to a regular executable inside the guest root is accepted. The relaxation covers any symbolic link in the resolved chain, including an intermediate directory symlink, provided the canonical target is an in-root regular executable; every other fail-closed property stays (unsafe absolute, dangling, parent-link, and root-escaping inputs, and a target that leaves the root, still fail).
+- Update the identity-command invariant in `docs/decisions/ADR-20260820-proxy-artifact-lifecycle.md`, which currently requires those commands to be regular files at their exact paths, to the in-root symlink-resolution rule while preserving its no-host-fallback intent (the relaxation follows links only within the guest root; a target that leaves the root still fails), and record the relaxation as decision D022.
+- Add a test-mode accept case built with an in-root relative symlink, plus unsafe-symlink rejections; directly re-confirm on a debian-family and a rocky-family guest that their identity commands remain regular files.
 - Re-run M8 / T4 on ubuntu26 and confirm the proxy artifacts are written and the full P_common set installs.
-- Keep the independent fixture and both bake callers passing.
+- Keep the independent fixture, offline contract checks, and both bake callers passing.
 
 Out of scope: Changing any other proxy artifact identity, path, owner, mode, or form; relaxing the `/etc/os-release` link rules; the package-set parity guard (M5); any change to the four passing vacua.
 
 ##### Completion Criteria
 
-- The proxy contract accepts an identity command that resolves through a symbolic link to a regular executable inside the guest root and still rejects unsafe absolute, dangling, escaping, and parent-link inputs.
-- ubuntu26 proxy apply writes its full applicable artifact set.
-- M8 / T4 passes on ubuntu26: the full P_common set installs and the configuration content is in place.
+- The proxy contract accepts an identity command that resolves through a symbolic link to a regular executable inside the guest root, and still rejects unsafe absolute, dangling, parent-link, and root-escaping inputs, and a resolved target that is not an in-root regular executable.
+- The ADR identity-command invariant reads the relaxed rule and D022 records the decision.
+- ubuntu26 proxy apply writes its full applicable artifact set and M8 / T4 passes on ubuntu26.
+- A debian-family and a rocky-family guest are directly re-confirmed to keep regular-file identity commands, so the relaxation is a no-op for them.
 - The offline contract checks and both bake callers still pass.
 
 ##### Dependencies And Decisions
 
-- D009 and D021
+- D009, D021, and D022
+- The relaxation is exercised only under a real root (`/`); a test root cannot follow an absolute alternatives symlink because `readlink -f` resolves it against the host and the escape check then rejects it, so the accept-path test uses an in-root relative symlink. In production (root `/`) the escape check is skipped by design and in-root safety rests on canonical resolution plus the regular-executable check; test mode keeps the escape check.
 - Supported Libvirt/KVM host with a resolute base image for the real re-run
 - resume as Not started
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
+Plan Status: accepted
+Plan Acceptance: owner accepted the review-reflected plan on 2026-08-25
 Implementation Authorization: none
 Superseded Plan Artifacts: none
 
 1. Reproduce the identity-command rejection against a resolute root in the proxy contract's test mode.
-2. Change the identity validation to resolve the command path and accept a symbolic link whose target is a regular executable inside the selected root, preserving every other fail-closed branch.
-3. Add a test-mode case that a safe in-root symlinked identity command is accepted and that unsafe symlink forms still fail closed.
-4. Re-run the offline contract checks and both bake caller checks.
-5. Re-run M8 / T4 on a fresh ubuntu26 bare VM and record the observed result.
+2. In `proxy_contract_resolve_guest_command`, resolve a symlinked command path to its canonical target, validate the resolved path with the existing rooted-path walk and the regular-executable check, and use it; leave every other branch and the shared path walker unchanged.
+3. Update the ADR identity-command invariant to the relaxed rule, preserving its no-host-fallback intent (in-root links only), and record decision D022.
+4. Add a test-mode accept case built with an in-root relative symlink, plus unsafe-symlink rejections (absolute-escaping, dangling, out-of-root target).
+5. Re-run `make check-proxy-injection`, `make check-bake`, and the fixture checks; directly re-confirm regular-file identity commands on a debian-family and a rocky-family guest.
+6. Re-run M8 / T4 on a fresh ubuntu26 bare VM and record the observed result.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
-| M10 / T1 | Identity symlink acceptance | Run the proxy contract test mode against a root whose identity command is a safe in-root symlink, and against unsafe symlink forms | Local checkout | The safe in-root symlink is accepted; unsafe absolute, dangling, escaping, and parent-link forms still fail closed |
+| M10 / T1 | Identity symlink acceptance | Run the proxy contract test mode against a root whose identity command is an in-root relative symlink to a regular executable, and against unsafe symlink forms (absolute-escaping, dangling, out-of-root target) | Local checkout | The in-root relative symlink is accepted; every unsafe form fails closed |
 | M10 / T2 | Offline contract regression | Run `make check-proxy-injection`, `make check-bake`, and the independent fixture checks | Local checkout | Every check passes with the adjusted identity validation |
-| M10 / T3 | ubuntu26 bare apply | Boot a fresh ubuntu26 bare VM and apply `playbooks/species/bare.yml` | Supported Libvirt/KVM | Proxy apply writes its artifacts and the full P_common set installs |
+| M10 / T3 | Cross-OS identity re-confirm | Inspect the four fixed identity commands on a debian-family and a rocky-family guest | Supported Libvirt/KVM | All are regular executables, so the relaxation is a no-op for them |
+| M10 / T4 | ubuntu26 bare apply | Boot a fresh ubuntu26 bare VM and apply `playbooks/species/bare.yml` | Supported Libvirt/KVM | Proxy apply writes its artifacts and the full P_common set installs |
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| M10 / T1 | Not run | Local checkout | Pending | Identity symlink acceptance and unsafe-form rejection |
+| M10 / T1 | Not run | Local checkout | Pending | In-root relative symlink accepted; unsafe forms rejected |
 | M10 / T2 | Not run | Local checkout | Pending | Offline contract and bake caller regression |
-| M10 / T3 | Not run | Supported Libvirt/KVM | Pending | ubuntu26 proxy apply and P_common install |
+| M10 / T3 | Not run | Supported Libvirt/KVM | Pending | debian-family and rocky-family identity commands are regular files |
+| M10 / T4 | Not run | Supported Libvirt/KVM | Pending | ubuntu26 proxy apply and P_common install |
 
 ##### Closure Evidence
 
