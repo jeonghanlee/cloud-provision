@@ -187,26 +187,26 @@ for vacuum in "${VACUA[@]}"; do
             expected_groups="${vacuum} ${species//-/_}"
         fi
         run_case "${vacuum}-${species}" "${vacuum}" "${species}" \
-            "${expected_groups}" "vacua" "192.168.122.${matrix_octet}"
+            "${expected_groups}" "vacua" "192.168.123.${matrix_octet}"
         matrix_octet=$((matrix_octet + 1))
     done
 done
 
 # Suffixed selectors must strip to the vacuum; -iocrunner-nfs must strip
 # before -iocrunner.
-run_case sel-rocky8-iocrunner rocky8-iocrunner iocrunner "rocky8 iocrunner" "vacua" 192.168.122.150
-run_case sel-debian13-iocrunner-nfs debian13-iocrunner-nfs iocrunner-nfs "debian13 iocrunner_nfs" "vacua" 192.168.122.55
-run_case sel-rocky10-epics-dev rocky10-epics-dev epics-dev "rocky10 epics_dev" "vacua" 192.168.122.130
-run_case sel-debian13-rtbase debian13-rtbase rtbase "debian13 rtbase" "vacua" 192.168.122.80
-run_case sel-debian13-ethercat debian13-ethercat ethercat "debian13 ethercat" "vacua" 192.168.122.70
+run_case sel-rocky8-iocrunner rocky8-iocrunner iocrunner "rocky8 iocrunner" "vacua" 192.168.123.150
+run_case sel-debian13-iocrunner-nfs debian13-iocrunner-nfs iocrunner-nfs "debian13 iocrunner_nfs" "vacua" 192.168.123.55
+run_case sel-rocky10-epics-dev rocky10-epics-dev epics-dev "rocky10 epics_dev" "vacua" 192.168.123.130
+run_case sel-debian13-rtbase debian13-rtbase rtbase "debian13 rtbase" "vacua" 192.168.123.80
+run_case sel-debian13-ethercat debian13-ethercat ethercat "debian13 ethercat" "vacua" 192.168.123.70
 
 status_inventory="${WORKSPACE}/status-input.ini"
 printf "%s\n" \
     "VM Name    : custom-prefix-rocky8-arbitrary-node" \
-    "IP Address : 192.168.122.201" \
+    "IP Address : 192.168.123.201" \
     | "${GENERATOR}" --status-input --os-type rocky8 --species bare \
         > "${status_inventory}"
-if grep -Fq 'custom-prefix-rocky8-arbitrary-node ansible_host=192.168.122.201' \
+if grep -Fq 'custom-prefix-rocky8-arbitrary-node ansible_host=192.168.123.201' \
     "${status_inventory}"; then
     record_pass "status input preserves arbitrary VM identity"
 else
@@ -214,14 +214,14 @@ else
         "the generated host did not match the status report"
 fi
 
-if "${GENERATOR}" --vm-name bad --address 192.168.122.300 \
+if "${GENERATOR}" --vm-name bad --address 192.168.123.300 \
     --os-type rocky8 --species bare >/dev/null 2>&1; then
     record_fail "invalid IPv4 address is rejected" "the generator accepted .300"
 else
     record_pass "invalid IPv4 address is rejected"
 fi
 
-if "${GENERATOR}" --vm-name bad --address 192.168.122.80 \
+if "${GENERATOR}" --vm-name bad --address 192.168.123.80 \
     --os-type rocky7 --species bare >/dev/null 2>&1; then
     record_fail "unsupported OS selector is rejected" \
         "rocky7 was accepted as a vacuum selector"
@@ -229,7 +229,7 @@ else
     record_pass "unsupported OS selector is rejected"
 fi
 
-if "${GENERATOR}" --vm-name bad --address 192.168.122.80 \
+if "${GENERATOR}" --vm-name bad --address 192.168.123.80 \
     --os-type rocky8 --species ioc-node >/dev/null 2>&1; then
     record_fail "unsupported species is rejected" \
         "the retired role name was accepted as a species"

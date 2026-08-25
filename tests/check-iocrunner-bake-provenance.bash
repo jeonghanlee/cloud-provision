@@ -135,7 +135,7 @@ function assert_runtime_inventory {
     fi
 
     runtime_host="$(awk -v prefix="lab-${os_type}-build-" \
-        'index($1, prefix) == 1 && $2 ~ /^ansible_host=192[.]168[.]122[.][0-9]+$/ && \
+        'index($1, prefix) == 1 && $2 ~ /^ansible_host=192[.]168[.]123[.][0-9]+$/ && \
          $3 == "ansible_user=vmadmin" {print $1; exit}' \
         "${snapshot}" 2>/dev/null || true)"
     if [[ -n "${runtime_host}" ]] && \
@@ -626,7 +626,7 @@ for argument in "$@"; do
     if [[ "${expect_inventory_path}" == true ]]; then
         expect_inventory_path=false
         if [[ -f "${argument}" ]] && \
-           grep -Eq "^lab-${CASE_OS_TYPE}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\\.168\\.122\\.[0-9]+ ansible_user=vmadmin$" \
+           grep -Eq "^lab-${CASE_OS_TYPE}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\\.168\\.123\\.[0-9]+ ansible_user=vmadmin$" \
                "${argument}" && \
            grep -Fxq "[${CASE_OS_TYPE}]" "${argument}" && \
            grep -Fxq '[iocrunner]' "${argument}"; then

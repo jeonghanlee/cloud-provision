@@ -258,27 +258,27 @@ holding VM. `NODE_ID=dhcp` bypasses static assignment and uses DHCP.
 
 ```
 Host
-  └── libvirt default network (virbr0, 192.168.122.0/24, NAT)
-        ├── lab-debian13-main                   192.168.122.10
-        ├── lab-debian13-epics-dev-main         192.168.122.20
-        ├── lab-ubuntu26-main                   192.168.122.25
-        ├── lab-ubuntu26-epics-dev-main         192.168.122.30
-        ├── lab-ubuntu24-main                   192.168.122.35
-        ├── lab-ubuntu24-epics-dev-main         192.168.122.40
-        ├── lab-debian13-iocrunner-main         192.168.122.50
-        ├── lab-debian13-iocrunner-nfs-main     192.168.122.55
-        ├── lab-debian13-ethercat-main          192.168.122.70
-        ├── lab-debian13-rtbase-main            192.168.122.80
-        ├── lab-rocky8-main                     192.168.122.100
-        ├── lab-rocky10-main                    192.168.122.110
-        ├── lab-rocky8-epics-dev-main           192.168.122.120
-        ├── lab-rocky10-epics-dev-main          192.168.122.130
-        ├── lab-rocky8-iocrunner-main           192.168.122.150
-        └── lab-rocky8-iocrunner-nfs-main       192.168.122.155
+  └── libvirt lab network (virbr1, 192.168.123.0/24, NAT)
+        ├── lab-debian13-main                   192.168.123.10
+        ├── lab-debian13-epics-dev-main         192.168.123.20
+        ├── lab-ubuntu26-main                   192.168.123.25
+        ├── lab-ubuntu26-epics-dev-main         192.168.123.30
+        ├── lab-ubuntu24-main                   192.168.123.35
+        ├── lab-ubuntu24-epics-dev-main         192.168.123.40
+        ├── lab-debian13-iocrunner-main         192.168.123.50
+        ├── lab-debian13-iocrunner-nfs-main     192.168.123.55
+        ├── lab-debian13-ethercat-main          192.168.123.70
+        ├── lab-debian13-rtbase-main            192.168.123.80
+        ├── lab-rocky8-main                     192.168.123.100
+        ├── lab-rocky10-main                    192.168.123.110
+        ├── lab-rocky8-epics-dev-main           192.168.123.120
+        ├── lab-rocky10-epics-dev-main          192.168.123.130
+        ├── lab-rocky8-iocrunner-main           192.168.123.150
+        └── lab-rocky8-iocrunner-nfs-main       192.168.123.155
 ```
 
 MAC addresses are generated deterministically from a fixed prefix
-(`52:54:00:00`) combined with the OS base and the instance offset
+(`52:54:00:01`) combined with the OS base and the instance offset
 (`main` is offset 0). A hashed NODE_ID uses the same prefix with the
 range base 160 and the hash value in place of those two bytes. In both
 cases the MAC carries the two numbers as separate bytes while the

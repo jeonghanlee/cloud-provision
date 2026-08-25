@@ -99,9 +99,9 @@ done
         "${#runtime_inventories[@]}" >&2
     exit 3
 }
-grep -Fq 'lab-rocky8-epics-dev-main ansible_host=192.168.122.120 ansible_user=vmadmin' \
+grep -Fq 'lab-rocky8-epics-dev-main ansible_host=192.168.123.120 ansible_user=vmadmin' \
     "${runtime_inventories[0]}" "${runtime_inventories[1]}"
-grep -Fq 'lab-debian13-epics-dev-main ansible_host=192.168.122.20 ansible_user=vmadmin' \
+grep -Fq 'lab-debian13-epics-dev-main ansible_host=192.168.123.20 ansible_user=vmadmin' \
     "${runtime_inventories[0]}" "${runtime_inventories[1]}"
 [[ "$*" == *"--limit epics_dev"* ]]
 [[ "$*" == *"playbooks/species/epics_dev.yml"* ]]

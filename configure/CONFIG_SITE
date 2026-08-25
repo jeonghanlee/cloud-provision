@@ -1,6 +1,6 @@
 IMAGE_DIR       := $(HOME)/libvirt/images
 LIBVIRT_URI     := qemu:///system
-LIBVIRT_NETWORK := default
+LIBVIRT_NETWORK := lab
 REQUIRED_GROUP  := libvirt
 ANSIBLE_DIR     := $(TOP)/../ansible-provision
 

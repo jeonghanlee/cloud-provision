@@ -30,7 +30,7 @@ declare -g OS_VARIANT
 declare -g OSINFO_VARIANT=""
 declare -g NODE_ID
 declare -g LIBVIRT_URI="qemu:///system"
-declare -g LIBVIRT_NETWORK="default"
+declare -g LIBVIRT_NETWORK="lab"
 declare -g VM_BOOT_FIRMWARE=""
 declare -g REQUIRED_GROUP="${REQUIRED_GROUP:-libvirt}"
 declare -g PROXY_SOURCE_DIR="${PROXY_SOURCE_DIR:-/etc/profile.d}"
@@ -52,8 +52,8 @@ declare -g VM_WAIT_SHUTDOWN_ATTEMPTS="${VM_WAIT_SHUTDOWN_ATTEMPTS:-12}"
 declare -g VM_WAIT_SHUTDOWN_INTERVAL_SECONDS="${VM_WAIT_SHUTDOWN_INTERVAL_SECONDS:-5}"
 
 # Network configuration: static IP via libvirt DHCP reservation
-declare -g NETWORK_SUBNET="192.168.122"
-declare -g MAC_PREFIX="52:54:00:00"
+declare -g NETWORK_SUBNET="192.168.123"
+declare -g MAC_PREFIX="52:54:00:01"
 # Vacuum-by-species address table. Each pair listed here owns one base
 # address; the main instance sits on the base and named instances hash
 # into the shared 160-254 window. The operator definition assigns more
@@ -411,7 +411,7 @@ function register_dhcp {
     # its message says only that an entry exists; it cannot say which VM holds
     # the address or that a node-ID choice produced it.
     # Match the address as a whole quoted field. A substring or regex match
-    # would report 192.168.122.10 as held by the entry for 192.168.122.101,
+    # would report 192.168.123.10 as held by the entry for 192.168.123.101,
     # refusing a VM whose address is free.
     local holder
     holder="$(virsh --connect "${LIBVIRT_URI}" net-dumpxml "${LIBVIRT_NETWORK}" 2>/dev/null \
@@ -889,7 +889,7 @@ function provision_vm {
     fi
 
 
-    local net_args="network=default,model=virtio"
+    local net_args="network=${LIBVIRT_NETWORK},model=virtio"
     if [[ -n "${VM_MAC}" ]]; then
         net_args="${net_args},mac=${VM_MAC}"
     fi

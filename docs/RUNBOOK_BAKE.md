@@ -87,15 +87,15 @@ Fresh consumer VMs reuse deterministic lab IP addresses. After a VM is deleted a
 For the default ioc-runner consumers:
 
 ```bash
-ssh-keygen -f ~/.ssh/known_hosts -R 192.168.122.150
-ssh-keygen -f ~/.ssh/known_hosts -R 192.168.122.50
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.123.150
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.123.50
 ```
 
 Then connect normally:
 
 ```bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50
 ```
 
 Do not disable host-key checking for final acceptance. The expected workflow is to remove the stale deterministic-IP entry, accept the new key for the freshly provisioned VM, and then read `/etc/iocrunner-bake.manifest` or run the provenance validator.
@@ -107,21 +107,21 @@ SSH checks in local output redirection.
 Rocky 8 consumer:
 
 ```bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo sha256sum /etc/iocrunner-bake.manifest"
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
-scp bin/validate_iocrunner_bake.bash vmadmin@192.168.122.150:/tmp/validate_iocrunner_bake.bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150 "sudo sha256sum /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
+scp bin/validate_iocrunner_bake.bash vmadmin@192.168.123.150:/tmp/validate_iocrunner_bake.bash
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
 ```
 
 Debian 13 consumer:
 
 ```bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo sha256sum /etc/iocrunner-bake.manifest"
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
-scp bin/validate_iocrunner_bake.bash vmadmin@192.168.122.50:/tmp/validate_iocrunner_bake.bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50 "sudo sha256sum /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
+scp bin/validate_iocrunner_bake.bash vmadmin@192.168.123.50:/tmp/validate_iocrunner_bake.bash
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
 ```
 
 Compare the remote manifest hash against the sidecar hash on the control host:

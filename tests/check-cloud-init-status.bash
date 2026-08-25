@@ -172,7 +172,7 @@ case "$cmd" in
             printf "%s\n" "${count}" > "${FAKE_DOMIFADDR_COUNT_FILE}"
         fi
         if [[ "${count}" -ge "${FAKE_DOMIFADDR_READY_AFTER:-1}" ]]; then
-            printf " vnet0 52:54:00:00:64:00 ipv4 192.168.122.100/24\n"
+            printf " vnet0 52:54:00:01:64:00 ipv4 192.168.123.100/24\n"
         fi
         ;;
     shutdown)
@@ -184,7 +184,7 @@ case "$cmd" in
         # A reservation whose address is a strict prefix of the one under test.
         # A substring or regex match would report the tested address as held.
         printf "%s\n" "<network><ip><dhcp>"
-        printf "%s\n" "  <host mac='52:54:00:00:64:01' name='other-vm' ip='${FAKE_RESERVED_IP:-192.168.122.1501}'/>"
+        printf "%s\n" "  <host mac='52:54:00:01:64:01' name='other-vm' ip='${FAKE_RESERVED_IP:-192.168.123.1501}'/>"
         printf "%s\n" "</dhcp></ip></network>"
         ;;
     net-update|start|destroy|undefine)
@@ -931,7 +931,7 @@ function run_address_case {
     result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
         run_create_vm $'status: done\n' "status")
     output="${result#*$'\n'}"
-    got="$(grep -oE 'mapped to 192\.168\.122\.[0-9]+|IP Address : 192\.168\.122\.[0-9]+' <<< "${output}" \
+    got="$(grep -oE 'mapped to 192\.168\.123\.[0-9]+|IP Address : 192\.168\.123\.[0-9]+' <<< "${output}" \
         | grep -oE '[0-9]+$' | head -1)"
     expect_equal "${name}" "${want_last}" "${got:-none}"
 }
@@ -958,7 +958,7 @@ function run_address_distinct_case {
         result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
             run_create_vm $'status: done\n' "status")
         output="${result#*$'\n'}"
-        got="$(grep -oE 'mapped to 192\.168\.122\.[0-9]+' <<< "${output}" \
+        got="$(grep -oE 'mapped to 192\.168\.123\.[0-9]+' <<< "${output}" \
             | grep -oE '[0-9]+$' | head -1)"
         seen+=("${got:-none}")
     done
@@ -968,8 +968,8 @@ function run_address_distinct_case {
 }
 
 # The DHCP collision guard must compare whole address fields. Matching by
-# substring or regex would read 192.168.122.150 as held by the entry for
-# 192.168.122.1501 and refuse a VM whose address is free - a guard that blocks
+# substring or regex would read 192.168.123.150 as held by the entry for
+# 192.168.123.1501 and refuse a VM whose address is free - a guard that blocks
 # correct work is worse than the collision it was added to name.
 function run_reservation_case {
     local name="$1"
@@ -1126,9 +1126,9 @@ run_address_case "main instance debian13-ethercat" "debian13-ethercat" "main" "7
 run_address_case "hashed instance debian13-ethercat aux" "debian13-ethercat" "aux" "215"
 run_address_distinct_case "probe" rocky8 debian13 rocky10 rocky8-iocrunner debian13-ethercat rocky8-epics-dev
 
-# DHCP reservation guard. rocky8-iocrunner main maps to 192.168.122.150.
-run_reservation_case "reservation guard ignores a longer address" "192.168.122.1501" "no"
-run_reservation_case "reservation guard fires on the same address" "192.168.122.150" "yes"
+# DHCP reservation guard. rocky8-iocrunner main maps to 192.168.123.150.
+run_reservation_case "reservation guard ignores a longer address" "192.168.123.1501" "no"
+run_reservation_case "reservation guard fires on the same address" "192.168.123.150" "yes"
 
 # SSH readiness contract, ARCHITECTURE section 13. Asserted last so it covers
 # every probe every case above drove.

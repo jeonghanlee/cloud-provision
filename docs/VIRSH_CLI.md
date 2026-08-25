@@ -26,12 +26,12 @@ virsh --connect qemu:///system net-dhcp-leases default
 ```bash
 # Add static DHCP reservation (live + persistent)
 virsh --connect qemu:///system net-update default add ip-dhcp-host \
-    "<host mac='52:54:00:00:64:00' name='lab-rocky8-main' ip='192.168.122.100'/>" \
+    "<host mac='52:54:00:01:64:00' name='lab-rocky8-main' ip='192.168.123.100'/>" \
     --live --config
 
 # Remove static DHCP reservation (live + persistent)
 virsh --connect qemu:///system net-update default delete ip-dhcp-host \
-    "<host mac='52:54:00:00:64:00' name='lab-rocky8-main' ip='192.168.122.100'/>" \
+    "<host mac='52:54:00:01:64:00' name='lab-rocky8-main' ip='192.168.123.100'/>" \
     --live --config
 ```
 
