@@ -755,6 +755,10 @@ function merge_proxy_user_data {
             skipping_packages=true
             continue
         fi
+        # This block boundary (the packages: key starts it; the first line not
+        # starting with whitespace, a blank line included, ends it) is mirrored
+        # by tests/check-package-parity.bash so the parity guard reads exactly
+        # the set dropped here. Keep the two boundary rules in sync.
         if [[ "${skipping_packages}" == true ]]; then
             if [[ "${line}" =~ ^[[:space:]] ]]; then
                 continue

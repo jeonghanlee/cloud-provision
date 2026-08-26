@@ -44,14 +44,18 @@ function record_fail {
     printf "[ FAIL ] %s\n" "${name}" >&2
 }
 
-# Extract the cloud-init packages: block entries from a template. Starts at the
-# packages: key and stops at the next top-level key, so users: and runcmd: list
-# items are never read as packages.
+# Extract the cloud-init packages: block entries from a template. The block
+# boundary mirrors the proxy-merge stripper in bin/create_vm.bash: the packages:
+# key starts the block, and the first line that does not start with whitespace
+# (a blank line included) ends it. Reading the block the same way the stripper
+# drops it keeps the guard verifying exactly the set that leaves the image, and
+# excludes the users: and runcmd: list items. Keep the two boundary rules in
+# sync.
 function extract_template_packages {
     local template="$1"
     awk '
         /^packages:[[:space:]]*$/ { in_block = 1; next }
-        in_block && /^[^[:space:]]/ { in_block = 0 }
+        in_block && !/^[[:space:]]/ { in_block = 0 }
         in_block && /^[[:space:]]+-[[:space:]]/ {
             line = $0
             sub(/^[[:space:]]+-[[:space:]]+/, "", line)
