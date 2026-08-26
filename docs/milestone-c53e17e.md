@@ -1070,7 +1070,8 @@ The single source is cloud-provision-local. The ansible-provision `common` role 
 - Transferred from the M5 conceptual-integrity sweep (2026-08-26): the fixture lists are a hand-copied duplicate of the P_common definition. Rather than a permanent Keep, the copy is scheduled here; M11 supersedes the M5 fixtures when it lands.
 - Deferred obstacle recorded 2026-08-26: deriving by parsing the current P_common prose is brittle because the definition is free-form English. This milestone instead restructures the definition into prose plus structured data so the guard reads data, not prose.
 - Decided 2026-08-26: the structured source is a separate data file `configure/pcommon-packages`, not a fenced block inside the normative document, because bash reads a simple data file more robustly than it parses markdown.
-- Decided 2026-08-26: the OS-to-family classification is an explicit `family:` map in the data source and fails loudly on an unmapped OS, rather than a name-prefix rule that would silently misclassify an OS named neither rocky nor debian. This adds a small OS-type list, accepted because it is fail-loud and is not the package-name duplication this milestone removes.
+- Decided 2026-08-26: the OS-to-family classification is an explicit `family:` map in the data source and fails loudly on an unmapped OS, rather than a name-prefix rule that would silently misclassify an OS named neither rocky nor debian. This adds a small OS-type list, accepted because it is fail-loud and is not the package-name duplication this milestone removes. Ubuntu spells its packages like the debian family, so the family values are debian and rocky only and ubuntu maps to debian.
+- Added 2026-08-26 from later third-person sweeps: because the data source is now the one authoritative list, the guard protects its integrity - an unrecognized key, a family value it cannot spell (anything but debian or rocky), and a group key repeated on two lines all fail loudly rather than being silently ignored, mapped to canonical non-installable names, or kept-last. A mistyped family for a shipped OS is already caught by T4 through the OS's family-spelled packages; these guards turn that into a clear diagnostic and also cover an OS whose template lists only canonical names. Each integrity message names the offending data file so a reader knows where to fix it (second-person pass).
 
 ##### Implementation Plan
 
@@ -1094,6 +1095,9 @@ Superseded Plan Artifacts: none
 | M11 / T3 | Divergence template | Drive the guard with the divergence fixture template against the real data source | Local checkout | Nonzero exit naming the absent package |
 | M11 / T4 | Shipped templates | `make check-package-parity` against the five shipped templates and the real data source | Local checkout | Every template entry is within its OS's derived set |
 | M11 / T5 | Derivation logic | Drive the guard with a minimal fixture data source covering spelling in both families, debian-only inclusion and exclusion, and an unmapped OS | Local checkout; controlled fixture input | Both families derive with the correct spellings, debian-only is in the debian set and absent from rocky, and an unmapped OS fails loudly |
+| M11 / T6 | Unknown family value | Drive the guard with a data source whose family value is neither debian nor rocky | Local checkout; controlled fixture input | Fails loudly naming the unknown family, rather than silently using canonical names |
+| M11 / T7 | Duplicate group key | Drive the guard with a data source that repeats a group key on two lines | Local checkout; controlled fixture input | Fails loudly rather than silently keeping only the last line |
+| M11 / T8 | Unrecognized key | Drive the guard with a data source whose key is misspelled | Local checkout; controlled fixture input | Fails loudly naming the unknown key rather than silently ignoring the line |
 
 ##### Verification Results
 
@@ -1106,6 +1110,9 @@ Observed 2026-08-26 on branch `m11-pcommon-source`, real derived path executed:
 | M11 / T3 | `check-package-parity.bash tests/fixtures/package-parity/divergence` | Nonzero, names `postgresql` |
 | M11 / T4 | `make check-package-parity` | Five shipped templates pass; `make check-docs` also passes with the restructured definition |
 | M11 / T5 | `check-package-parity.bash` with `tests/fixtures/package-parity/pcommon-mini` over the derive-mixed, derive-rocky-excl, and derive-unknown fixtures | debian and rocky derive with per-family spelling; `delta` (debian-only) passes for debian and fails for rocky; an unmapped OS fails with "no package family mapped" |
+| M11 / T6 | Guard driven with a data source whose family value is `weird`; also verified that mistyping a shipped OS's real family (`rocky8=rockey`) makes T4 fail | Fails with "pcommon: &lt;data-file&gt;: unknown package family 'weird' ... (expected debian or rocky)"; the shipped-OS typo fails T4 naming `openssl-devel` |
+| M11 / T7 | Guard driven with a data source repeating `must_have` on two lines | Fails with "pcommon: &lt;data-file&gt;: duplicate 'must_have' line; one line per key" |
+| M11 / T8 | Guard driven with a data source whose key is `must_haves` | Fails with "pcommon: &lt;data-file&gt;: unknown key 'must_haves'; expected must_have, core, debian_only, spelling, or family" |
 
 ##### Closure Evidence
 
