@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both repositories are merged to master (cloud-provision merge `2edf5ac`, ansible-provision fast-forward to `b9e3099`). M5, the package-set parity guard, is implemented and verified on branch `m5-package-parity`: scope option 1 (the narrow within-P_common guard, D020), `make check-package-parity` and its fixtures pass T1-T4, committed as `c55130c` (implementation) and `1b0eb3c` (register). A conceptual-integrity sweep (2026-08-26) then aligned the guard's packages-block boundary to the `create_vm` proxy-merge stripper so the two parsers agree (Replace, commit `9630a1f`; recorded in `docs/CLOSED_DOORS.md`). The next entry point is to merge `m5-package-parity` to master, which flips M5 to Complete. M11 (new Backlog) restructures P_common into a single structured source the guard derives from, retiring the hand-copied fixture lists; the M5 list-copy seam is transferred there and M11 is Ready once M5 is Complete. Keep M1.1 EtherCAT deferred in the Backlog (see the kept species-assembly asymmetry note) and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both repositories are merged to master (cloud-provision merge `2edf5ac`, ansible-provision fast-forward to `b9e3099`). M5, the package-set parity guard, is implemented and verified on branch `m5-package-parity`: scope option 1 (the narrow within-P_common guard, D020), `make check-package-parity` and its fixtures pass T1-T4, committed as `c55130c` (implementation) and `1b0eb3c` (register). A conceptual-integrity sweep (2026-08-26) then aligned the guard's packages-block boundary to the `create_vm` proxy-merge stripper so the two parsers agree (Replace, commit `9630a1f`; recorded in `docs/CLOSED_DOORS.md`). M11 then restructured P_common into a single structured source (`configure/pcommon-packages`) the guard derives from, retiring the hand-copied fixture lists; it is implemented and verified (T1-T5) on branch `m11-pcommon-source` (implementation commit `5f356cb`), stacked on `m5-package-parity`, so master never carries the transient fixtures. The next entry point is to merge `m11-pcommon-source` to master, which flips both M5 and M11 to Complete. Keep M1.1 EtherCAT deferred in the Backlog (see the kept species-assembly asymmetry note) and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -918,7 +918,7 @@ Projection State: reconciled; remote issue #37 created and closed manually on 20
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 Deferred EtherCAT acceptance | M1.1 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D014-D015, D017, M3 | After M3, restore and update the deferred EtherCAT test surfaces from `733edf0`, then run the real bake, consumer, proxy-clean check, and separately authorized image audit; [M1.1 detail](#m11). |
-| Package-set single source | M11 | Restructure the P_common definition into prose plus a structured data source so the parity guard derives per-OS lists from one place | Milestone | Not started | No | D020, M5 | The P_common package names live in one structured source that the operator definition references without re-listing, the parity guard derives each OS list from it, and the hand-copied fixture lists are retired; [M11 detail](#m11-pcommon). |
+| Package-set single source | M11 | Restructure the P_common definition into prose plus a structured data source so the parity guard derives per-OS lists from one place | Milestone | In progress | - | D020, M5 | The P_common package names live in one structured source that the operator definition references without re-listing, the parity guard derives each OS list from it, and the hand-copied fixture lists are retired; [M11 detail](#m11-pcommon). |
 
 ### Backlog Details
 
@@ -1041,7 +1041,7 @@ Projection State: reconciled; remote title and body match the canonical projecti
 Origin: c53e17e / M11
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -1054,7 +1054,9 @@ The M5 parity guard reads its per-OS expected lists from `tests/fixtures/expecte
 - Make the parity guard derive each OS's expected list from the single source, and retire `tests/fixtures/expected-post-apply-packages/*.txt`.
 - Keep the guard's one-directional check and the covered and divergence fixture behavior (M5 / T2, T3).
 
-Out of scope: unifying with the ansible-provision `pkg_automation` EPICS package lists, which is a further consolidation; changing which packages P_common contains.
+Out of scope: unifying with the ansible-provision package lists, which is a further consolidation; changing which packages P_common contains.
+
+The single source is cloud-provision-local. The ansible-provision `common` role keeps its own installer list of these packages (`roles/common/defaults/main.yml`), which the guard still does not compare against, per D020. M11 closes the definition-to-guard duplication inside cloud-provision; the definition-to-installer copy across repositories remains the further consolidation noted above.
 
 ##### Completion Criteria
 
@@ -1067,25 +1069,47 @@ Out of scope: unifying with the ansible-provision `pkg_automation` EPICS package
 - D020: the guard owns its per-OS expected lists inside cloud-provision. This milestone changes how those lists are expressed, from a hand-copy to a derivation from the single source, not where they are owned.
 - Transferred from the M5 conceptual-integrity sweep (2026-08-26): the fixture lists are a hand-copied duplicate of the P_common definition. Rather than a permanent Keep, the copy is scheduled here; M11 supersedes the M5 fixtures when it lands.
 - Deferred obstacle recorded 2026-08-26: deriving by parsing the current P_common prose is brittle because the definition is free-form English. This milestone instead restructures the definition into prose plus structured data so the guard reads data, not prose.
+- Decided 2026-08-26: the structured source is a separate data file `configure/pcommon-packages`, not a fenced block inside the normative document, because bash reads a simple data file more robustly than it parses markdown.
+- Decided 2026-08-26: the OS-to-family classification is an explicit `family:` map in the data source and fails loudly on an unmapped OS, rather than a name-prefix rule that would silently misclassify an OS named neither rocky nor debian. This adds a small OS-type list, accepted because it is fail-loud and is not the package-name duplication this milestone removes.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: 2026-08-26 (option 2, a separate data file; explicit family map)
+Implementation Authorization: 2026-08-26
 Superseded Plan Artifacts: none
+
+1. Add the data source `configure/pcommon-packages`: `must_have`, `core`, and `debian_only` groups, a `spelling` map (canonical=debian:rocky), and a `family` map (OS type to package family).
+2. Restructure the `docs/IMAGE_WORKFLOW.md` P_common cell and the family-spelling table to state the structure and reference the data source, with no package names in the prose.
+3. Rewrite `tests/check-package-parity.bash` to parse the data source and derive each OS's expected set (must-have and core, plus debian-only for the debian family, each name spelled per family), preserving the create_vm-aligned packages-block boundary and its reciprocal comment.
+4. Retire `tests/fixtures/expected-post-apply-packages/*.txt`; keep the covered and divergence templates, now checked against the real derived set; add a minimal fixture data source and derivation fixtures.
+5. Run T1-T5 and record observed results.
 
 ##### Test Plan
 
-Defined when the plan is accepted.
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M11 / T1 | Syntax and static analysis | `bash -n` and `shellcheck -S warning` on the rewritten guard | Local checkout | Exit 0 and no unreviewed warning |
+| M11 / T2 | Covered template | Drive the guard with the covered fixture template against the real data source | Local checkout | Exit 0 |
+| M11 / T3 | Divergence template | Drive the guard with the divergence fixture template against the real data source | Local checkout | Nonzero exit naming the absent package |
+| M11 / T4 | Shipped templates | `make check-package-parity` against the five shipped templates and the real data source | Local checkout | Every template entry is within its OS's derived set |
+| M11 / T5 | Derivation logic | Drive the guard with a minimal fixture data source covering spelling in both families, debian-only inclusion and exclusion, and an unmapped OS | Local checkout; controlled fixture input | Both families derive with the correct spellings, debian-only is in the debian set and absent from rocky, and an unmapped OS fails loudly |
 
 ##### Verification Results
 
-None observed.
+Observed 2026-08-26 on branch `m11-pcommon-source`, real derived path executed:
+
+| Label | Command | Observed |
+| --- | --- | --- |
+| M11 / T1 | `bash -n` and `shellcheck -S warning tests/check-package-parity.bash` | Exit 0, no warning |
+| M11 / T2 | `check-package-parity.bash tests/fixtures/package-parity/covered` | Exit 0 |
+| M11 / T3 | `check-package-parity.bash tests/fixtures/package-parity/divergence` | Nonzero, names `postgresql` |
+| M11 / T4 | `make check-package-parity` | Five shipped templates pass; `make check-docs` also passes with the restructured definition |
+| M11 / T5 | `check-package-parity.bash` with `tests/fixtures/package-parity/pcommon-mini` over the derive-mixed, derive-rocky-excl, and derive-unknown fixtures | debian and rocky derive with per-family spelling; `delta` (debian-only) passes for debian and fails for rocky; an unmapped OS fails with "no package family mapped" |
 
 ##### Closure Evidence
 
-None.
+Implemented and verified in commit `5f356cb` on `m11-pcommon-source`. The milestone completes on merge to master.
 
 ## History
 
