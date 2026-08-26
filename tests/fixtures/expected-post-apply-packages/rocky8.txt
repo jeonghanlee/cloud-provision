@@ -1,0 +1,22 @@
+# Seeded from docs/IMAGE_WORKFLOW.md P_common operator definition; keep in sync.
+sudo
+chrony
+git
+wget
+unzip
+gcc
+gcc-c++
+make
+autoconf
+automake
+libtool
+openssl-devel
+net-tools
+vim
+tmux
+lsof
+tree
+sysstat
+logrotate
+acl
+socat

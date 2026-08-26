@@ -1,0 +1,16 @@
+#cloud-config
+
+users:
+  - name: vmadmin
+    groups: [sudo]
+
+packages:
+  - git
+  - gcc
+  - postgresql
+  - locales
+
+timezone: America/Los_Angeles
+
+runcmd:
+  - [locale-gen, en_US.UTF-8]
