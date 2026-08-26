@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch. M8 / T4 real verification now passes on all five vacua: the M10 proxy-contract fix unblocked ubuntu26, so M8 / T5 and T6 remain. M10 is In progress: `bin/proxy_contract.bash` resolves an in-root symlinked identity command, the ADR invariant is updated with D022, four `check-proxy-injection` identity cases pass, and T1 through T4 are verified; the change is in the working tree and a second-person pass on the ADR and register precedes its commit. M6 is In progress with its offline items done (documented locale dependency and runcmd-last invariant, first-boot self-check, and the two lints) and closes on its real self-check (M6 T4-T5) in the same M8 real-environment stage. M5 stays planned and held behind M8. The operator definition and all M8/M6/M7/M10 work ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M7, M9, and M10 are Complete. M8 is In progress: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch. M8 / T4 real verification passes on all five vacua (the M10 proxy-contract fix unblocked ubuntu26). M8 / T5 is partly done: the debian13 iocrunner golden bake completes with the new shared P_python operator (D023), with the rocky8 iocrunner bake, one iocrunner-nfs bake, and fresh consumer selection remaining; M8 / T6 (one epics-dev source build) also remains. M6 is In progress with its offline items done (documented locale dependency and runcmd-last invariant, first-boot self-check, and the two lints) and closes on its real locale self-check (M6 T4-T5) in the same M8 real-environment stage. M5 stays planned and held behind M8. The operator definition and all M8/M6/M7 work ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -27,7 +27,7 @@ Next session entry point: M2, M3, M7, and M9 are Complete. M8 is In progress: it
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | In progress | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done, closes on the real self-check in the M8 stage; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
 | Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | In progress | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
-| Proxy contract portability | M10 | Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute | Milestone | In progress | No | D009, D021 | The proxy contract's identity-command validation accepts a command path that resolves through a symbolic link to a regular executable inside the guest root, ubuntu26 proxy apply writes its artifacts, and M8 / T4 passes on ubuntu26; [M10 detail](#m10). |
+| Proxy contract portability | M10 | Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute | Milestone | Complete | No | D009, D021 | The proxy contract's identity-command validation accepts a command path that resolves through a symbolic link to a regular executable inside the guest root, ubuntu26 proxy apply writes its artifacts, and M8 / T4 passes on ubuntu26; [M10 detail](#m10). |
 
 ### Decisions
 
@@ -816,7 +816,7 @@ Both repositories work on the `m8-operator-model` branch and merge to master whe
 Origin: c53e17e / M10
 Identity History: none
 GitHub Issue: [#37](https://github.com/jeonghanlee/cloud-provision/issues/37)
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -882,7 +882,7 @@ Superseded Plan Artifacts: none
 ##### Closure Evidence
 
 - Opened 2026-08-25 from the M8 / T4 real-environment observation (D021). ubuntu26 is not shipped until this resolves.
-- Implemented and verified in the `m8-operator-model` working tree on 2026-08-25: the identity-command symlink resolution in `bin/proxy_contract.bash`, the ADR invariant update with D022, and the four `check-proxy-injection` identity cases. T1 through T4 observed Pass; a fresh ubuntu26 bare VM applies P_common through the now-written proxy artifact, and debian13 and rocky8 keep regular-file identity commands. The carrying commit is recorded by the next register update; a second-person pass on the ADR and register precedes the commit.
+- Implemented and verified in the `m8-operator-model` working tree on 2026-08-25: the identity-command symlink resolution in `bin/proxy_contract.bash`, the ADR invariant update with D022, and the four `check-proxy-injection` identity cases. T1 through T4 observed Pass; a fresh ubuntu26 bare VM applies P_common through the now-written proxy artifact, and debian13 and rocky8 keep regular-file identity commands. Reviewed to convergence (third-person twice and a second-person pass) and committed on 2026-08-25: the `bin/proxy_contract.bash` fix, the ADR update with D022, and the four `check-proxy-injection` identity cases in `4113f5f` (Closes #37), and this verification record in `5e8528d`; both pushed on `m8-operator-model`.
 
 ##### GitHub Projection
 
