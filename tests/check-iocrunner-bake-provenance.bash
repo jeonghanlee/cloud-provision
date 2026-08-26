@@ -83,7 +83,7 @@ function expect_failure {
     fi
 }
 
-# Pins that every ssh this repository makes to a testbed VM refuses connection
+# Pins that every ssh this repository makes to a lab VM refuses connection
 # multiplexing. A bake reaches the VM through its own call sites and through
 # create_vm.bash's readiness probe, so one recorded log covers both scripts.
 #
@@ -127,20 +127,20 @@ function assert_runtime_inventory {
         path_count="$(sort -u "${path_log}" | wc -l)"
         runtime_path="$(head -n 1 "${path_log}")"
     fi
-    if [[ "${invocation_count}" == "3" && "${path_count}" == "1" ]]; then
+    if [[ "${invocation_count}" == "1" && "${path_count}" == "1" ]]; then
         record_pass "${label} passes one runtime inventory to every play"
     else
         record_fail "${label} passes one runtime inventory to every play" \
             "invocations=${invocation_count}, paths=${path_count}"
     fi
 
-    runtime_host="$(awk -v prefix="testbed-${os_type}-build-" \
-        'index($1, prefix) == 1 && $2 ~ /^ansible_host=192[.]168[.]122[.][0-9]+$/ && \
+    runtime_host="$(awk -v prefix="lab-${os_type}-build-" \
+        'index($1, prefix) == 1 && $2 ~ /^ansible_host=192[.]168[.]123[.][0-9]+$/ && \
          $3 == "ansible_user=vmadmin" {print $1; exit}' \
         "${snapshot}" 2>/dev/null || true)"
     if [[ -n "${runtime_host}" ]] && \
        grep -Fxq "[${os_type}]" "${snapshot}" && \
-       grep -Fxq '[nfs_sim_nodes]' "${snapshot}" && \
+       grep -Fxq '[iocrunner]' "${snapshot}" && \
        grep -Fxq "${runtime_host}" "${snapshot}"; then
         record_pass "${label} assigns the run-specific host to required groups"
     else
@@ -444,7 +444,7 @@ function run_validator_tests {
     expect_failure "validator rejects installed hash-prefix mismatch" \
         run_validator "${manifest}" "${epics_checkout}" "${runner_checkout}" "${runner_bin}"
 
-    # The optional requested= field, issue #26. ansible-provision writes it on
+    # The optional requested= field: ansible-provision writes it on
     # app_ioc_runner when a selector is set, recording what the caller asked
     # for beside the commit that was resolved. The unset manifest above is the
     # guard for the no-op path and must stay green.
@@ -626,10 +626,10 @@ for argument in "$@"; do
     if [[ "${expect_inventory_path}" == true ]]; then
         expect_inventory_path=false
         if [[ -f "${argument}" ]] && \
-           grep -Eq "^testbed-${CASE_OS_TYPE}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\\.168\\.122\\.[0-9]+ ansible_user=vmadmin$" \
+           grep -Eq "^lab-${CASE_OS_TYPE}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12} ansible_host=192\\.168\\.123\\.[0-9]+ ansible_user=vmadmin$" \
                "${argument}" && \
            grep -Fxq "[${CASE_OS_TYPE}]" "${argument}" && \
-           grep -Fxq '[nfs_sim_nodes]' "${argument}"; then
+           grep -Fxq '[iocrunner]' "${argument}"; then
             runtime_inventory="${argument}"
         fi
     elif [[ "${argument}" == "-i" ]]; then
@@ -644,14 +644,14 @@ printf "%s\n" "${runtime_inventory}" >> "${RUNTIME_INVENTORY_ARG_LOG}"
 if [[ ! -s "${RUNTIME_INVENTORY_SNAPSHOT}" ]]; then
     cat "${runtime_inventory}" > "${RUNTIME_INVENTORY_SNAPSHOT}"
 fi
-# Every invocation is recorded so a case can assert which play received the
-# version selector. The selector belongs to site.yml alone; the other two plays
-# have nothing to do with the runner version.
+# Every invocation is recorded so a case can assert which run received the
+# version selector. The selector belongs to the species assembly run, the only
+# ansible-playbook invocation the bake makes.
 if [[ -n "${ANSIBLE_ARG_LOG:-}" ]]; then
     printf "%s
 " "$*" >> "${ANSIBLE_ARG_LOG}"
 fi
-if [[ "$*" != *"site.yml"* ]] || grep -q '^app_con ' "${REMOTE_MANIFEST}" 2>/dev/null; then
+if [[ "$*" != *"species/iocrunner"* ]] || grep -q '^app_con ' "${REMOTE_MANIFEST}" 2>/dev/null; then
     exit 0
 fi
 timestamp="2026-07-29T00:00:00Z"
@@ -1036,10 +1036,10 @@ function run_promotion_case {
         fi
 
         if grep -Eq \
-            "VM 'testbed-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' is running\. Shutting down \(ACPI\)\.\.\." \
+            "VM 'lab-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' is running\. Shutting down \(ACPI\)\.\.\." \
             "${case_dir}/output.txt" && \
            grep -Eq \
-            "VM 'testbed-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' shut off \[OK\]" \
+            "VM 'lab-${os_type}-build-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}' shut off \[OK\]" \
             "${case_dir}/output.txt"; then
             record_pass "${mode} uses the shared public stop path"
         else
@@ -1064,14 +1064,14 @@ function run_promotion_case {
                 "cleanup guidance printed after a successful bake"
         fi
 
-        # Where the version selector went, issue #26. Asserting only that the
-        # bake succeeded would pass whether the selector reached site.yml, all
-        # three plays, or none of them.
+        # Where the version selector went: asserting only that the
+        # bake succeeded would pass whether or not the selector reached the
+        # species assembly run.
         local arg_log="${case_dir}/ansible-args.log"
         local site_lines other_with_ref
-        site_lines="$(grep -c 'site\.yml' "${arg_log}" 2>/dev/null || true)"
+        site_lines="$(grep -c 'species/iocrunner' "${arg_log}" 2>/dev/null || true)"
         other_with_ref="$(grep 'ioc_runner_version' "${arg_log}" 2>/dev/null \
-            | grep -c -v 'site\.yml' || true)"
+            | grep -c -v 'species/iocrunner' || true)"
         if [[ -z "${CASE_RUNNER_REF:-}" ]]; then
             if ! grep -q 'ioc_runner_version' "${arg_log}" 2>/dev/null; then
                 record_pass "${mode} unset selector adds no extra vars"
@@ -1080,15 +1080,15 @@ function run_promotion_case {
                     "$(grep 'ioc_runner_version' "${arg_log}" | head -1)"
             fi
         else
-            if grep 'site\.yml' "${arg_log}" 2>/dev/null \
+            if grep 'species/iocrunner' "${arg_log}" 2>/dev/null \
                 | grep -q -- "-e ioc_runner_version=${CASE_RUNNER_REF}"; then
-                record_pass "${mode} selector reaches site.yml"
+                record_pass "${mode} selector reaches the assembly"
             else
-                record_fail "${mode} selector reaches site.yml" "not in the recorded arguments"
+                record_fail "${mode} selector reaches the assembly" "not in the recorded arguments"
             fi
             expect_equal "${mode} selector reaches no other play" "0" "${other_with_ref}"
         fi
-        expect_equal "${mode} site.yml ran once" "1" "${site_lines}"
+        expect_equal "${mode} assembly ran once" "1" "${site_lines}"
 
         # The published image must be a real file. A symlink would satisfy the
         # existence check and make the image pair point outside the output.
@@ -1137,7 +1137,7 @@ function run_promotion_case {
     else
         record_fail "${mode} names the build VM left behind" "no cleanup guidance printed"
     fi
-    if grep -q "IMAGE_WORKFLOW_RUN_ID=.*create_vm.bash -o ${os_type} -n build .* -p testbed -c" \
+    if grep -q "IMAGE_WORKFLOW_RUN_ID=.*create_vm.bash -o ${os_type} -n build .* -p lab -c" \
         "${case_dir}/output.txt"; then
         record_pass "${mode} prints a runnable clean-restart command"
     else

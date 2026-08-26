@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 #
 # Generate one Ansible host inventory from a resolved cloud-provision VM.
+# The vacuum group comes from the OS selector and the species group from
+# --species, per the operator definition in docs/IMAGE_WORKFLOW.md.
 
 set -euo pipefail
 
 declare -g VM_NAME=""
 declare -g VM_ADDRESS=""
 declare -g OS_TYPE=""
-declare -g WORKLOAD_ROLE=""
+declare -g SPECIES=""
+declare -g VACUUM=""
 declare -g ANSIBLE_USER="vmadmin"
 declare -g READ_STATUS_INPUT=false
 
@@ -17,7 +20,7 @@ function die {
 }
 
 function print_usage {
-    printf "Usage: %s --os-type <selector> --role <role> [host source]\n" \
+    printf "Usage: %s --os-type <selector> --species <species> [host source]\n" \
         "$(basename "$0")"
     printf "\n"
     printf "Host source (choose one):\n"
@@ -25,10 +28,11 @@ function print_usage {
     printf "  --status-input                     Read create_vm.bash -s output from stdin\n"
     printf "\n"
     printf "Required:\n"
-    printf "  --os-type <selector>               cloud-provision OS selector\n"
-    printf "  --role <role>                      ioc-node, nfs-sim-node,\n"
-    printf "                                       ioc-runner-build, ethercat-node,\n"
-    printf "                                       ethercat-build, or epics-env-build\n"
+    printf "  --os-type <selector>               cloud-provision OS selector; the\n"
+    printf "                                       vacuum group is derived from it\n"
+    printf "  --species <species>                bare, iocrunner, iocrunner-nfs,\n"
+    printf "                                       epics-dev, nfs-sim, rtbase,\n"
+    printf "                                       or ethercat\n"
     printf "\n"
     printf "Optional:\n"
     printf "  --ansible-user <name>              SSH user (default: vmadmin)\n"
@@ -59,9 +63,9 @@ while [[ "$#" -gt 0 ]]; do
             OS_TYPE="$2"
             shift 2
             ;;
-        --role)
+        --species)
             require_option_value "$1" "$#"
-            WORKLOAD_ROLE="$2"
+            SPECIES="$2"
             shift 2
             ;;
         --ansible-user)
@@ -84,7 +88,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 [[ -n "${OS_TYPE}" ]] || die "--os-type is required"
-[[ -n "${WORKLOAD_ROLE}" ]] || die "--role is required"
+[[ -n "${SPECIES}" ]] || die "--species is required"
 
 if [[ "${READ_STATUS_INPUT}" == true ]]; then
     [[ -z "${VM_NAME}" && -z "${VM_ADDRESS}" ]] \
@@ -119,69 +123,37 @@ validate_ipv4_address "${VM_ADDRESS}" \
     || die "VM address is not a valid IPv4 address: ${VM_ADDRESS:-<empty>}"
 
 declare -ag INVENTORY_GROUPS=()
-declare -g BASE_OS_GROUP=""
 
-function select_ioc_os_group {
-    case "${OS_TYPE}" in
-        rocky8|rocky8-iocrunner)
-            BASE_OS_GROUP="rocky8"
-            ;;
-        debian13|debian13-iocrunner)
-            BASE_OS_GROUP="debian13"
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
+# The vacuum is the OS selector with any species suffix removed. The
+# operator definition assigns every species to every vacuum, so the
+# selector constrains only the vacuum, never the species argument.
+case "${OS_TYPE}" in
+    debian13|rocky8|rocky10|ubuntu24|ubuntu26)
+        VACUUM="${OS_TYPE}"
+        ;;
+    *-iocrunner-nfs) VACUUM="${OS_TYPE%-iocrunner-nfs}" ;;
+    *-iocrunner)     VACUUM="${OS_TYPE%-iocrunner}" ;;
+    *-epics-dev)     VACUUM="${OS_TYPE%-epics-dev}" ;;
+    *-ethercat)      VACUUM="${OS_TYPE%-ethercat}" ;;
+    *-rtbase)        VACUUM="${OS_TYPE%-rtbase}" ;;
+    *) die "unsupported OS selector: ${OS_TYPE}" ;;
+esac
+case "${VACUUM}" in
+    debian13|rocky8|rocky10|ubuntu24|ubuntu26) ;;
+    *) die "unsupported vacuum in OS selector: ${OS_TYPE}" ;;
+esac
 
-case "${WORKLOAD_ROLE}" in
-    ioc-node)
-        select_ioc_os_group \
-            || die "role ioc-node does not support OS selector: ${OS_TYPE}"
-        INVENTORY_GROUPS=("${BASE_OS_GROUP}")
-        ;;
-    nfs-sim-node)
-        select_ioc_os_group \
-            || die "role nfs-sim-node does not support OS selector: ${OS_TYPE}"
-        INVENTORY_GROUPS=("${BASE_OS_GROUP}" nfs_sim_nodes)
-        ;;
-    ioc-runner-build)
-        case "${OS_TYPE}" in
-            rocky8|debian13)
-                INVENTORY_GROUPS=("${OS_TYPE}" nfs_sim_nodes)
-                ;;
-            *)
-                die "role ioc-runner-build does not support OS selector: ${OS_TYPE}"
-                ;;
-        esac
-        ;;
-    ethercat-node)
-        [[ "${OS_TYPE}" == "debian13-ethercat" ]] \
-            || die "role ethercat-node requires OS selector debian13-ethercat"
-        INVENTORY_GROUPS=(ethercat_nodes)
-        ;;
-    ethercat-build)
-        [[ "${OS_TYPE}" == "debian13-rtbase" ]] \
-            || die "role ethercat-build requires OS selector debian13-rtbase"
-        INVENTORY_GROUPS=(ethercat_build)
-        ;;
-    epics-env-build)
-        case "${OS_TYPE}" in
-            epics-env-rocky8|epics-env-debian13)
-                INVENTORY_GROUPS=(epics_env_core)
-                ;;
-            epics-env-rocky10|epics-env-ubuntu24|epics-env-ubuntu26)
-                INVENTORY_GROUPS=(epics_env_matrix)
-                ;;
-            *)
-                die "role epics-env-build does not support OS selector: ${OS_TYPE}"
-                ;;
-        esac
-        ;;
-    *)
-        die "unsupported workload role: ${WORKLOAD_ROLE}"
-        ;;
+# A bare host joins only its vacuum group; every other species adds its
+# underscore-form species group.
+case "${SPECIES}" in
+    bare)          INVENTORY_GROUPS=("${VACUUM}") ;;
+    iocrunner)     INVENTORY_GROUPS=("${VACUUM}" iocrunner) ;;
+    iocrunner-nfs) INVENTORY_GROUPS=("${VACUUM}" iocrunner_nfs) ;;
+    epics-dev)     INVENTORY_GROUPS=("${VACUUM}" epics_dev) ;;
+    nfs-sim)       INVENTORY_GROUPS=("${VACUUM}" nfs_sim) ;;
+    rtbase)        INVENTORY_GROUPS=("${VACUUM}" rtbase) ;;
+    ethercat)      INVENTORY_GROUPS=("${VACUUM}" ethercat) ;;
+    *) die "unsupported species: ${SPECIES}" ;;
 esac
 
 declare -g HOST_LINE

@@ -45,9 +45,10 @@ Use the selector by the image you need to produce, not by the VM you will boot l
 | Rocky 8 ioc-runner golden | `make bake.rocky8` | `iocrunner-rocky8-<run-id>.qcow2` | `rocky8-iocrunner` |
 | Debian 13 ioc-runner golden | `make bake.debian13` | `iocrunner-debian13-<run-id>.qcow2` | `debian13-iocrunner` |
 | Both ioc-runner goldens | `make bake` | both ioc-runner images | both `*-iocrunner` selectors |
+| ioc-runner-nfs flavor golden | `make bake.iocrunner-nfs.<os>` (or `make bake.iocrunner-nfs` for both) | `iocrunner-nfs-<os>-<run-id>.qcow2` | `<os>-iocrunner-nfs` |
 | Debian 13 EtherCAT golden | `make bake.ethercat.debian13` | `ethercat-debian13-<run-id>.qcow2` | `debian13-ethercat` |
 
-To accept a production ioc-runner golden image, run the Rocky 8 and Debian 13 ioc-runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.server` and `debian13-iocrunner.server` consumers and compare the manifests against the running systems.
+To accept a production ioc-runner golden image, run the Rocky 8 and Debian 13 ioc-runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.main` and `debian13-iocrunner.main` consumers and compare the manifests against the running systems.
 
 ## Where a bake writes
 
@@ -66,8 +67,8 @@ input.
 ## Pinning the ioc-runner version
 
 `-r <ref>` pins the `epics-ioc-runner` version baked into the image. This
-repository passes it to Ansible as `ioc_runner_version` on the `site.yml` play
-and does nothing else with it; the `requested=<ref>` field on the
+repository passes it to Ansible as `ioc_runner_version` on the species
+assembly play and does nothing else with it; the `requested=<ref>` field on the
 `app_ioc_runner` manifest record is written by `ansible-provision`, and this
 repository's validator only shape-checks it.
 
@@ -81,20 +82,20 @@ publishes nothing.
 
 ## Fresh consumer SSH host keys
 
-Fresh consumer VMs reuse deterministic testbed IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.
+Fresh consumer VMs reuse deterministic lab IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.
 
 For the default ioc-runner consumers:
 
 ```bash
-ssh-keygen -f ~/.ssh/known_hosts -R 192.168.122.150
-ssh-keygen -f ~/.ssh/known_hosts -R 192.168.122.50
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.123.150
+ssh-keygen -f ~/.ssh/known_hosts -R 192.168.123.50
 ```
 
 Then connect normally:
 
 ```bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50
 ```
 
 Do not disable host-key checking for final acceptance. The expected workflow is to remove the stale deterministic-IP entry, accept the new key for the freshly provisioned VM, and then read `/etc/iocrunner-bake.manifest` or run the provenance validator.
@@ -106,21 +107,21 @@ SSH checks in local output redirection.
 Rocky 8 consumer:
 
 ```bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo sha256sum /etc/iocrunner-bake.manifest"
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
-scp bin/validate_iocrunner_bake.bash vmadmin@192.168.122.150:/tmp/validate_iocrunner_bake.bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.150 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150 "sudo sha256sum /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
+scp bin/validate_iocrunner_bake.bash vmadmin@192.168.123.150:/tmp/validate_iocrunner_bake.bash
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
 ```
 
 Debian 13 consumer:
 
 ```bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo sha256sum /etc/iocrunner-bake.manifest"
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
-scp bin/validate_iocrunner_bake.bash vmadmin@192.168.122.50:/tmp/validate_iocrunner_bake.bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.122.50 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50 "sudo stat -c '%U:%G %a %n' /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50 "sudo sha256sum /etc/iocrunner-bake.manifest"
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50 "sudo sed -n '1,80p' /etc/iocrunner-bake.manifest"
+scp bin/validate_iocrunner_bake.bash vmadmin@192.168.123.50:/tmp/validate_iocrunner_bake.bash
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50 "sudo /bin/bash -p /tmp/validate_iocrunner_bake.bash"
 ```
 
 Compare the remote manifest hash against the sidecar hash on the control host:
@@ -144,6 +145,23 @@ validated data input under `/run/cloud-provision`. It creates exactly one
 top-level `write_files` and one top-level `runcmd`, with privileged contract
 apply as the first command. Existing locale commands remain in their original
 order after apply. The source `templates/user-data.*` files are not modified.
+
+Package install ordering (D018): under proxy injection the `packages:` directive
+is stripped, so packages install after the proxy apply through Ansible, not
+through the cloud-init package module. The cloud-init package module runs in the
+config stage, before the runcmd proxy apply, so it has no proxy yet and cannot
+fetch. Without proxy injection the cloud-init baseline (the hand-off subset of
+P_common in `docs/IMAGE_WORKFLOW.md`) installs them at first boot.
+
+Base-image locale dependency (D018): stripping `packages:` removes the `locales`
+entry with it, while the runcmd locale commands are kept and still run at first
+boot. On a proxy-injected build those commands rely on the base image already
+shipping locale support (the `locales` package on the Debian family, glibc
+langpacks on Rocky). A base image lacking it fails locale generation; the
+debian-family templates carry a first-boot self-check that makes the absence
+surface instead of passing silently. Keep that self-check as the last `runcmd`
+entry: cloud-init runs `runcmd` as one `set -e`-less script whose exit status is
+its last line, so a command placed after it would mask the self-check failure.
 
 Apply writes the exact family set:
 
@@ -179,7 +197,7 @@ and host-side fetches. That policy is outside the guest artifact contract.
 
 ## Auditing published IOC runner images
 
-`bin/audit_iocrunner_images.bash` audits every regular, non-symlink `iocrunner-*.qcow2` file in one image directory. Each image must follow the `iocrunner-debian13-<run-id>.qcow2` or `iocrunner-rocky8-<run-id>.qcow2` naming contract and have a non-empty regular `<image>.manifest` sidecar.
+`bin/audit_iocrunner_images.bash` audits every regular, non-symlink `iocrunner-*.qcow2` file in one image directory. Each image must follow the `iocrunner-debian13-<run-id>.qcow2`, `iocrunner-rocky8-<run-id>.qcow2`, `iocrunner-nfs-debian13-<run-id>.qcow2`, or `iocrunner-nfs-rocky8-<run-id>.qcow2` naming contract and have a non-empty regular `<image>.manifest` sidecar.
 
 The entry point requires root privileges. It checks qcow2 metadata and integrity, starts one read-only guestfish appliance per image, finds exactly one guest root, and tests the value-free proxy artifact paths, markers, and key names pinned to the shipped `bin/proxy_contract.bash`. It does not create a host mount, attach an NBD device, execute a command in the guest, print a proxy value or guest file content, or modify an image. EtherCAT images and remediation are outside this command.
 
@@ -237,8 +255,8 @@ example allows 40 minutes between the first and final `cloud-init` polls:
 VM_WAIT_CLOUD_INIT_ATTEMPTS=81 make bake.rocky8
 ```
 
-The ioc-runner bake calls `create_vm.bash -S` at publication step 10, so it uses
-the same 60-second shutdown default as `make <os>.<node>.stop`. Zero, negative,
+The ioc-runner bake calls `create_vm.bash -S` at publication step 8, so it uses
+the same 60-second shutdown default as `make <os>.<instance>.stop`. Zero, negative,
 and non-integer settings are rejected before a VM action begins.
 
 ## Slow boot and package-manager diagnosis
@@ -309,24 +327,26 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo tail -n 80 /var
 - An earlier image pair is never overwritten. Each bake creates a new image,
   manifest sidecar, and creation record only after validation succeeds.
 - `-k` keeps the build VM after a successful bake for debugging.
-- To restart truly clean:
-  `bin/create_vm.bash -o <os> -n server -d <IMAGE_DIR> -p testbed -c`
-  then re-run the bake. Cleanup removes the build VM disk and its creation
+- To restart truly clean, run the cleanup command the failed bake printed
+  (`IMAGE_WORKFLOW_RUN_ID=<run-id> bin/create_vm.bash -o <os> -n build -d
+  <IMAGE_DIR> -p lab -c` — the run ID selects the exact build VM), then
+  re-run the bake. Cleanup removes the build VM disk and its creation
   record together; base images remain cached.
 - The nfs_sim role is order-sensitive on a partially-applied VM; when
-  a failure happened inside `04_nfs_sim`, prefer the clean restart
-  over a resume.
+  a failure happened inside the `nfs_sim` operator of the
+  `iocrunner-nfs` assembly, prefer the clean restart over a resume.
 
 ## Site overrides honored by the bake scripts
 
 - `BAKE_INVENTORY` — host-free Ansible group inventory passed to every
-  playbook call (default `inventory/testbed.ini`; relative to
+  playbook call (default `inventory/lab.ini`; relative to
   ansible-provision). Each bake also calls
   `bin/generate_ansible_inventory.bash` and passes a temporary host inventory.
-  The ioc-runner host enters its base OS group and `nfs_sim_nodes`; the
-  EtherCAT build host enters `ethercat_build`. Each temporary file is removed
+  The ioc-runner build host enters its vacuum group and `iocrunner` (or
+  `iocrunner_nfs` for the `-f iocrunner-nfs` flavor); the EtherCAT build
+  host enters its vacuum group and `rtbase`. Each temporary file is removed
   when its bake exits.
-- `VM_PREFIX` — build-VM name prefix (default `testbed`), now a single
+- `VM_PREFIX` — build-VM name prefix (default `lab`), now a single
   source shared with the make targets when exported.
 - `REQUIRED_GROUP` — host group required by `create_vm.bash` before
   provisioning or cleanup (default `libvirt`).
@@ -341,7 +361,8 @@ its provenance manifest beside the image.
 
 The image name is `<kind>-<platform>-<run-id>.qcow2`, where `<run-id>` is a UTC
 timestamp followed by a 12-character hash. The provisioner selects the newest
-valid pair for `rocky8-iocrunner`, `debian13-iocrunner`, and
+valid pair for `rocky8-iocrunner`, `debian13-iocrunner`,
+`rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, and
 `debian13-ethercat`; it does not select by a static filename.
 
 To inspect a pair after a bake:

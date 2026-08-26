@@ -1198,7 +1198,7 @@ function proxy_contract_cleanup_temps {
 function proxy_contract_resolve_guest_command {
     local command_name="$1"
     local result_name="$2"
-    local contract_path path
+    local contract_path path resolved
 
     case "${command_name}" in
         cloud-init) contract_path="/usr/bin/cloud-init" ;;
@@ -1211,13 +1211,27 @@ function proxy_contract_resolve_guest_command {
             ;;
     esac
     path="$(proxy_contract_root_path "${contract_path}")"
+    # An alternatives-managed command (for example resolute's sudo-rs visudo)
+    # is a symbolic link to a regular executable. Resolve it to its canonical
+    # target and validate that target. The rooted-path walk below still rejects
+    # a target that leaves the selected root, so resolution stays in-root and
+    # there is no host fallback.
+    if [[ -L "${path}" ]]; then
+        resolved="$(readlink -f -- "${path}" 2>/dev/null)"
+        if [[ -z "${resolved}" ]]; then
+            proxy_contract_die "identity command-${command_name} does not resolve"
+            return 1
+        fi
+    else
+        resolved="${path}"
+    fi
     proxy_contract_validate_rooted_path \
-        "command-${command_name}" "${path}" false || return 1
-    if [[ ! -e "${path}" || -L "${path}" || ! -f "${path}" || ! -x "${path}" ]]; then
+        "command-${command_name}" "${resolved}" false || return 1
+    if [[ ! -e "${resolved}" || -L "${resolved}" || ! -f "${resolved}" || ! -x "${resolved}" ]]; then
         proxy_contract_die "requires exact guest command ${contract_path}"
         return 1
     fi
-    printf -v "${result_name}" '%s' "${path}"
+    printf -v "${result_name}" '%s' "${resolved}"
 }
 
 function proxy_contract_preflight_cloud_init {

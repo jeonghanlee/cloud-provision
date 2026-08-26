@@ -1,12 +1,12 @@
 IMAGE_DIR       := $(HOME)/libvirt/images
 LIBVIRT_URI     := qemu:///system
-LIBVIRT_NETWORK := default
+LIBVIRT_NETWORK := lab
 REQUIRED_GROUP  := libvirt
 ANSIBLE_DIR     := $(TOP)/../ansible-provision
 
-VM_PREFIX := testbed
-OS_TYPES  := rocky8 debian13 rocky8-iocrunner debian13-iocrunner debian13-ethercat debian13-rtbase epics-env-rocky8 epics-env-debian13 epics-env-rocky10 epics-env-ubuntu26 epics-env-ubuntu24
-NODE_IDS  := server node1 node2
+VM_PREFIX := lab
+OS_TYPES  := rocky8 debian13 rocky10 ubuntu24 ubuntu26 rocky8-iocrunner debian13-iocrunner rocky8-iocrunner-nfs debian13-iocrunner-nfs debian13-ethercat debian13-rtbase rocky8-epics-dev debian13-epics-dev rocky10-epics-dev ubuntu24-epics-dev ubuntu26-epics-dev
+NODE_IDS  := main
 
 # Subset of OS_TYPES included in `make all`. Pre-baked variants are
 # excluded so they only build when their bake image is present.
@@ -22,8 +22,8 @@ ETHERCAT_BAKE_OS_TYPES := debian13
 # EPICS-env from-source build hosts. Inventory and playbook are relative
 # to ANSIBLE_DIR.
 EPICS_ENV_RAM       := 4096
-EPICS_ENV_INVENTORY := inventory/testbed.ini
-EPICS_ENV_PLAYBOOK  := playbooks/08_epics_env_build.yml
+EPICS_ENV_INVENTORY := inventory/lab.ini
+EPICS_ENV_PLAYBOOK  := playbooks/species/epics_dev.yml
 
 -include $(TOP)/../CONFIG_SITE.local
 -include $(TOP)/configure/CONFIG_SITE.local

@@ -37,13 +37,13 @@ B' only. B is read, never written, never held by a running VM.
 
 ## What this resolves
 
-B is held by no VM, which removes the root under three issues:
+B is held by no VM, which removes the root under three recorded defects:
 
-- #24 — libvirt claimed the backing file's ownership when a consumer started; with no backing chain there is no
+- libvirt claimed the backing file's ownership when a consumer started; with no backing chain there is no
   file to claim
-- #25 — consumers held the golden so it could not be rebaked; the in-use guard (`protect_output_consumers`) and
+- consumers held the golden so it could not be rebaked; the in-use guard (`protect_output_consumers`) and
   its first-transition refusal become unnecessary on this stretch
-- #2 — rebaking B cannot disturb any VM already made from it
+- rebaking B cannot disturb any VM already made from it
 - the bake's flatten step (`qemu-img convert`) disappears: the disk is independent from birth
 
 Cost, stated once: a VM disk grows from the current overlay (~106 M observed) to the full size of B (several GB), and
@@ -70,7 +70,8 @@ while their creation record carries the generated run ID for provenance. A
 This covers the two problems left open above:
 
 - "did this run make this VM" — answered by the creation record beside the VM disk, which names its maker; a domain
-  merely existing never decides it (the root of #29 and the in-use misreport)
+  merely existing never decides it (the root of the in-use misreport: an unlabeled, merely-existing domain was read
+  as a live consumer of the image, blocking work on an image nothing actually held)
 - where provenance lives with no purpose golden — the record file beside B carries what the manifest/sidecar carries
   today
 
@@ -82,9 +83,9 @@ build VMs carry the run timestamp / hash. The rule is defined in ONE place from
 the start, and every consumer — provisioning and bake alike — calls that one
 place.
 
-This absorbs #7: today `create_vm.bash` and the bake scripts each compute `VM_NAME` and disk paths on their own,
+This absorbs the duplicated-naming defect: today `create_vm.bash` and the bake scripts each compute `VM_NAME` and disk paths on their own,
 two copies that must agree. The approved resolver plan (`plan20260723_234700`) wanted to extract that computation; the
-new naming scheme starts extracted, so #7 is resolved by the redesign rather than as separate work.
+new naming scheme starts extracted, so that defect is resolved by the redesign rather than as separate work.
 
 ## Build VMs are always fresh by construction (settled 2026-08-01)
 
@@ -101,6 +102,17 @@ leftover VMs - not correctness.
 
 A stays after B exists. Deleting A once B was built was raised by the assistant and rejected by the owner. A is read-
 only ground; nothing we make ever writes to it.
+
+## Golden naming carries identity and a newest-wins default
+
+A published golden species is named on two layers, not one. The identity layer is the run timestamp and hash carried
+in the file name and the paired creation record, exactly as "Identity by pair" defines — this is what keeps every image
+unique, verifiable as a pair, and fresh by construction, and it is unchanged. The selection layer sits on top of it: a
+consumer that names no run identifier gets the newest published image of that species by default. This is not a separate
+pointer artifact; the run timestamp leads the run id, so sorting the unique names of a `<kind>-<platform>` family in
+descending order puts the newest first, and `image_workflow_select_latest_image` returns the newest one whose pair
+validates. The default never replaces the identity; it only picks among the unique images, so it can cost a convenience,
+never correctness.
 
 ## Delivered workflow
 
@@ -131,14 +143,14 @@ stands on the plain terms above; this section is how the two of us recall it.
   a virtual particle — it exists only while mediating A' → B and appears in no final state. A leftover build VM is an
   unclosed internal line.
 - C's are many particles of the same species, and identical particles are indistinguishable — "which one is mine" has no
-  answer for unlabeled VMs, which was the root of this month's loop (#29, the in-use misreport). The pair rule breaks
+  answer for unlabeled VMs, which was the root of the in-use misreport loop. The pair rule breaks
   exchange symmetry with labels: timestamp / hash plus creation record make the particles distinguishable.
 - Each C evolves its own history from birth (an excited state); the record captures only the birth conditions, never the
   later state. Annihilation (clean) returns the disk and its identity record to vacuum together.
 - The purpose work is a set of operators applied to the particle, classified as packages (what was installed) and
   configuration (what was changed) — today's manifest already records that operator list.
 - The old backing chain was entanglement: a local operation on a consumer (starting it) changed the base's state
-  (ownership, #24, #25). Copying separates the system into a product state — local operations stay local. Full copies
+  (the ownership and held-golden defects). Copying separates the system into a product state — local operations stay local. Full copies
   are allowed because images are classical information; no-cloning does not apply.
 
 In equations:
@@ -180,19 +192,20 @@ The preparation operator P of the physics reading is the product of the operator
 
 | Operator | Role | Order | Content |
 | --- | --- | --- | --- |
-| P_common | `base_os` (target; see Open decisions) | First on every vacuum | Must-have: sudo, chrony, git, wget, unzip, gcc, g++, make, autoconf, automake, libtool, ssl-dev, net-tools. Nice-to-have: vim, tmux, screen, lsof, tree, sysstat, acl, logrotate. Both halves are P_common. Debian family only: the `locales` package, `en_US.UTF-8` enabled in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. |
-| P_rt | `ethercat_base` | After P_common; optional | PREEMPT_RT kernel and headers, running-kernel headers, dkms, build toolchain. Stock kernel stays boot default. The resulting rtbase species is published as its own golden image. |
-| P_provenance | `bake_provenance` | Before P_epics, P_procserv, P_conserver, P_con, P_iocrunner | `/usr/local/sbin/record-iocrunner-source`, the tool application operators call to record their source into the bake manifest. |
-| P_epics | `app_epics` | After P_provenance | Binary EPICS-env distribution and its activation script under `/etc/profile.d`. Alternative to P_epics-build; never both on one vacuum. |
-| P_epics-build | `epics_env_build` | After P_common | EPICS development packages, then EPICS-env built and installed from source. Alternative to P_epics. |
-| P_epics-support | `epics_env_support_build` | After P_epics-build | AreaDetector modules built from source on the installed EPICS-env. |
-| P_procserv | `app_procserv` | After P_common | procServ built and installed from procServ-env. |
-| P_conserver | `app_conserver` | After P_common | conserver built and installed from conserver-env with OpenSSL. |
-| P_con | `app_con` | After P_common | con console client built and installed. |
+| P_common | `common` | First on every vacuum | Must-have: sudo, chrony, git, wget, unzip, gcc, g++, make, autoconf, automake, libtool, ssl-dev, net-tools. Core utilities: vim, tmux, lsof, tree, sysstat, logrotate, acl, socat. Both halves are P_common and always installed. Debian family only: the `locales` package, `en_US.UTF-8` enabled in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
+| P_rt | `rt` | After P_common; optional | PREEMPT_RT kernel and headers, running-kernel headers, dkms, build toolchain. Stock kernel stays boot default. The resulting rtbase species is published as its own golden image. |
+| P_provenance | `provenance` | Before P_epics, P_procserv, P_conserver, P_con, P_iocrunner | `/usr/local/sbin/record-iocrunner-source`, the tool application operators call to record their source into the bake manifest. |
+| P_python | `python` | After P_common; before P_epics and P_epics-build | Python 3 and pip runtime. Both EPICS acquisition paths need it, so it is a shared prerequisite rather than part of either. |
+| P_epics | `epics` | After P_provenance and P_python | Binary EPICS-env distribution and its activation script under `/etc/profile.d`; on rocky, firewalld enabled with the EPICS CA and PVA ports open. Requires P_python. Alternative to P_epics-build; never both on one vacuum. |
+| P_epics-build | `epics_build` | After P_common and P_python | The EPICS development packages, then EPICS-env built and installed from source. Requires P_python. Alternative to P_epics. |
+| P_epics-support | `epics_support` | After P_epics-build | AreaDetector modules built from source on the installed EPICS-env. |
+| P_procserv | `procserv` | After P_common | procServ built and installed from procServ-env. |
+| P_conserver | `conserver` | After P_common | conserver built and installed from conserver-env with OpenSSL. |
+| P_con | `con` | After P_common | con console client built and installed. |
 | P_nfs-sim | `nfs_sim` | After P_common | A directory exported over NFS from the same host, mounted back under `/home/nfs`, and linked into the user home. |
-| P_iocrunner | `app_ioc_runner` | After P_con, P_procserv, and one of P_epics or P_epics-build | epics-ioc-runner cloned at the pinned ref and its runner binary installed. |
-| P_testusers | `test_users` | After P_iocrunner | Operator, observer, and local-mode test accounts; operators joined to the ioc group. |
-| P_ethercat | `app_ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. |
+| P_iocrunner | `iocrunner` | After P_con, P_procserv, and one of P_epics or P_epics-build | epics-ioc-runner cloned at the pinned ref and its runner binary installed. |
+| P_testusers | `testusers` | After P_iocrunner | Operator, observer, and local-mode test accounts; operators joined to the ioc group. |
+| P_ethercat | `ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. P_ethercat can apply on a non-RT bare state, but the `ethercat` species is defined on rtbase because a real EtherCAT deployment runs the RT kernel. |
 
 Package names that differ by family:
 
@@ -220,31 +233,18 @@ other species is one species on every vacuum it is defined for, built on that va
 | bare_rocky10 | P_common \|0_rocky10⟩ | rocky10 |
 | bare_ubuntu24 | P_common \|0_ubuntu24⟩ | ubuntu24 |
 | bare_ubuntu26 | P_common \|0_ubuntu26⟩ | ubuntu26 |
-| iocrunner | P_testusers P_iocrunner (P_con P_conserver P_procserv) (P_epics or P_epics-build) P_provenance \|bare⟩ | all |
-| epics-dev | P_epics-support P_epics-build \|bare⟩ | all |
+| iocrunner | P_testusers P_iocrunner (P_con P_conserver P_procserv) (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | all |
+| iocrunner-nfs | P_nfs-sim \|iocrunner⟩ | all |
+| epics-dev | P_epics-support P_epics-build P_python \|bare⟩ | all |
 | nfs-sim | P_nfs-sim \|bare⟩ | all |
 | rtbase | P_rt \|bare⟩ | all |
 | ethercat | P_ethercat \|rtbase⟩ | all |
 
-Legal products that are not named species. Each follows from the commutation rules; naming one is a definition
-decision:
+Legal products that are not named species. Each follows from the commutation rules and stays a recorded product
+rather than a named species; a real use for one is what promotes it, and none is needed today:
 
 | Product | Meaning |
 | --- | --- |
-| (P_con P_conserver P_procserv) \|bare⟩ | console host without EPICS; any subset and order |
-| P_iocrunner (P_con P_conserver P_procserv) P_epics P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack |
-| P_ethercat P_epics P_provenance \|rtbase⟩ | EtherCAT host with EPICS |
-| P_nfs-sim \|iocrunner⟩ | iocrunner with the NFS-backed path |
-
-### Open decisions
-
-This section exists only while the operator definition is being completed. Each row is a decision the definition
-still needs; once every row is settled the section is removed and later changes are tracked in the work register.
-
-| Decision | Options |
-| --- | --- |
-| Whether P_ethercat may be applied without P_rt | Require P_rt; or allow a non-RT ethercat species |
-| Which of the legal products above become named species | Name console-only, iocrunner-on-RT, ethercat-with-EPICS, nfs-sim-on-iocrunner; or leave unnamed |
-| Whether the nice-to-have half of P_common is mandatory or may be omitted per species | Always install; or allow a species to drop it |
-| Which ansible-provision role owns P_common in full, and where P_epics-build's package list lives | `base_os` for every vacuum; or a new role |
-| How a published golden species is named and which copy a consumer selects by default | A flavor family per species with a latest pointer; or explicit run identifiers only |
+| (P_con P_conserver P_procserv) \|bare⟩ | console host without EPICS; any subset and order. The three are base software of the iocrunner species, not a standalone host. |
+| P_iocrunner (P_con P_conserver P_procserv) P_epics P_python P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack; reachable from rtbase and the iocrunner operators. |
+| P_ethercat P_epics P_python P_provenance \|rtbase⟩ | EtherCAT host with EPICS. A real EtherCAT host runs EPICS IOCs, so this is the anticipated end state; the `ethercat` species stays EtherCAT-only until end-to-end work reaches the EPICS layer. |

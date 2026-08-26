@@ -1,8 +1,11 @@
 ##@ Documentation
 
-.PHONY: check-docs check-doc-refs
+.PHONY: check-docs check-doc-refs check-proxy-doc-statements
 
-check-docs: check-doc-refs ## Run offline documentation contract checks
+check-docs: check-doc-refs check-proxy-doc-statements ## Run offline documentation contract checks
 
 check-doc-refs: ## Verify every cited source coordinate names the tree it was read from
 	$(QUIET) bash $(TOP)/tests/check-doc-refs.bash
+
+check-proxy-doc-statements: ## Verify the proxy ADR and RUNBOOK carry the required durable statements
+	$(QUIET) bash $(TOP)/tests/check-proxy-doc-statements.bash

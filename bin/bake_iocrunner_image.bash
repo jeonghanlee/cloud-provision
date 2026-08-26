@@ -18,10 +18,12 @@ declare -g ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${SC_TOP}/../ansible-provision}
 declare -g KEEP_VM=false
 declare -g IOC_RUNNER_VERSION=""
 declare -g IOC_RUNNER_VERSION_GIVEN=false
-declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
-declare -g NODE_ID="server"
+declare -g FLAVOR="iocrunner"
+declare -g ASSEMBLY=""
+declare -g VM_PREFIX="${VM_PREFIX:-lab}"
+declare -g NODE_ID="build"
 declare -g IMAGE_WORKFLOW_RUN_ID="${IMAGE_WORKFLOW_RUN_ID:-}"
-declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
+declare -g INVENTORY="${BAKE_INVENTORY:-inventory/lab.ini}"
 declare -g ANSIBLE_USER="vmadmin"
 declare -g LIBVIRT_URI="qemu:///system"
 declare -g VM_IP=""
@@ -68,6 +70,8 @@ function print_usage {
     printf "  -k              Keep the build VM after bake (default: destroy)\n"
     printf "  -r <ref>        Pin the epics-ioc-runner version baked into the image.\n"
     printf "                  Unset bakes whatever the inventory resolves to.\n"
+    printf "  -f <flavor>     Golden flavor: iocrunner or iocrunner-nfs\n"
+    printf "                  (default: iocrunner)\n"
     printf "  -h              Show this help\n"
 }
 
@@ -122,7 +126,7 @@ function write_runtime_inventory {
         --vm-name "${VM_NAME}" \
         --address "${VM_IP}" \
         --os-type "${OS_TYPE}" \
-        --role ioc-runner-build \
+        --species "${FLAVOR}" \
         --ansible-user "${ANSIBLE_USER}" > "${RUNTIME_INVENTORY}"; then
         rm -f -- "${RUNTIME_INVENTORY}"
         RUNTIME_INVENTORY=""
@@ -236,13 +240,14 @@ function seal_proxy_contract {
     SEALED_SOURCE_DISK="${SOURCE_DISK}"
 }
 
-while getopts ":o:d:a:kr:h" opt; do
+while getopts ":o:d:a:kr:f:h" opt; do
     case "${opt}" in
         o) OS_TYPE="${OPTARG}" ;;
         d) IMAGE_DIR="${OPTARG}" ;;
         a) ANSIBLE_DIR="${OPTARG}" ;;
         k) KEEP_VM=true ;;
         r) IOC_RUNNER_VERSION="${OPTARG}"; IOC_RUNNER_VERSION_GIVEN=true ;;
+        f) FLAVOR="${OPTARG}" ;;
         h) print_usage; exit 0 ;;
         :) die "-${OPTARG} requires an argument" ;;
         ?) die "unknown option -${OPTARG}" ;;
@@ -253,6 +258,11 @@ done
 case "${OS_TYPE}" in
     rocky8|debian13) ;;
     *) die "-o must be rocky8 or debian13 (got: ${OS_TYPE})" ;;
+esac
+case "${FLAVOR}" in
+    iocrunner) ASSEMBLY="playbooks/species/iocrunner.yml" ;;
+    iocrunner-nfs) ASSEMBLY="playbooks/species/iocrunner_nfs.yml" ;;
+    *) die "-f must be iocrunner or iocrunner-nfs (got: ${FLAVOR})" ;;
 esac
 
 for command_name in ansible-playbook awk du git mktemp mv qemu-img realpath sed \
@@ -291,7 +301,7 @@ fi
 NODE_ID="build"
 export IMAGE_WORKFLOW_RUN_ID
 if ! OUTPUT_IMAGE="${IMAGE_DIR}/$(image_workflow_image_name \
-    "iocrunner" "${OS_TYPE}" "${IMAGE_WORKFLOW_RUN_ID}")"; then
+    "${FLAVOR}" "${OS_TYPE}" "${IMAGE_WORKFLOW_RUN_ID}")"; then
     die "failed to resolve ioc-runner image name"
 fi
 OUTPUT_TEMP="${OUTPUT_IMAGE}.tmp"
@@ -343,10 +353,10 @@ printf "  Output     : %s\n" "${OUTPUT_IMAGE}"
 printf "  Ansible    : %s\n" "${ANSIBLE_DIR}"
 printf "%s\n" "------------------------------------------------------------"
 
-printf "\nStep 1/10: Boot a fresh %s\n" "${VM_NAME}"
+printf "\nStep 1/8: Boot a fresh %s\n" "${VM_NAME}"
 "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
 
-printf "\nStep 2/10: Refresh known_hosts and resolve the VM address\n"
+printf "\nStep 2/8: Refresh known_hosts and resolve the VM address\n"
 VM_IP="$(
     "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
         | awk -F': *' '/^IP Address/ && !seen {print $2; seen=1}'
@@ -358,7 +368,7 @@ printf "  VM_IP=%s [OK]\n" "${VM_IP}"
 write_runtime_inventory
 printf "  runtime inventory for %s [OK]\n" "${VM_NAME}"
 
-printf "\nStep 3/10: Resolve base identity and stamp the manifest\n"
+printf "\nStep 3/8: Resolve base identity and stamp the manifest\n"
 declare -g BASE_NAME
 declare -g BASE_DIGEST
 declare -g CLOUD_HEAD
@@ -376,9 +386,9 @@ BASE_DIGEST="${BASE_DIGEST%% *}"
 CLOUD_HEAD="$(repository_identity "${SC_TOP}")"
 ANSIBLE_HEAD="$(repository_identity "${ANSIBLE_DIR}")"
 EPICS_ENV_VERSION="$(awk '$1 == "epics_env_version:" {gsub(/"/, "", $2); print $2; exit}' \
-    "${ANSIBLE_DIR}/inventory/group_vars/all.yml")"
+    "${ANSIBLE_DIR}/roles/epics/defaults/main.yml")"
 EPICS_BASE_VERSION="$(awk '$1 == "epics_base_version:" {gsub(/"/, "", $2); print $2; exit}' \
-    "${ANSIBLE_DIR}/inventory/group_vars/all.yml")"
+    "${ANSIBLE_DIR}/roles/epics/defaults/main.yml")"
 [[ -n "${EPICS_ENV_VERSION}" && -n "${EPICS_BASE_VERSION}" ]] \
     || die "EPICS selectors are missing"
 BAKE_DATE="$(date -u +%FT%TZ)"
@@ -386,42 +396,23 @@ stamp_manifest_header "${BAKE_DATE}" "${CLOUD_HEAD}" "${ANSIBLE_HEAD}" \
     "${EPICS_ENV_VERSION}" "${EPICS_BASE_VERSION}" "${BASE_NAME}" "${BASE_DIGEST}"
 printf "  base image: %s sha256=%s [OK]\n" "${BASE_NAME}" "${BASE_DIGEST}"
 
-printf "\nStep 4/10: Apply ansible site.yml on %s\n" "${VM_NAME}"
-(
-    cd "${ANSIBLE_DIR}"
-    # The selector goes to site.yml alone. This is the first --extra-vars use in
-    # this repository, and confining it to the one invocation that builds the
-    # runner keeps the precedent narrow; 04_nfs_sim and 07_test_users have
-    # nothing to do with the runner version.
-    if [[ -n "${IOC_RUNNER_VERSION}" ]]; then
-        ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
-            --limit "${VM_NAME}" \
-            -e ioc_runner_version="${IOC_RUNNER_VERSION}" site.yml
-    else
-        ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
-            --limit "${VM_NAME}" site.yml
-    fi
-)
+printf "\nStep 4/8: Apply the %s species assembly on %s\n" "${FLAVOR}" "${VM_NAME}"
+# The runner version selector goes to the assembly run; the pin stays
+# deliberately narrow, and the assembly is the only ansible-playbook invocation.
+if [[ -n "${IOC_RUNNER_VERSION}" ]]; then
+    (cd "${ANSIBLE_DIR}" && ansible-playbook -i "${INVENTORY_PATH}" \
+        -i "${RUNTIME_INVENTORY}" --limit "${VM_NAME}" \
+        -e ioc_runner_version="${IOC_RUNNER_VERSION}" "${ASSEMBLY}")
+else
+    (cd "${ANSIBLE_DIR}" && ansible-playbook -i "${INVENTORY_PATH}" \
+        -i "${RUNTIME_INVENTORY}" --limit "${VM_NAME}" "${ASSEMBLY}")
+fi
 
-printf "\nStep 5/10: Apply 04_nfs_sim.yml on %s\n" "${VM_NAME}"
-(
-    cd "${ANSIBLE_DIR}"
-    ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
-        --limit "${VM_NAME}" playbooks/04_nfs_sim.yml
-)
-
-printf "\nStep 6/10: Apply 07_test_users.yml on %s\n" "${VM_NAME}"
-(
-    cd "${ANSIBLE_DIR}"
-    ansible-playbook -i "${INVENTORY_PATH}" -i "${RUNTIME_INVENTORY}" \
-        --limit "${VM_NAME}" playbooks/07_test_users.yml
-)
-
-printf "\nStep 7/10: Finalize provenance\n"
+printf "\nStep 5/8: Finalize provenance\n"
 append_pip_provenance
 printf "  manifest provenance complete [OK]\n"
 
-printf "\nStep 8/10: Validate provenance and extract the sidecar\n"
+printf "\nStep 6/8: Validate provenance and extract the sidecar\n"
 ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo /bin/bash -p -s' < "${VALIDATOR}"
 printf "  validator accepted the manifest [OK]\n"
 
@@ -429,11 +420,11 @@ SIDECAR_TEMP_CREATED=true
 ssh "${SSH_OPTIONS[@]}" "vmadmin@${VM_IP}" 'sudo cat /etc/iocrunner-bake.manifest' > "${SIDECAR_TEMP}"
 [[ -s "${SIDECAR_TEMP}" ]] || die "sidecar extraction produced an empty file"
 
-printf "\nStep 9/10: Seal the current proxy artifact contract\n"
+printf "\nStep 7/8: Seal the current proxy artifact contract\n"
 seal_proxy_contract
 printf "  terminal proxy seal complete [OK]\n"
 
-printf "\nStep 10/10: Shutdown and publish the validated pair\n"
+printf "\nStep 8/8: Shutdown and publish the validated pair\n"
 [[ "${SEALED_VM_NAME}" == "${VM_NAME}" && \
    "${SEALED_SOURCE_DISK}" == "${SOURCE_DISK}" ]] \
     || die "terminal seal state does not match the exact build VM and disk"
@@ -446,7 +437,7 @@ printf "\nStep 10/10: Shutdown and publish the validated pair\n"
 
 OUTPUT_TEMP_CREATED=true
 image_workflow_copy_qcow2 "${SOURCE_DISK}" "${OUTPUT_IMAGE}" \
-    "iocrunner" "${OS_TYPE}" "${IMAGE_WORKFLOW_RUN_ID}" "${SOURCE_DISK##*/}" \
+    "${FLAVOR}" "${OS_TYPE}" "${IMAGE_WORKFLOW_RUN_ID}" "${SOURCE_DISK##*/}" \
     || die "failed to publish image copy: ${OUTPUT_IMAGE}"
 OUTPUT_TEMP_CREATED=false
 mv -f -- "${SIDECAR_TEMP}" "${SIDECAR}"
@@ -463,5 +454,5 @@ fi
 
 printf "%s\n" "------------------------------------------------------------"
 printf "Bake complete: %s\n" "${OUTPUT_IMAGE}"
-printf "Boot the variant: make %s-iocrunner.server\n" "${OS_TYPE}"
+printf "Boot the variant: a fresh %s-%s consumer via create_vm\n" "${OS_TYPE}" "${FLAVOR}"
 printf "%s\n" "------------------------------------------------------------"

@@ -779,6 +779,75 @@ function run_missing_guest_command_case {
     fi
 }
 
+function run_identity_symlink_cases {
+    local name="$1"
+    local root="${WORKSPACE}/${name}.identity-root"
+    local out rc
+
+    # Mirror resolute's sudo-rs layout: visudo is a relative symlink chain
+    # through /etc/alternatives to a regular executable, all inside the root.
+    mkdir -p "${root}/usr/sbin" "${root}/etc/alternatives" \
+        "${root}/usr/lib/cargo/bin"
+    printf '#!/bin/sh\n' > "${root}/usr/lib/cargo/bin/visudo"
+    chmod 0755 "${root}/usr/lib/cargo/bin/visudo"
+    ln -s ../../usr/lib/cargo/bin/visudo "${root}/etc/alternatives/visudo"
+    ln -s ../../etc/alternatives/visudo "${root}/usr/sbin/visudo"
+
+    rc=0
+    out="$(bash -c 'source "$1"; PROXY_CONTRACT_ROOT="$2"; \
+        proxy_contract_resolve_guest_command visudo RESOLVED && \
+        printf "%s\n" "${RESOLVED}"' \
+        resolve "${TOP}/bin/proxy_contract.bash" "${root}" 2>&1)" || rc=$?
+    if [[ "${rc}" == 0 && "${out}" == *"/usr/lib/cargo/bin/visudo" ]] &&
+       [[ -f "${out}" && -x "${out}" ]]; then
+        record_pass "${name} accepts an in-root relative symlink identity command"
+    else
+        record_fail "${name} accepts an in-root relative symlink identity command" \
+            "rc=${rc} out=${out}"
+    fi
+
+    # Symlink through a missing intermediate directory: readlink -f cannot
+    # canonicalize it, so resolution is impossible; fail closed.
+    ln -sf ../../usr/lib/nodir/visudo "${root}/usr/sbin/visudo"
+    rc=0
+    out="$(bash -c 'source "$1"; PROXY_CONTRACT_ROOT="$2"; \
+        proxy_contract_resolve_guest_command visudo RESOLVED' \
+        resolve "${TOP}/bin/proxy_contract.bash" "${root}" 2>&1)" || rc=$?
+    if [[ "${rc}" != 0 ]] && grep -Fq 'does not resolve' <<< "${out}"; then
+        record_pass "${name} rejects a symlink through a missing directory"
+    else
+        record_fail "${name} rejects a symlink through a missing directory" \
+            "rc=${rc} out=${out}"
+    fi
+
+    # Symlink to an absent in-root target: the resolved path is not a regular
+    # executable; fail closed.
+    ln -sf ../../usr/lib/cargo/bin/absent "${root}/usr/sbin/visudo"
+    rc=0
+    out="$(bash -c 'source "$1"; PROXY_CONTRACT_ROOT="$2"; \
+        proxy_contract_resolve_guest_command visudo RESOLVED' \
+        resolve "${TOP}/bin/proxy_contract.bash" "${root}" 2>&1)" || rc=$?
+    if [[ "${rc}" != 0 ]] && grep -Fq 'requires exact guest command' <<< "${out}"; then
+        record_pass "${name} rejects a symlink to an absent target"
+    else
+        record_fail "${name} rejects a symlink to an absent target" \
+            "rc=${rc} out=${out}"
+    fi
+
+    # Absolute symlink whose target leaves the root: fail closed on escape.
+    ln -sf /bin/sh "${root}/usr/sbin/visudo"
+    rc=0
+    out="$(bash -c 'source "$1"; PROXY_CONTRACT_ROOT="$2"; \
+        proxy_contract_resolve_guest_command visudo RESOLVED' \
+        resolve "${TOP}/bin/proxy_contract.bash" "${root}" 2>&1)" || rc=$?
+    if [[ "${rc}" != 0 ]] && grep -Fq 'escapes the selected root' <<< "${out}"; then
+        record_pass "${name} rejects an escaping absolute symlink identity command"
+    else
+        record_fail "${name} rejects an escaping absolute symlink identity command" \
+            "rc=${rc} out=${out}"
+    fi
+}
+
 function expect_renderer_rejects_shell_active {
     local name="$1"
     local active_character="$2"
@@ -950,7 +1019,7 @@ function run_case {
         VM_WAIT_SSH_ATTEMPTS=1 \
         VM_WAIT_CLOUD_INIT_ATTEMPTS=1 \
         "${TOP}/bin/create_vm.bash" \
-        -o "${os_type}" -n server -d "${image_dir}" -p "proxy-${label}" \
+        -o "${os_type}" -n main -d "${image_dir}" -p "proxy-${label}" \
         > "${output_file}" 2>&1 || rc=$?
 
     if [[ "${proxy_count}" == "multiple" ]]; then
@@ -996,6 +1065,8 @@ function run_case {
             "${capture_file}" "  - [locale-gen, en_US.UTF-8]"
         expect_contains "${label} sets the default locale" \
             "${capture_file}" "  - [update-locale, LANG=en_US.UTF-8]"
+        expect_contains "${label} carries the locale self-check" \
+            "${capture_file}" "en_US.utf8 ||"
         return 0
     fi
 
@@ -1012,6 +1083,8 @@ function run_case {
             "${capture_file}" "  - [locale-gen, en_US.UTF-8]"
         expect_contains "${label} preserves update-locale" \
             "${capture_file}" "  - [update-locale, LANG=en_US.UTF-8]"
+        expect_contains "${label} preserves the locale self-check" \
+            "${capture_file}" "en_US.utf8 ||"
     fi
 
     case "${label}" in
@@ -1032,15 +1105,81 @@ write_fake_commands
 qemu-img create -f qcow2 "${BASE_FIXTURE}" 32M >/dev/null
 
 run_case no-proxy debian13 none
-run_case ubuntu24-locale epics-env-ubuntu24 none
-run_case ubuntu26-locale epics-env-ubuntu26 none
+run_case ubuntu24-locale ubuntu24 none
+run_case ubuntu26-locale ubuntu26 none
 run_case debian-proxy debian13 one
-run_case ubuntu-proxy epics-env-ubuntu24 one
+# Offline locale-contract lint over the debian-family template files directly.
+# A template that keeps the locale-gen runcmd must also carry the `locales`
+# package entry (so a non-proxy boot installs it) and the first-boot self-check
+# (so a proxy boot on a base image lacking locale support fails loudly instead
+# of silently). This is a pure file lint reading the template path; it does not
+# run create_vm.
+function template_locale_contract_ok {
+    local template="$1"
+    local last_list_item
+
+    grep -Fq '  - locales' "${template}" || return 1
+    grep -Fq '  - [locale-gen, en_US.UTF-8]' "${template}" || return 1
+    grep -Fq 'en_US.utf8 ||' "${template}" || return 1
+    # The self-check must be the LAST list item in the template. cloud-init
+    # flattens runcmd into one set-e-less sh script whose exit status is only
+    # its last line, so a runcmd appended after the self-check would keep it
+    # printing to stderr while the script still exits 0 - the bake would pass
+    # silently. The self-check is the final runcmd entry and runcmd is the last
+    # list-bearing block, so it must be the last `  - ` line in the file.
+    last_list_item="$(grep '^  - ' "${template}" | tail -n 1)"
+    [[ "${last_list_item}" == *'en_US.utf8 ||'* ]] || return 1
+    return 0
+}
+
+function run_template_locale_contract {
+    local template scratch drop
+
+    for template in debian13 ubuntu24 ubuntu26; do
+        if template_locale_contract_ok "${TOP}/templates/user-data.${template}"; then
+            record_pass "template ${template} keeps the full locale contract"
+        else
+            record_fail "template ${template} keeps the full locale contract" \
+                "a shipped debian-family template is missing part of the locale contract"
+        fi
+    done
+
+    for drop in locales locale-gen self-check; do
+        scratch="${WORKSPACE}/contract-drop-${drop}.user-data"
+        cp "${TOP}/templates/user-data.debian13" "${scratch}"
+        case "${drop}" in
+            locales)    sed -i '/^  - locales$/d' "${scratch}" ;;
+            locale-gen) sed -i '/locale-gen, en_US.UTF-8/d' "${scratch}" ;;
+            self-check) sed -i '/en_US.utf8 ||/d' "${scratch}" ;;
+        esac
+        if template_locale_contract_ok "${scratch}"; then
+            record_fail "locale contract catches a missing ${drop}" \
+                "the lint accepted a template with ${drop} removed"
+        else
+            record_pass "locale contract catches a missing ${drop}"
+        fi
+    done
+
+    # A runcmd item appended after the self-check defeats it: the appended line
+    # becomes the script's last, so its zero exit masks the self-check failure.
+    scratch="${WORKSPACE}/contract-appended-runcmd.user-data"
+    cp "${TOP}/templates/user-data.debian13" "${scratch}"
+    sed -i '/en_US.utf8 ||/a\  - [true]' "${scratch}"
+    if template_locale_contract_ok "${scratch}"; then
+        record_fail "locale contract catches a runcmd after the self-check" \
+            "the lint accepted a template with a runcmd item after the self-check"
+    else
+        record_pass "locale contract catches a runcmd after the self-check"
+    fi
+}
+
+run_case ubuntu-proxy ubuntu24 one
 run_case rocky-proxy rocky8 one
 run_case multiple-proxy debian13 multiple
 run_case shell-active-proxy debian13 shell-active
 
 run_missing_guest_command_case debian-proxy
+run_identity_symlink_cases identity-symlink
 run_hostile_environment_lifecycle
 run_shared_newline_boundary_case
 
@@ -1053,6 +1192,7 @@ expect_renderer_rejects_shell_active "history expansion introducer" "${active_ch
 
 run_os_release_boundary_cases
 run_test_root_boundary_cases
+run_template_locale_contract
 
 printf "Summary: %s passed / %s total\n" "${TEST_PASSED}" "${TEST_TOTAL}"
 if [[ "${TEST_FAILED}" -gt 0 ]]; then

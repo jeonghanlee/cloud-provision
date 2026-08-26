@@ -3,8 +3,8 @@
 ## 1. Overview
 
 A cloud-init based VM provisioner for libvirt/KVM. Provisions reproducible
-multi-node test environments from official cloud images without manual
-OS installation.
+test VMs across the supported OS variants from official cloud images without
+manual OS installation.
 
 ---
 
@@ -97,11 +97,11 @@ ${VM_PREFIX}-${OS_TYPE}-${NODE_ID}-${run-id}
 
 | Component   | Default    | Example Values           |
 |-------------|------------|--------------------------|
-| `VM_PREFIX` | `testbed`  | configurable via `-p`    |
-| `OS_TYPE`   | `rocky8`   | `rocky8`, `debian13`     |
-| `NODE_ID`   | `test`     | `server`, `node1`, `node2`, `build` |
+| `VM_PREFIX` | `lab`      | configurable via `-p`    |
+| `OS_TYPE`   | `rocky8`   | any selector in `OS_TYPES` (vacua, golden consumers, EPICS build hosts) |
+| `NODE_ID`   | `main`     | `main`, `dhcp`, `build`, any label |
 
-Ordinary VMs keep the stable name. Bake entry points set `NODE_ID=build` and append the shared run ID, for example `testbed-debian13-rtbase-build-20260812T000000Z-a1b2c3d4e5f6`.
+Ordinary VMs keep the stable name. Bake entry points set `NODE_ID=build` and append the shared run ID, for example `lab-debian13-rtbase-build-20260812T000000Z-a1b2c3d4e5f6`.
 
 ---
 
@@ -168,35 +168,40 @@ Selector sets are intentionally different:
 | Selector set | Values | Entry point | Meaning |
 |---|---|---|---|
 | `DEFAULT_OS_TYPES` | `rocky8`, `debian13` | `make all`, `make status`, `make stop` | Plain base test VMs. |
-| `OS_TYPES` | every row in the OS table below | `make <os>[.<node>]`, `make clean` | Every provisionable VM type. |
+| `OS_TYPES` | every row in the OS table below | `make <os>[.<instance>]`, `make clean` | Every provisionable VM type. |
 | `BAKE_OS_TYPES` | `rocky8`, `debian13` | `make bake`, `make bake.<os>` | Base OS inputs for IOC runner golden images. |
 | `ETHERCAT_BAKE_OS_TYPES` | `debian13` | `make bake.ethercat`, `make bake.ethercat.<os>` | Base OS input for the EtherCAT golden image. |
 
 | OS Type | Variant | Base Image Source | Package Manager | Role |
 |---|---|---|---|---|
-| rocky8 | rocky8 | download.rockylinux.org | dnf | Plain base test VM |
-| debian13 | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | Plain base test VM |
+| rocky8 | rocky8 | download.rockylinux.org | dnf | Bare vacuum VM |
+| debian13 | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | Bare vacuum VM |
+| rocky10 | rocky10 | download.rockylinux.org | dnf | Bare vacuum VM |
+| ubuntu24 | ubuntu24 | cloud-images.ubuntu.com/noble/current | apt | Bare vacuum VM |
+| ubuntu26 | ubuntu26 | cloud-images.ubuntu.com/resolute/current | apt | Bare vacuum VM |
 | rocky8-iocrunner | rocky8 | latest valid `${IMAGE_DIR}/iocrunner-rocky8-<run-id>.qcow2` pair | dnf | IOC runner runtime VM |
 | debian13-iocrunner | debian13 | latest valid `${IMAGE_DIR}/iocrunner-debian13-<run-id>.qcow2` pair | apt | IOC runner runtime VM |
+| rocky8-iocrunner-nfs | rocky8 | latest valid `${IMAGE_DIR}/iocrunner-nfs-rocky8-<run-id>.qcow2` pair | dnf | IOC runner runtime VM with NFS simulation |
+| debian13-iocrunner-nfs | debian13 | latest valid `${IMAGE_DIR}/iocrunner-nfs-debian13-<run-id>.qcow2` pair | apt | IOC runner runtime VM with NFS simulation |
 | debian13-ethercat | debian13 | latest valid `${IMAGE_DIR}/ethercat-debian13-<run-id>.qcow2` pair | apt | EtherCAT runtime VM |
 | debian13-rtbase | debian13 | pinned Debian 13 release cloud image | apt | EtherCAT bake source VM |
-| epics-env-rocky8 | rocky8 | download.rockylinux.org | dnf | EPICS-env source-build host |
-| epics-env-debian13 | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | EPICS-env source-build host |
-| epics-env-rocky10 | rocky10 | download.rockylinux.org | dnf | EPICS-env source-build host |
-| epics-env-ubuntu24 | ubuntu24 | cloud-images.ubuntu.com/noble/current | apt | EPICS-env source-build host |
-| epics-env-ubuntu26 | ubuntu26 | cloud-images.ubuntu.com/resolute/current | apt | EPICS-env source-build host |
+| rocky8-epics-dev | rocky8 | download.rockylinux.org | dnf | EPICS source-build host |
+| debian13-epics-dev | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | EPICS source-build host |
+| rocky10-epics-dev | rocky10 | download.rockylinux.org | dnf | EPICS source-build host |
+| ubuntu24-epics-dev | ubuntu24 | cloud-images.ubuntu.com/noble/current | apt | EPICS source-build host |
+| ubuntu26-epics-dev | ubuntu26 | cloud-images.ubuntu.com/resolute/current | apt | EPICS source-build host |
 
-The `*-iocrunner` variants boot from images produced by section 12
-and are gated out of `make all` via `DEFAULT_OS_TYPES` until their
-golden image is present. They share the base OS variant's cloud-init
-template and boot firmware.
+The `*-iocrunner` and `*-iocrunner-nfs` variants boot from images
+produced by section 12 and are gated out of `make all` via
+`DEFAULT_OS_TYPES` until their golden image is present. They share the
+base OS variant's cloud-init template and boot firmware.
 
 The `debian13-ethercat` variant boots from the EtherCAT golden image.
 The `debian13-rtbase` selector is a bake input, not the final EtherCAT
 runtime host.
 
-The `epics-env-*` variants boot plain cloud images (no golden bake) and
-exist to give EPICS-env from-source builds dedicated hosts. They are
+The `*-epics-dev` variants boot plain cloud images (no golden bake) and
+exist to give EPICS from-source builds dedicated hosts. They are
 excluded from `make all`.
 
 OS-specific differences are isolated to `templates/user-data.*` and `bin/create_vm.bash`:
@@ -222,73 +227,63 @@ do not add locale setup.
 
 All VMs use the libvirt `default` network with static IP assignment via
 DHCP reservation. MAC addresses and IPs are derived deterministically
-from the OS type and node identifier.
+from the OS type and the instance label.
 
-**IP Address Ranges:**
+**IP Base Addresses:**
 
-| OS Type              | Range                       |
-|----------------------|-----------------------------|
-| Debian 13            | 192.168.122.10  — .49       |
-| EPICS-env Ubuntu 26  | 192.168.122.30  — .32       |
-| EPICS-env Ubuntu 24  | 192.168.122.40  — .42       |
-| Debian 13 iocrunner  | 192.168.122.50  — .69       |
-| Debian 13 ethercat   | 192.168.122.70  — .79       |
-| Debian 13 rtbase (ethercat bake) | 192.168.122.80 — .99 |
-| Rocky 8.10           | 192.168.122.100 — .149      |
-| EPICS-env Rocky 10   | 192.168.122.130 — .132      |
-| Rocky 8.10 iocrunner | 192.168.122.150 — .199      |
-| Other node IDs       | 192.168.122.160 — .254      |
+Each addressed (vacuum, species) pair owns one base address; the `main`
+instance sits exactly on the base. The `*_IP_BASE` constants live in
+`bin/create_vm.bash` and are pairwise distinct, all below the .160 floor
+of the hashed window.
 
-The EPICS-env from-source build hosts reserve dedicated slots:
-`epics-env-debian13` at .20-.22, `epics-env-ubuntu26` at .30-.32,
-`epics-env-ubuntu24` at .40-.42, `epics-env-rocky8` at .120-.122, and
-`epics-env-rocky10` at .130-.132. They never collide with the base VMs,
-which only occupy the .10-.12 and .100-.102 server/node slots.
+| Vacuum    | bare | epics-dev | iocrunner | iocrunner-nfs | ethercat | rtbase |
+|-----------|------|-----------|-----------|---------------|----------|--------|
+| Debian 13 | .10  | .20       | .50       | .55           | .70      | .80    |
+| Ubuntu 26 | .25  | .30       | —         | —             | —        | —      |
+| Ubuntu 24 | .35  | .40       | —         | —             | —        | —      |
+| Rocky 8   | .100 | .120      | .150      | .155          | —        | —      |
+| Rocky 10  | .110 | .130      | —         | —             | —        | —      |
 
-The `*_IP_BASE` constants live in `bin/create_vm.bash` and partition the
-subnet so variant builds never collide with their base OS counterparts.
+The operator definition assigns more pairs than are addressed; a pair
+gains a base address when work first builds it.
 
-Custom NODE_IDs (not `server`, `nodeN`, or `test`) are mapped to the
+Instance labels other than `main` and `dhcp` are mapped to the
 160-254 range via a deterministic hash. The hash is taken over the OS type
-and the node identifier together, not over the node identifier alone, so
-the same custom node name on two OS types yields two different addresses
+and the instance label together, not over the label alone, so
+the same label on two OS types yields two different addresses
 and two different MACs. The range holds 95 slots, so distinct pairs can
 still collide; the address is checked against the network's existing
 reservations before registration and a collision is reported with the
-holding VM. `NODE_ID=test` bypasses static assignment and uses DHCP.
-
-**Offset Mapping:**
-
-| NODE_ID | Offset |
-|---------|--------|
-| server  | 0      |
-| node1   | 1      |
-| node2   | 2      |
-| nodeN   | N      |
+holding VM. `NODE_ID=dhcp` bypasses static assignment and uses DHCP.
 
 ```
 Host
-  └── libvirt default network (virbr0, 192.168.122.0/24, NAT)
-        ├── testbed-debian13-server             192.168.122.10
-        ├── testbed-debian13-node1              192.168.122.11
-        ├── testbed-debian13-node2              192.168.122.12
-        ├── testbed-debian13-iocrunner-server   192.168.122.50
-        ├── testbed-debian13-iocrunner-node1    192.168.122.51
-        ├── testbed-debian13-iocrunner-node2    192.168.122.52
-        ├── testbed-rocky8-server               192.168.122.100
-        ├── testbed-rocky8-node1                192.168.122.101
-        ├── testbed-rocky8-node2                192.168.122.102
-        ├── testbed-rocky8-iocrunner-server     192.168.122.150
-        ├── testbed-rocky8-iocrunner-node1      192.168.122.151
-        └── testbed-rocky8-iocrunner-node2      192.168.122.152
+  └── libvirt lab network (virbr1, 192.168.123.0/24, NAT)
+        ├── lab-debian13-main                   192.168.123.10
+        ├── lab-debian13-epics-dev-main         192.168.123.20
+        ├── lab-ubuntu26-main                   192.168.123.25
+        ├── lab-ubuntu26-epics-dev-main         192.168.123.30
+        ├── lab-ubuntu24-main                   192.168.123.35
+        ├── lab-ubuntu24-epics-dev-main         192.168.123.40
+        ├── lab-debian13-iocrunner-main         192.168.123.50
+        ├── lab-debian13-iocrunner-nfs-main     192.168.123.55
+        ├── lab-debian13-ethercat-main          192.168.123.70
+        ├── lab-debian13-rtbase-main            192.168.123.80
+        ├── lab-rocky8-main                     192.168.123.100
+        ├── lab-rocky10-main                    192.168.123.110
+        ├── lab-rocky8-epics-dev-main           192.168.123.120
+        ├── lab-rocky10-epics-dev-main          192.168.123.130
+        ├── lab-rocky8-iocrunner-main           192.168.123.150
+        └── lab-rocky8-iocrunner-nfs-main       192.168.123.155
 ```
 
 MAC addresses are generated deterministically from a fixed prefix
-(`52:54:00:00`) combined with the OS base and node offset. A hashed
-NODE_ID uses the same prefix with the range base 160 and the hash value in
-place of those two bytes. In both cases the MAC carries the two numbers as
-separate bytes while the address carries their sum, so the MAC is derived
-from the same inputs as the address rather than containing it.
+(`52:54:00:01`) combined with the OS base and the instance offset
+(`main` is offset 0). A hashed NODE_ID uses the same prefix with the
+range base 160 and the hash value in place of those two bytes. In both
+cases the MAC carries the two numbers as separate bytes while the
+address carries their sum, so the MAC is derived from the same inputs
+as the address rather than containing it.
 
 ---
 
@@ -296,19 +291,17 @@ from the same inputs as the address rather than containing it.
 
 Default OS types (built by `make all`):
 
-| Role   | Debian 13                              | Rocky 8.10                              |
-|--------|----------------------------------------|-----------------------------------------|
-| Server | `testbed-debian13-server`  .10         | `testbed-rocky8-server`   .100          |
-| Node 1 | `testbed-debian13-node1`   .11         | `testbed-rocky8-node1`    .101          |
-| Node 2 | `testbed-debian13-node2`   .12         | `testbed-rocky8-node2`    .102          |
+| Vacuum    | Main instance         | Address |
+|-----------|-----------------------|---------|
+| Debian 13 | `lab-debian13-main`   | .10     |
+| Rocky 8   | `lab-rocky8-main`     | .100    |
 
 Pre-baked IOC runner variants (require section 12 bake first):
 
-| Role   | Debian 13 iocrunner                              | Rocky 8.10 iocrunner                              |
-|--------|--------------------------------------------------|---------------------------------------------------|
-| Server | `testbed-debian13-iocrunner-server`  .50         | `testbed-rocky8-iocrunner-server`   .150          |
-| Node 1 | `testbed-debian13-iocrunner-node1`   .51         | `testbed-rocky8-iocrunner-node1`    .151          |
-| Node 2 | `testbed-debian13-iocrunner-node2`   .52         | `testbed-rocky8-iocrunner-node2`    .152          |
+| Flavor        | Debian 13                              | Rocky 8                              |
+|---------------|----------------------------------------|--------------------------------------|
+| iocrunner     | `lab-debian13-iocrunner-main` .50      | `lab-rocky8-iocrunner-main` .150     |
+| iocrunner-nfs | `lab-debian13-iocrunner-nfs-main` .55  | `lab-rocky8-iocrunner-nfs-main` .155 |
 
 ---
 
@@ -339,8 +332,8 @@ The canonical seam contract — responsibility boundary, cross-repo naming
 contract, and consumer register — is `ansible-provision/docs/SEAM.md`.
 
 `bin/generate_ansible_inventory.bash` carries the actual VM name and resolved
-address into Ansible. It maps the cloud OS selector and workload role to the
-required direct groups. `ansible-provision/inventory/testbed.ini` contains no
+address into Ansible. It maps the cloud OS selector and species to the
+required direct groups. `ansible-provision/inventory/lab.ini` contains no
 host rows; it supplies only stable parent-child group relationships, and its
 directory supplies the retained group variables.
 
@@ -352,7 +345,7 @@ source.
 
 **Pre-baked variants.** `rocky8-iocrunner` and `debian13-iocrunner`
 boot from a golden image that already contains the
-`ansible-provision` `site.yml` plus `04_nfs_sim.yml` outputs (see
+`ansible-provision` `iocrunner` species assembly output — the `iocrunner-nfs` flavor adds the `nfs_sim` operator (see
 section 12). The runtime ansible step is therefore skipped at first
 boot, trading a periodic re-bake against fast, reproducible
 software-ready VMs for `epics-ioc-runner` integration tests.
@@ -378,21 +371,18 @@ ready-to-use environment.
      | 3. resolve the source image from the source-disk creation record and
      |    stamp the manifest header
      |
-     | 4. ansible-playbook site.yml
+     | 4. ansible-playbook playbooks/species/<flavor>.yml
+     |    (iocrunner, or iocrunner_nfs with -f iocrunner-nfs)
      |
-     | 5. ansible-playbook playbooks/04_nfs_sim.yml
+     | 5. append pip provenance
      |
-     | 6. ansible-playbook playbooks/07_test_users.yml
-     |
-     | 7. append pip provenance
-     |
-     | 8. validate /etc/iocrunner-bake.manifest inside the VM, then extract
+     | 6. validate /etc/iocrunner-bake.manifest inside the VM, then extract
      |    it as the sidecar
      |
-     | 9. stream proxy_contract.bash to privileged Bash in seal mode
+     | 7. stream proxy_contract.bash to privileged Bash in seal mode
      |
-     | 10. stop through create_vm.bash -S, confirm the exact stopped domain
-     |     and disk, copy to a unique pair, and publish
+     | 8. stop through create_vm.bash -S, confirm the exact stopped domain
+     |    and disk, copy to a unique pair, and publish
      |
      | Cleanup build VM (or keep with -k)
      |
@@ -405,11 +395,11 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 | 1 | `create_vm.bash` | Boot a run-specific build VM and independent VM disk |
 | 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan`, `generate_ansible_inventory.bash` | Resolve the build VM address, refresh its `known_hosts` entry, and generate its temporary Ansible inventory entry |
 | 3 | `qemu-img`, `sha256sum` | Record the selected source-image filename and digest |
-| 4-6 | `ansible-playbook` | Apply the software stack, NFS simulator, and test users |
-| 7 | remote privileged Bash | Append `pip3 freeze` provenance |
-| 8 | `validate_iocrunner_bake.bash` | Validate the manifest before any sidecar extraction or image publication |
-| 9 | `proxy_contract.bash seal` | Preflight and remove the exact applicable proxy set, clean cloud-init state and selected logs, and verify the value-free clean state |
-| 10 | `create_vm.bash -S`, `virsh`, `qemu-img`, `mv` | Stop the sealed VM, confirm its exact domain and disk, and publish an independent image with its creation record |
+| 4 | `ansible-playbook` | Apply the species assembly of the selected flavor in one invocation |
+| 5 | remote privileged Bash | Append `pip3 freeze` provenance |
+| 6 | `validate_iocrunner_bake.bash` | Validate the manifest before any sidecar extraction or image publication |
+| 7 | `proxy_contract.bash seal` | Preflight and remove the exact applicable proxy set, clean cloud-init state and selected logs, and verify the value-free clean state |
+| 8 | `create_vm.bash -S`, `virsh`, `qemu-img`, `mv` | Stop the sealed VM, confirm its exact domain and disk, and publish an independent image with its creation record |
 | Cleanup | `create_vm.bash -c` | Tear down the build VM unless `-k` keeps it for explicit follow-up checks |
 
 **Inputs.**
@@ -431,12 +421,12 @@ publication.
 
 The maintained Ansible inventory supplies group relationships and group
 variables. The shared generator adds the run-specific host and resolved address
-through a temporary second inventory source, assigning it to the matching OS
-group and `nfs_sim_nodes`. Every bake play receives both inventory sources, and
+through a temporary second inventory source, assigning it to its vacuum
+group and to `iocrunner` (or `iocrunner_nfs` for the `-f iocrunner-nfs`
+flavor). Every bake play receives both inventory sources, and
 the temporary source is removed when the bake exits. The EtherCAT bake follows
-the same contract with `ethercat_build`; the EPICS-env runner generates one
-host source per selected VM and limits the play to the resulting core or matrix
-group.
+the same contract with `rtbase`; the EPICS-env runner generates one
+host source per selected VM and limits the play to the `epics_dev` group.
 
 **Provenance manifest.** Each IOC runner bake writes
 `/etc/iocrunner-bake.manifest` inside the build VM and, after validation,
@@ -493,7 +483,8 @@ installation. Retained-source records are checked against the live checkout
 that remains in the image.
 
 **Consumption.** The baked image is selected by the
-`<os>-iocrunner` or `debian13-ethercat` branch of `bin/create_vm.bash`, which
+`<os>-iocrunner`, `<os>-iocrunner-nfs`, or `debian13-ethercat` branch of
+`bin/create_vm.bash`, which
 accepts only the newest image whose creation record matches its name:
 
 ```
@@ -559,7 +550,7 @@ changed SSH host key remains an immediate failure and does not spend the SSH
 budget. All settings reject zero, negative, and non-integer values.
 
 The ioc-runner bake exports its run identity and calls the same
-`create_vm.bash -S` path at publication step 10. It therefore uses the same
+`create_vm.bash -S` path at publication step 8. It therefore uses the same
 60-second shutdown default and the same execution-time overrides as an
 ordinary public stop.
 
@@ -594,7 +585,7 @@ produce it, so the refusal is aimed at exactly the accepts-then-breaks case.
 
 The refusal is not confined to the probe. Both bake scripts define the same two
 options once at the top of the file and pass them at every `ssh` call site, so
-every connection this repository makes to a testbed VM carries them. Three
+every connection this repository makes to a lab VM carries them. Three
 files therefore state the same decision, which is the price of keeping each
 script self-contained; lifting it into a shared definition is tracked
 separately. `ssh-keyscan` is deliberately not given these options: it takes no
@@ -648,9 +639,9 @@ obtained again. Three classes follow from that.
 
 | Class | Meaning | Types |
 | --- | --- | --- |
-| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | `rocky8`, `debian13`, `epics-env-rocky8`, `epics-env-debian13`, `epics-env-rocky10`, `epics-env-ubuntu24`, `epics-env-ubuntu26` |
+| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | The five bare vacua and the five `*-epics-dev` build hosts |
 | upstream, pinned | A dated upstream release at a fixed URL. Re-fetchable and stable. | `debian13-rtbase` |
-| baked locally, not downloadable | Produced by `bin/bake_*_image.bash` on this host. There is no URL; losing it costs a full bake. | `rocky8-iocrunner`, `debian13-iocrunner`, `debian13-ethercat` |
+| baked locally, not downloadable | Produced by `bin/bake_*_image.bash` on this host. There is no URL; losing it costs a full bake. | `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat` |
 
 Two consequences are load-bearing.
 
@@ -667,9 +658,10 @@ refused rather than described, which says nothing about the image being bad.
 ID. The consumer type selects the newest pair whose creation record agrees with
 the name, kind, and platform.
 
-Two types may share one image — `rocky8` and `epics-env-rocky8` select the same
-Rocky 8 base, as do `debian13` and `epics-env-debian13`. That is intended: the
-EPICS-env hosts are the same base with a different build applied on top.
+Two types may share one image — `rocky8` and `rocky8-epics-dev` select the same
+Rocky 8 base, as does every vacuum with its `-epics-dev` counterpart. That is
+intended: the EPICS build hosts are the same base with a different build
+applied on top.
 
 ## 16. Image Pair and Selection Rules
 

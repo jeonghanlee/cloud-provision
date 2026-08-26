@@ -13,18 +13,16 @@ epics-env: epics-env.provision ## Provision both core epics-env VMs and build EP
 	    -a $(ANSIBLE_DIR) -d $(IMAGE_DIR) -p $(VM_PREFIX) \
 	    -i $(EPICS_ENV_INVENTORY) -P $(EPICS_ENV_PLAYBOOK)
 
-epics-env.provision: ## Provision the two core epics-env VMs without building
-	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-rocky8   -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
-	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-debian13 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+epics-env.provision: ## Provision the two core epics-dev VMs without building
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o rocky8-epics-dev   -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o debian13-epics-dev -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 
 # OS coverage grows outward from the core pair: Debian 13 and Rocky 8 are
-# settled first, and the matrix is extended to further OS types afterwards.
-# epics-env-ubuntu24 is defined in CONFIG_SITE with its own address block but
-# has no target yet for that reason; it is reachable through the generic
-# per-OS targets in the meantime.
+# settled first, and the matrix is extended to further vacua afterwards.
+# ubuntu24-epics-dev is reachable through the generic per-OS targets.
 epics-env.provision.matrix: ## Provision the rocky10 and ubuntu26 matrix VMs without building
-	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-rocky10  -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
-	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o epics-env-ubuntu26 -n server -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o rocky10-epics-dev  -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(CREATE_VM) -o ubuntu26-epics-dev -d $(IMAGE_DIR) -m $(EPICS_ENV_RAM)
 
 help.epics-env: ## Show the epics-env source-build workflow
 	$(QUIET) printf "\nEPICS-env from-source build (%s MB RAM per VM):\n" "$(EPICS_ENV_RAM)"

@@ -172,7 +172,7 @@ case "$cmd" in
             printf "%s\n" "${count}" > "${FAKE_DOMIFADDR_COUNT_FILE}"
         fi
         if [[ "${count}" -ge "${FAKE_DOMIFADDR_READY_AFTER:-1}" ]]; then
-            printf " vnet0 52:54:00:00:64:00 ipv4 192.168.122.100/24\n"
+            printf " vnet0 52:54:00:01:64:00 ipv4 192.168.123.100/24\n"
         fi
         ;;
     shutdown)
@@ -184,7 +184,7 @@ case "$cmd" in
         # A reservation whose address is a strict prefix of the one under test.
         # A substring or regex match would report the tested address as held.
         printf "%s\n" "<network><ip><dhcp>"
-        printf "%s\n" "  <host mac='52:54:00:00:64:01' name='other-vm' ip='${FAKE_RESERVED_IP:-192.168.122.1501}'/>"
+        printf "%s\n" "  <host mac='52:54:00:01:64:01' name='other-vm' ip='${FAKE_RESERVED_IP:-192.168.123.1501}'/>"
         printf "%s\n" "</dhcp></ip></network>"
         ;;
     net-update|start|destroy|undefine)
@@ -344,7 +344,7 @@ function run_create_vm {
     local rc=0
     local domain_state="running"
     local dominfo_rc=1
-    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "${CASE_NODE_ID:-server}" "-d" "${WORKSPACE}/images")
+    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "${CASE_NODE_ID:-main}" "-d" "${WORKSPACE}/images")
 
     case "${action}" in
         status)
@@ -489,7 +489,7 @@ function run_ip_policy_case {
 
     reset_sleep_log
     rm -f -- "${count_file}"
-    result=$(CASE_NODE_ID=test FAKE_DOMIFADDR_READY_AFTER="${ready_after}" \
+    result=$(CASE_NODE_ID=dhcp FAKE_DOMIFADDR_READY_AFTER="${ready_after}" \
         FAKE_DOMIFADDR_COUNT_FILE="${count_file}" \
         run_create_vm $'status: done\n' "provision")
     rc="${result%%$'\n'*}"
@@ -739,9 +739,9 @@ function run_bake_pair_case {
 }
 
 function run_cleanup_pair_case {
-    local disk="${WORKSPACE}/images/testbed-rocky8-server.qcow2"
+    local disk="${WORKSPACE}/images/lab-rocky8-main.qcow2"
     local record="${disk}.creation-record"
-    local seed="${WORKSPACE}/images/testbed-rocky8-server-seed.iso"
+    local seed="${WORKSPACE}/images/lab-rocky8-main-seed.iso"
     local result rc output
 
     printf "%s\n" "disk fixture" > "${disk}"
@@ -834,8 +834,8 @@ function run_no_delete_case {
 }
 
 # Drives the fresh-provision path far enough to run generate_seed, then asserts
-# on what the fake genisoimage recorded. Seed staging is the subject: issue #22
-# reported that two concurrent runs shared one staging directory and interleaved
+# on what the fake genisoimage recorded. Seed staging is the subject: a bug
+# report showed two concurrent runs sharing one staging directory, interleaving
 # their writes, leaving two local-hostname lines in one meta-data. The path is
 # per-VM now, but that arrived as a side effect of the provenance work in
 # c4ba7fd rather than as a deliberate fix, so nothing held it. These cases hold
@@ -871,7 +871,7 @@ function run_seed_case {
     staged_meta="$(cat "${WORKSPACE}/seed-meta.txt" 2>/dev/null || true)"
     hostname_count="$(grep -c '^local-hostname:' <<< "${staged_meta}" || true)"
     expect_equal "${name} one local-hostname" "1" "${hostname_count}"
-    expect_contains "${name} own VM name" "${staged_meta}" "local-hostname: testbed-rocky8-server"
+    expect_contains "${name} own VM name" "${staged_meta}" "local-hostname: lab-rocky8-main"
 
     # genisoimage writes statistics to stderr even when it succeeds. They must
     # not reach the operator: the success line stays one line.
@@ -880,7 +880,7 @@ function run_seed_case {
 
     resize_line="$(grep '^resize ' "${QEMU_IMG_LOG}" | tail -n 1 || true)"
     expect_equal "${name} resizes the VM disk" \
-        "resize ${WORKSPACE}/images/testbed-rocky8-server.qcow2 20G" \
+        "resize ${WORKSPACE}/images/lab-rocky8-main.qcow2 20G" \
         "${resize_line}"
 }
 
@@ -908,8 +908,8 @@ function run_seed_failure_case {
     expect_contains "${name} keeps the staging" "${output}" "Staging left for inspection"
 }
 
-# Address assignment, issue #27. An address must identify a VM, not a node
-# name: hashing NODE_ID alone gave every OS type the same address and MAC for a
+# Address assignment: an address must identify a VM, not a node name.
+# Hashing NODE_ID alone gave every OS type the same address and MAC for a
 # given node ID, so the second VM could not be created at all. Known node IDs
 # are asserted separately because they must not move - existing VMs record
 # their addresses and downstream notes cite them.
@@ -920,25 +920,23 @@ function run_address_case {
     local want_last="$4"
     local result output got
 
-    if [[ "${os_type}" == *-iocrunner || "${os_type}" == "debian13-ethercat" ]]; then
-        if [[ "${os_type}" == "rocky8-iocrunner" ]]; then
-            write_baked_image_fixture "iocrunner" "rocky8"
-        elif [[ "${os_type}" == "debian13-iocrunner" ]]; then
-            write_baked_image_fixture "iocrunner" "debian13"
-        else
-            write_baked_image_fixture "ethercat" "debian13"
-        fi
-    fi
+    case "${os_type}" in
+        rocky8-iocrunner)       write_baked_image_fixture "iocrunner" "rocky8" ;;
+        debian13-iocrunner)     write_baked_image_fixture "iocrunner" "debian13" ;;
+        rocky8-iocrunner-nfs)   write_baked_image_fixture "iocrunner-nfs" "rocky8" ;;
+        debian13-iocrunner-nfs) write_baked_image_fixture "iocrunner-nfs" "debian13" ;;
+        debian13-ethercat)      write_baked_image_fixture "ethercat" "debian13" ;;
+    esac
     reset_sleep_log
     result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
         run_create_vm $'status: done\n' "status")
     output="${result#*$'\n'}"
-    got="$(grep -oE 'mapped to 192\.168\.122\.[0-9]+|IP Address : 192\.168\.122\.[0-9]+' <<< "${output}" \
+    got="$(grep -oE 'mapped to 192\.168\.123\.[0-9]+|IP Address : 192\.168\.123\.[0-9]+' <<< "${output}" \
         | grep -oE '[0-9]+$' | head -1)"
     expect_equal "${name}" "${want_last}" "${got:-none}"
 }
 
-# The whole point of #27: the same unknown node ID across OS types must not
+# The core address rule: the same unknown node ID across OS types must not
 # land on one address. Asserting individual values would pass even if two of
 # them agreed, so the distinctness is asserted directly.
 function run_address_distinct_case {
@@ -960,7 +958,7 @@ function run_address_distinct_case {
         result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
             run_create_vm $'status: done\n' "status")
         output="${result#*$'\n'}"
-        got="$(grep -oE 'mapped to 192\.168\.122\.[0-9]+' <<< "${output}" \
+        got="$(grep -oE 'mapped to 192\.168\.123\.[0-9]+' <<< "${output}" \
             | grep -oE '[0-9]+$' | head -1)"
         seen+=("${got:-none}")
     done
@@ -970,8 +968,8 @@ function run_address_distinct_case {
 }
 
 # The DHCP collision guard must compare whole address fields. Matching by
-# substring or regex would read 192.168.122.150 as held by the entry for
-# 192.168.122.1501 and refuse a VM whose address is free - a guard that blocks
+# substring or regex would read 192.168.123.150 as held by the entry for
+# 192.168.123.1501 and refuse a VM whose address is free - a guard that blocks
 # correct work is worse than the collision it was added to name.
 function run_reservation_case {
     local name="$1"
@@ -1108,7 +1106,7 @@ run_selection_case "rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upst
 run_selection_case "debian13-rtbase" "debian-13-genericcloud-amd64-20260601-2496.qcow2 (upstream, pinned)"
 run_selection_case "rocky8-iocrunner" \
     "iocrunner-rocky8-20260812T000000Z-abcdef123456.qcow2 (baked locally, not downloadable)"
-run_selection_case "epics-env-rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
+run_selection_case "rocky8-epics-dev" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
 run_bake_pair_case "rocky8" "rocky8-iocrunner"
 run_bake_pair_case "debian13" "debian13-iocrunner"
 run_pair_rejection_case "missing creation record" "missing"
@@ -1117,19 +1115,20 @@ run_invalid_run_id_case
 run_no_delete_case "unusable golden" "rocky8-iocrunner" \
     "iocrunner-rocky8-20260812T000000Z-abcdef123456.qcow2"
 
-# Seed staging, issue #22.
+# Seed staging.
 run_seed_case "seed"
 run_seed_failure_case "seed failure"
 
-# Address assignment, issue #27.
-run_address_case "known node rocky8-iocrunner server" "rocky8-iocrunner" "server" "150"
-run_address_case "known node rocky8-iocrunner node2" "rocky8-iocrunner" "node2" "152"
-run_address_case "known node debian13-ethercat node1" "debian13-ethercat" "node1" "71"
-run_address_distinct_case "probe" rocky8 debian13 rocky8-iocrunner debian13-ethercat epics-env-rocky8
+# Address assignment.
+run_address_case "main instance rocky8-iocrunner" "rocky8-iocrunner" "main" "150"
+run_address_case "main instance rocky8-iocrunner-nfs" "rocky8-iocrunner-nfs" "main" "155"
+run_address_case "main instance debian13-ethercat" "debian13-ethercat" "main" "70"
+run_address_case "hashed instance debian13-ethercat aux" "debian13-ethercat" "aux" "215"
+run_address_distinct_case "probe" rocky8 debian13 rocky10 rocky8-iocrunner debian13-ethercat rocky8-epics-dev
 
-# DHCP reservation guard. rocky8-iocrunner/server maps to 192.168.122.150.
-run_reservation_case "reservation guard ignores a longer address" "192.168.122.1501" "no"
-run_reservation_case "reservation guard fires on the same address" "192.168.122.150" "yes"
+# DHCP reservation guard. rocky8-iocrunner main maps to 192.168.123.150.
+run_reservation_case "reservation guard ignores a longer address" "192.168.123.1501" "no"
+run_reservation_case "reservation guard fires on the same address" "192.168.123.150" "yes"
 
 # SSH readiness contract, ARCHITECTURE section 13. Asserted last so it covers
 # every probe every case above drove.

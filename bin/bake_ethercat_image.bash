@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Bake an EtherCAT/RT base image from a standard cloud-provision VM.
-# Boots a run-specific testbed build VM, applies ansible-provision's
-# 05_ethercat_base.yml (build toolchain, kernel headers, dkms, RT kernel +
+# Boots a run-specific lab build VM, applies ansible-provision's
+# rtbase species assembly (build toolchain, kernel headers, dkms, RT kernel +
 # headers installed but NOT made the boot default), then converts the
 # independent VM disk into ${IMAGE_DIR}/ethercat-<platform>-<run-id>.qcow2
 # ready for the debian13-ethercat OS variant in cloud-provision.
@@ -27,12 +27,12 @@ declare -g OS_TYPE=""
 declare -g IMAGE_DIR="${IMAGE_DIR:-${HOME}/libvirt/images}"
 declare -g ANSIBLE_DIR="${ANSIBLE_PROVISION_DIR:-${SC_TOP}/../ansible-provision}"
 declare -g KEEP_VM=false
-declare -g VM_PREFIX="${VM_PREFIX:-testbed}"
-declare -g NODE_ID="server"
+declare -g VM_PREFIX="${VM_PREFIX:-lab}"
+declare -g NODE_ID="build"
 declare -g IMAGE_WORKFLOW_RUN_ID="${IMAGE_WORKFLOW_RUN_ID:-}"
 declare -g LIBVIRT_URI="qemu:///system"
 # Ansible inventory for the playbook call; env-overridable per site.
-declare -g INVENTORY="${BAKE_INVENTORY:-inventory/testbed.ini}"
+declare -g INVENTORY="${BAKE_INVENTORY:-inventory/lab.ini}"
 declare -g ANSIBLE_USER="vmadmin"
 declare -g RUNTIME_INVENTORY=""
 declare -g MANIFEST_TEMP=""
@@ -118,7 +118,7 @@ declare -g BUILD_OS_TYPE="${OS_TYPE}-rtbase"
 declare -g CREATE_VM="${SC_TOP}/bin/create_vm.bash"
 declare -g INVENTORY_GENERATOR="${SC_TOP}/bin/generate_ansible_inventory.bash"
 declare -g PROXY_CONTRACT="${SC_TOP}/bin/proxy_contract.bash"
-declare -g ETHERCAT_BASE_PLAYBOOK="playbooks/05_ethercat_base.yml"
+declare -g ETHERCAT_BASE_PLAYBOOK="playbooks/species/rtbase.yml"
 declare -g ANSIBLE_PLAYBOOK_BIN
 declare -g INVENTORY_PATH
 declare -g SEALED_VM_NAME=""
@@ -221,7 +221,7 @@ if ! "${INVENTORY_GENERATOR}" \
     --vm-name "${VM_NAME}" \
     --address "${VM_IP}" \
     --os-type "${BUILD_OS_TYPE}" \
-    --role ethercat-build \
+    --species rtbase \
     --ansible-user "${ANSIBLE_USER}" > "${RUNTIME_INVENTORY}"; then
     printf "Error: failed to generate runtime inventory\n" >&2
     exit 1
@@ -301,5 +301,5 @@ fi
 
 printf "%s\n" "------------------------------------------------------------"
 printf "Bake complete: %s\n" "${OUTPUT_IMAGE}"
-printf "Boot the variant: make %s-ethercat.server\n" "${OS_TYPE}"
+printf "Boot the variant: make %s-ethercat.main\n" "${OS_TYPE}"
 printf "%s\n" "------------------------------------------------------------"

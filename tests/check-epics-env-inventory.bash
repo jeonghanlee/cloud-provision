@@ -86,7 +86,7 @@ for argument in "$@"; do
     if [[ "${expect_inventory_path}" == true ]]; then
         expect_inventory_path=false
         if [[ -f "${argument}" ]] && \
-           grep -Fxq '[epics_env_core]' "${argument}" && \
+           grep -Fxq '[epics_dev]' "${argument}" && \
            grep -Fq ' ansible_host=' "${argument}"; then
             runtime_inventories+=("${argument}")
         fi
@@ -99,12 +99,12 @@ done
         "${#runtime_inventories[@]}" >&2
     exit 3
 }
-grep -Fq 'testbed-epics-env-rocky8-server ansible_host=192.168.122.120 ansible_user=vmadmin' \
+grep -Fq 'lab-rocky8-epics-dev-main ansible_host=192.168.123.120 ansible_user=vmadmin' \
     "${runtime_inventories[0]}" "${runtime_inventories[1]}"
-grep -Fq 'testbed-epics-env-debian13-server ansible_host=192.168.122.20 ansible_user=vmadmin' \
+grep -Fq 'lab-debian13-epics-dev-main ansible_host=192.168.123.20 ansible_user=vmadmin' \
     "${runtime_inventories[0]}" "${runtime_inventories[1]}"
-[[ "$*" == *"--limit epics_env_core"* ]]
-[[ "$*" == *"playbooks/08_epics_env_build.yml"* ]]
+[[ "$*" == *"--limit epics_dev"* ]]
+[[ "$*" == *"playbooks/species/epics_dev.yml"* ]]
 printf "%s\n" "${runtime_inventories[@]}" > "${RUNTIME_INVENTORY_ARG_LOG}"
 printf "%s\n" "$*" > "${ANSIBLE_ARG_LOG}"
 EOF

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Cloud-init based VM provisioner for libvirt/KVM.
-# Provisions multi-node test environments on Rocky Linux 8.10 and Debian 13.
+# Provisions the lab vacua (debian13, rocky8, rocky10, ubuntu24, ubuntu26)
+# and their species consumers per docs/IMAGE_WORKFLOW.md (Operator definition).
 
 set -e
 
@@ -15,7 +16,7 @@ source "${SC_TOP}/bin/image_workflow.bash"
 source "${SC_TOP}/bin/proxy_contract.bash"
 
 # --- Global Configuration ---
-declare -g VM_PREFIX="testbed"
+declare -g VM_PREFIX="lab"
 declare -g VM_NAME
 declare -g VM_RAM=4096
 declare -g VM_VCPUS=2
@@ -29,7 +30,7 @@ declare -g OS_VARIANT
 declare -g OSINFO_VARIANT=""
 declare -g NODE_ID
 declare -g LIBVIRT_URI="qemu:///system"
-declare -g LIBVIRT_NETWORK="default"
+declare -g LIBVIRT_NETWORK="lab"
 declare -g VM_BOOT_FIRMWARE=""
 declare -g REQUIRED_GROUP="${REQUIRED_GROUP:-libvirt}"
 declare -g PROXY_SOURCE_DIR="${PROXY_SOURCE_DIR:-/etc/profile.d}"
@@ -51,19 +52,28 @@ declare -g VM_WAIT_SHUTDOWN_ATTEMPTS="${VM_WAIT_SHUTDOWN_ATTEMPTS:-12}"
 declare -g VM_WAIT_SHUTDOWN_INTERVAL_SECONDS="${VM_WAIT_SHUTDOWN_INTERVAL_SECONDS:-5}"
 
 # Network configuration: static IP via libvirt DHCP reservation
-declare -g NETWORK_SUBNET="192.168.122"
-declare -g MAC_PREFIX="52:54:00:00"
+declare -g NETWORK_SUBNET="192.168.123"
+declare -g MAC_PREFIX="52:54:00:01"
+# Vacuum-by-species address table. Each pair listed here owns one base
+# address; the main instance sits on the base and named instances hash
+# into the shared 160-254 window. The operator definition assigns more
+# pairs than are listed; a pair gains a row when work first builds it.
 declare -g DEBIAN13_IP_BASE=10
-declare -g ROCKY8_IP_BASE=100
+declare -g DEBIAN13_EPICS_DEV_IP_BASE=20
+declare -g UBUNTU26_IP_BASE=25
+declare -g UBUNTU26_EPICS_DEV_IP_BASE=30
+declare -g UBUNTU24_IP_BASE=35
+declare -g UBUNTU24_EPICS_DEV_IP_BASE=40
 declare -g DEBIAN13_IOCRUNNER_IP_BASE=50
-declare -g ROCKY8_IOCRUNNER_IP_BASE=150
+declare -g DEBIAN13_IOCRUNNER_NFS_IP_BASE=55
 declare -g DEBIAN13_ETHERCAT_IP_BASE=70
 declare -g DEBIAN13_RTBASE_IP_BASE=80
-declare -g EPICSENV_DEBIAN13_IP_BASE=20
-declare -g EPICSENV_ROCKY8_IP_BASE=120
-declare -g EPICSENV_ROCKY10_IP_BASE=130
-declare -g EPICSENV_UBUNTU26_IP_BASE=30
-declare -g EPICSENV_UBUNTU24_IP_BASE=40
+declare -g ROCKY8_IP_BASE=100
+declare -g ROCKY10_IP_BASE=110
+declare -g ROCKY8_EPICS_DEV_IP_BASE=120
+declare -g ROCKY10_EPICS_DEV_IP_BASE=130
+declare -g ROCKY8_IOCRUNNER_IP_BASE=150
+declare -g ROCKY8_IOCRUNNER_NFS_IP_BASE=155
 declare -g VM_IP=""
 declare -g VM_MAC=""
 
@@ -88,13 +98,17 @@ function print_usage {
     printf "\n"
     printf "Options:\n"
     printf "  -o <os_type>   OS type (default: rocky8)\n"
-    printf "                 rocky8, debian13, rocky8-iocrunner, debian13-iocrunner\n"
+    printf "                 Vacua: rocky8, debian13, rocky10, ubuntu24, ubuntu26\n"
+    printf "                 Golden consumers: rocky8-iocrunner, debian13-iocrunner,\n"
+    printf "                 rocky8-iocrunner-nfs, debian13-iocrunner-nfs,\n"
     printf "                 debian13-ethercat, debian13-rtbase\n"
-    printf "                 epics-env-rocky8, epics-env-debian13, epics-env-rocky10\n"
-    printf "                 epics-env-ubuntu26, epics-env-ubuntu24\n"
-    printf "  -n <node_id>   Node identifier: server, node1, node2, ... (default: test)\n"
+    printf "                 Source-build hosts: rocky8-epics-dev, debian13-epics-dev,\n"
+    printf "                 rocky10-epics-dev, ubuntu24-epics-dev, ubuntu26-epics-dev\n"
+    printf "  -n <instance>  Instance label (default: main). main takes the static\n"
+    printf "                 base address, dhcp takes a DHCP lease, any other label\n"
+    printf "                 hashes into the shared 160-254 window.\n"
     printf "  -d <image_dir> Image storage directory (default: ~/libvirt/images)\n"
-    printf "  -p <prefix>    VM name prefix (default: testbed)\n"
+    printf "  -p <prefix>    VM name prefix (default: lab)\n"
     printf "  -m <mb>        VM memory in MB (default: 4096)\n"
     printf "  -c             Remove VM domain, disk pair, and seed ISO\n"
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
@@ -103,11 +117,11 @@ function print_usage {
     printf "  -h             Show this help message\n"
     printf "\n"
     printf "Examples:\n"
-    printf "  %s -o rocky8 -n server\n" "$(basename "$0")"
-    printf "  %s -o debian13 -n node1\n" "$(basename "$0")"
-    printf "  %s -o rocky8 -n server -m 4096\n" "$(basename "$0")"
-    printf "  %s -o rocky8 -n server -s\n" "$(basename "$0")"
-    printf "  %s -o rocky8 -n server -c\n" "$(basename "$0")"
+    printf "  %s -o rocky8\n" "$(basename "$0")"
+    printf "  %s -o debian13-iocrunner -n a\n" "$(basename "$0")"
+    printf "  %s -o ubuntu24 -m 4096\n" "$(basename "$0")"
+    printf "  %s -o rocky8 -s\n" "$(basename "$0")"
+    printf "  %s -o rocky8 -c\n" "$(basename "$0")"
 }
 
 # --- Group Membership Check ---
@@ -136,7 +150,7 @@ while getopts ":o:n:d:p:m:csSFh" opt; do
 done
 
 : "${OS_TYPE:=rocky8}"
-: "${NODE_ID:=test}"
+: "${NODE_ID:=main}"
 : "${IMAGE_DIR:=${HOME}/libvirt/images}"
 
 if [[ "${DO_FRESH}" == true ]] && \
@@ -187,6 +201,29 @@ elif [[ "${OS_TYPE}" == "debian13" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "rocky10" ]]; then
+    # RHEL 10 family dropped legacy BIOS boot on x86_64, so UEFI is required;
+    # the host osinfo database tops out at rocky9, which stands in for
+    # device-default selection.
+    OS_VARIANT="rocky10"
+    OSINFO_VARIANT="rocky9"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="Rocky-10-GenericCloud-Base.latest.x86_64.qcow2"
+    BASE_URL="https://download.rockylinux.org/pub/rocky/10/images/x86_64/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "ubuntu24" ]]; then
+    OS_VARIANT="ubuntu24"
+    OSINFO_VARIANT="ubuntu24.04"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="noble-server-cloudimg-amd64.img"
+    BASE_URL="https://cloud-images.ubuntu.com/noble/current/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "ubuntu26" ]]; then
+    # The host osinfo database tops out at ubuntu25.10, which stands in for
+    # device-default selection.
+    OS_VARIANT="ubuntu26"
+    OSINFO_VARIANT="ubuntu25.10"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="resolute-server-cloudimg-amd64.img"
+    BASE_URL="https://cloud-images.ubuntu.com/resolute/current/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "rocky8-iocrunner" ]]; then
     OS_VARIANT="rocky8"
     BASE_IMAGE_KIND="iocrunner"
@@ -196,6 +233,17 @@ elif [[ "${OS_TYPE}" == "debian13-iocrunner" ]]; then
     OS_VARIANT="debian13"
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_KIND="iocrunner"
+    BASE_IMAGE_PLATFORM="debian13"
+    BASE_URL=""
+elif [[ "${OS_TYPE}" == "rocky8-iocrunner-nfs" ]]; then
+    OS_VARIANT="rocky8"
+    BASE_IMAGE_KIND="iocrunner-nfs"
+    BASE_IMAGE_PLATFORM="rocky8"
+    BASE_URL=""
+elif [[ "${OS_TYPE}" == "debian13-iocrunner-nfs" ]]; then
+    OS_VARIANT="debian13"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_KIND="iocrunner-nfs"
     BASE_IMAGE_PLATFORM="debian13"
     BASE_URL=""
 elif [[ "${OS_TYPE}" == "debian13-ethercat" ]]; then
@@ -214,40 +262,29 @@ elif [[ "${OS_TYPE}" == "debian13-rtbase" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="debian-13-genericcloud-amd64-20260601-2496.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/20260601-2496/debian-13-genericcloud-amd64-20260601-2496.qcow2"
-elif [[ "${OS_TYPE}" == "epics-env-rocky8" ]]; then
-    # EPICS-env from-source build host. Boots the plain Rocky 8 base image
-    # (no golden bake); ansible-provision builds EPICS-env from source on top.
+elif [[ "${OS_TYPE}" == "rocky8-epics-dev" ]]; then
+    # EPICS-env from-source build host on the plain Rocky 8 base image.
     OS_VARIANT="rocky8"
     BASE_IMAGE_NAME="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
     BASE_URL="https://download.rockylinux.org/pub/rocky/8/images/x86_64/${BASE_IMAGE_NAME}"
-elif [[ "${OS_TYPE}" == "epics-env-debian13" ]]; then
-    # EPICS-env from-source build host on the plain Debian 13 base image.
+elif [[ "${OS_TYPE}" == "debian13-epics-dev" ]]; then
     OS_VARIANT="debian13"
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
-elif [[ "${OS_TYPE}" == "epics-env-rocky10" ]]; then
-    # EPICS-env from-source build host on the plain Rocky 10 base image.
-    # RHEL 10 family dropped legacy BIOS boot on x86_64, so UEFI is required;
-    # the host osinfo database tops out at rocky9, which stands in for
-    # device-default selection.
+elif [[ "${OS_TYPE}" == "rocky10-epics-dev" ]]; then
     OS_VARIANT="rocky10"
     OSINFO_VARIANT="rocky9"
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="Rocky-10-GenericCloud-Base.latest.x86_64.qcow2"
     BASE_URL="https://download.rockylinux.org/pub/rocky/10/images/x86_64/${BASE_IMAGE_NAME}"
-elif [[ "${OS_TYPE}" == "epics-env-ubuntu24" ]]; then
-    # EPICS-env from-source build host on the plain Ubuntu 24.04 LTS base
-    # image (codename noble); carried for full-coverage distribution builds.
+elif [[ "${OS_TYPE}" == "ubuntu24-epics-dev" ]]; then
     OS_VARIANT="ubuntu24"
     OSINFO_VARIANT="ubuntu24.04"
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="noble-server-cloudimg-amd64.img"
     BASE_URL="https://cloud-images.ubuntu.com/noble/current/${BASE_IMAGE_NAME}"
-elif [[ "${OS_TYPE}" == "epics-env-ubuntu26" ]]; then
-    # EPICS-env from-source build host on the plain Ubuntu 26.04 LTS base
-    # image (codename resolute). The host osinfo database tops out at
-    # ubuntu25.10, which stands in for device-default selection.
+elif [[ "${OS_TYPE}" == "ubuntu26-epics-dev" ]]; then
     OS_VARIANT="ubuntu26"
     OSINFO_VARIANT="ubuntu25.10"
     VM_BOOT_FIRMWARE="uefi"
@@ -301,31 +338,35 @@ function resolve_network {
     local node_offset=0
 
     case "${OS_TYPE}" in
-        rocky8)             os_base=${ROCKY8_IP_BASE} ;;
-        debian13)           os_base=${DEBIAN13_IP_BASE} ;;
-        rocky8-iocrunner)   os_base=${ROCKY8_IOCRUNNER_IP_BASE} ;;
-        debian13-iocrunner) os_base=${DEBIAN13_IOCRUNNER_IP_BASE} ;;
-        debian13-ethercat)  os_base=${DEBIAN13_ETHERCAT_IP_BASE} ;;
-        debian13-rtbase)    os_base=${DEBIAN13_RTBASE_IP_BASE} ;;
-        epics-env-rocky8)   os_base=${EPICSENV_ROCKY8_IP_BASE} ;;
-        epics-env-debian13) os_base=${EPICSENV_DEBIAN13_IP_BASE} ;;
-        epics-env-rocky10)  os_base=${EPICSENV_ROCKY10_IP_BASE} ;;
-        epics-env-ubuntu26) os_base=${EPICSENV_UBUNTU26_IP_BASE} ;;
-        epics-env-ubuntu24) os_base=${EPICSENV_UBUNTU24_IP_BASE} ;;
+        debian13)               os_base=${DEBIAN13_IP_BASE} ;;
+        rocky8)                 os_base=${ROCKY8_IP_BASE} ;;
+        rocky10)                os_base=${ROCKY10_IP_BASE} ;;
+        ubuntu24)               os_base=${UBUNTU24_IP_BASE} ;;
+        ubuntu26)               os_base=${UBUNTU26_IP_BASE} ;;
+        debian13-iocrunner)     os_base=${DEBIAN13_IOCRUNNER_IP_BASE} ;;
+        rocky8-iocrunner)       os_base=${ROCKY8_IOCRUNNER_IP_BASE} ;;
+        debian13-iocrunner-nfs) os_base=${DEBIAN13_IOCRUNNER_NFS_IP_BASE} ;;
+        rocky8-iocrunner-nfs)   os_base=${ROCKY8_IOCRUNNER_NFS_IP_BASE} ;;
+        debian13-ethercat)      os_base=${DEBIAN13_ETHERCAT_IP_BASE} ;;
+        debian13-rtbase)        os_base=${DEBIAN13_RTBASE_IP_BASE} ;;
+        debian13-epics-dev)     os_base=${DEBIAN13_EPICS_DEV_IP_BASE} ;;
+        rocky8-epics-dev)       os_base=${ROCKY8_EPICS_DEV_IP_BASE} ;;
+        rocky10-epics-dev)      os_base=${ROCKY10_EPICS_DEV_IP_BASE} ;;
+        ubuntu24-epics-dev)     os_base=${UBUNTU24_EPICS_DEV_IP_BASE} ;;
+        ubuntu26-epics-dev)     os_base=${UBUNTU26_EPICS_DEV_IP_BASE} ;;
     esac
 
     case "${NODE_ID}" in
-        server) node_offset=0 ;;
-        node[0-9]*) node_offset="${NODE_ID#node}" ;;
-        test)
-            printf "Warning: NODE_ID=test uses DHCP (no static IP).\n"
+        main) node_offset=0 ;;
+        dhcp)
+            printf "Warning: NODE_ID=dhcp uses DHCP (no static IP).\n"
             return 1
             ;;
         *)
             # Deterministic hash of OS_TYPE and NODE_ID mapped to 160-254.
-            # 160-199 sits between the highest per-OS block (150 plus node
-            # offsets) and the old 200-254 window, and nothing else uses it, so
-            # widening costs nothing and roughly halves the collision rate. A
+            # 160-199 sits between the highest static base (155) and the
+            # old 200-254 window, and nothing else uses it, so widening
+            # costs nothing and roughly halves the collision rate. A
             # fixed range still collides; register_dhcp names it when it does.
             # Both go into the hash: an address identifies a VM, not a node
             # name. Hashing NODE_ID alone gave every OS type the same address
@@ -370,7 +411,7 @@ function register_dhcp {
     # its message says only that an entry exists; it cannot say which VM holds
     # the address or that a node-ID choice produced it.
     # Match the address as a whole quoted field. A substring or regex match
-    # would report 192.168.122.10 as held by the entry for 192.168.122.101,
+    # would report 192.168.123.10 as held by the entry for 192.168.123.101,
     # refusing a VM whose address is free.
     local holder
     holder="$(virsh --connect "${LIBVIRT_URI}" net-dumpxml "${LIBVIRT_NETWORK}" 2>/dev/null \
@@ -848,7 +889,7 @@ function provision_vm {
     fi
 
 
-    local net_args="network=default,model=virtio"
+    local net_args="network=${LIBVIRT_NETWORK},model=virtio"
     if [[ -n "${VM_MAC}" ]]; then
         net_args="${net_args},mac=${VM_MAC}"
     fi

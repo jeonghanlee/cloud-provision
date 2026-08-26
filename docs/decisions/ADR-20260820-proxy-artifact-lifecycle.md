@@ -2,7 +2,7 @@
 
 Date: 2026-08-20
 Status: Accepted
-Decision IDs: D009-D017
+Decision IDs: D009-D018, D022
 
 ## Context
 
@@ -22,8 +22,9 @@ selected root. Absolute, dangling, escaping, parent-link, duplicate-ID,
 invalid-ID, and unsupported-family inputs fail closed. A test root must be an
 existing absolute directory, may not be the selected link itself, and may not
 resolve to `/`. In test mode, `cloud-init`, `visudo`, `sshd`, and `systemctl`
-must be executable regular files at their exact guest paths below that root;
-there is no host fallback.
+must each be, at their exact guest paths below that root, an executable regular
+file or a symbolic link that resolves within that root to one; a link that
+leaves the root fails and there is no host fallback.
 
 The production inventory is exact:
 
@@ -109,3 +110,40 @@ or the state of any existing artifact.
 - EtherCAT test restoration and runtime acceptance remain Backlog work.
 - The existing-artifact audit remains separate evidence under separate
   authorization.
+
+### Package install ordering under proxy injection (D018)
+
+Under proxy injection `create_vm` strips the cloud-init `packages:` directive,
+so packages install after the proxy apply through Ansible, not through the
+cloud-init package module. The reason: the cloud-init package module runs in the
+config stage, before the runcmd proxy apply in the final stage, so it has no
+proxy yet and cannot fetch. Without proxy injection the cloud-init baseline (the
+hand-off subset of P_common defined in `docs/IMAGE_WORKFLOW.md`) installs them at
+first boot.
+
+### Base-image locale dependency under proxy injection (D018)
+
+Stripping `packages:` removes the `locales` entry with it, while the runcmd
+locale commands (`locale-gen en_US.UTF-8` and its siblings) are kept and still
+run at first boot. Those commands therefore depend on the base image already
+shipping locale support — the `locales` package on the Debian family, glibc
+langpacks on Rocky. A base image lacking it fails locale generation silently at
+first boot; a first-boot self-check in the debian-family templates surfaces the
+absence instead. That self-check must stay the last `runcmd` entry: cloud-init
+flattens `runcmd` into one `set -e`-less script whose exit status is its last
+line, so any command appended after the self-check would mask its failure and
+let the bake pass.
+
+### Identity command symlink resolution (D022)
+
+`proxy_contract_resolve_guest_command` accepts a fixed identity command
+(`cloud-init`, `visudo`, `sshd`, `systemctl`) whose exact guest path is a
+symbolic link, by resolving it to its canonical target and validating that
+target as an in-root regular executable. This admits alternatives-managed
+commands such as resolute's sudo-rs `visudo`, whose `/usr/sbin/visudo` links
+through `/etc/alternatives` to a regular executable. The relaxation follows
+links only within the selected root: the rooted-path walk rejects a resolved
+target that leaves the root, so there is no host fallback and every other
+fail-closed property is unchanged. It covers only the four identity commands,
+not any proxy artifact or the `/etc/os-release` rules. The shared rooted-path
+walk is untouched, so artifact and os-release validation stay strict.

@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #36 are closed. M8 is In progress under its accepted plan; the plan, the operator definition, and the current register updates ride the `m8-operator-model` branch until M8 closes and merges to master, so read the register on that branch. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M6, M7, M9, and M10 are Complete. M8 is In progress only pending its merge: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch, and M8 / T4 through T6 real-environment verification is complete - all five vacua install bare P_common (ubuntu26 via the M10 fix), the three iocrunner and iocrunner-nfs golden bakes publish and fresh consumers select the just-published pairs, and epics-dev source builds on ubuntu24, rocky10, and ubuntu26 install EPICS-env 1.3.0, all with the shared P_python operator (D023). M6 is Complete: its offline lints pass and both real self-checks are observed - the debian-family bare boots generate `en_US.UTF-8` and the self-check succeeds (M6 / T4), and a base image with `locales` removed makes the self-check fail loudly with the completion gate treating it as failure (M6 / T5). The remaining step is merging `m8-operator-model` to master, which closes M8 and unblocks M5. M5 stays planned and held behind M8. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -23,10 +23,11 @@ Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 | Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
-| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018, D020 | A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning; [M5 detail](#m5). |
-| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Not started | Yes | D018 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; [M6 detail](#m6). |
-| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Not started | Yes | D018 | The proxy ADR and RUNBOOK_BAKE state packages install post-apply via Ansible, not cloud-init; [M7 detail](#m7). |
-| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Not started | Yes | D018, D019 | Replace the testbed concept with a role-based base, builder, golden-family, verify, bare, and source-build model grounded in the actual ansible-provision usage, absorbing the testbed-to-bare piece; [M8 detail](#m8). |
+| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | No | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
+| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Complete | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done and the real positive and negative self-checks observed; [M6 detail](#m6). |
+| Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
+| Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | In progress | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
+| Proxy contract portability | M10 | Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute | Milestone | Complete | No | D009, D021 | The proxy contract's identity-command validation accepts a command path that resolves through a symbolic link to a regular executable inside the guest root, ubuntu26 proxy apply writes its artifacts, and M8 / T4 passes on ubuntu26; [M10 detail](#m10). |
 
 ### Decisions
 
@@ -44,6 +45,9 @@ Next session entry point: M2, M3, and M9 are Complete and issues #33, #34, and #
 | D018 | Under proxy injection, `create_vm` removes the cloud-init `packages:` directive so packages install after the proxy apply through Ansible; the cloud-init package module runs in the config stage before the runcmd apply and cannot use the proxy. This supersedes the accepted M3 plan assumption that apply-before-Ansible was the only ordering constraint and preserves that plan acceptance as history. It also opens the testbed, package-parity, locale, and documentation follow-ups recorded in the Backlog. | 2026-08-21 |
 | D019 | Backlog M4 (testbed-to-bare) is consolidated into Backlog M8 rather than executed separately. Both retire the server=1/node=2 concept and edit the same `create_vm` prefix and node handling, so a narrow M4 pass would rework the surface M8 rewrites. M8 absorbs the bare-node piece and its D018 dependency; the earlier decision to keep M4 at its own narrow scope is preserved as history. | 2026-08-22 |
 | D020 | The M5 package-parity guard is keyed by base OS type, one expected-coverage list per OS template (debian13, rocky8, rocky10, ubuntu24, ubuntu26), owned inside cloud-provision rather than read from ansible-provision. Each list is the P_common set defined in `docs/IMAGE_WORKFLOW.md` (Operator definition): the packages that must be present on that base OS regardless of provisioning role. The guard compares the former cloud-init packages against that definition, not against what any single post-apply path installs today. Locale support is part of P_common (the `locales` package on the debian family), so the guard keeps the `locales` entry; M6 owns only the base-image locale assumption. The list is named by OS type only; naming it as the `bare` role belongs to M8. | 2026-08-22 |
+| D021 | M8 / T4 real verification passes on debian13, rocky8, rocky10, and ubuntu24. ubuntu26 (resolute) fails because it ships sudo-rs with `visudo` as an alternatives symbolic link, and the proxy contract's fail-closed identity-command check rejects any symbolic link in that path, so the proxy apply aborts, no proxy artifact is written, and the VM cannot fetch packages through the configured site proxy. The owner records this as defect M10 and proceeds; ubuntu26 is not shipped until M10 resolves it. The other four vacua satisfy M8 / T4. | 2026-08-25 |
+| D022 | The proxy contract's identity-command validation (`proxy_contract_resolve_guest_command`) accepts a fixed identity command whose path resolves, through one or more symbolic links, to a regular executable inside the guest root; this relaxes the ADR-20260820 rule that those commands be regular files at their exact paths, so alternatives-managed commands such as resolute's sudo-rs `visudo` pass. Every other fail-closed property is kept: an unsafe absolute, dangling, parent-link, or root-escaping input, or a resolved target that is not an in-root regular executable, still fails. The relaxation covers only the four identity commands, not any proxy artifact or the `/etc/os-release` rules. | 2026-08-25 |
+| D023 | The iocrunner golden image needs the Python 3 and pip runtime, but the iocrunner species uses the P_epics binary distribution, which installs no Python; only P_epics-build did. Because both EPICS acquisition paths need Python, it is extracted into a shared prerequisite operator P_python (role `python`) that precedes P_epics and P_epics-build. The iocrunner and epics-dev species gain P_python, and P_epics-build's Python provisioning moves into it. Surfaced by the M8 / T5 iocrunner bake failing at provenance with `pip3` absent. | 2026-08-25 |
 
 ### Assignment History
 
@@ -484,7 +488,7 @@ Out of scope: changing the package sets themselves; proxy contract behavior; the
 
 ##### Completion Criteria
 
-- A check fails when a former cloud-init `packages:` entry is not installed by post-apply provisioning.
+- A check fails when a former cloud-init `packages:` entry is absent from its OS's P_common-seeded list.
 - The check runs in the offline test graph.
 - The check reads the shipped templates through the real shipped check path; the divergence test drives the same check through fixture templates, never a modified shipped template.
 
@@ -531,11 +535,11 @@ None.
 Origin: c53e17e / M6
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: Complete
 
 ##### Summary
 
-After the `packages:` strip, the runcmd locale commands rely on the base image already shipping locale support (Debian ships `locales`; Rocky ships glibc langpacks). This assumption is now load-bearing and undocumented, and breaks silently if a base image drops it.
+Under proxy injection the `packages:` strip means the runcmd locale commands rely on the base image already shipping locale support (Debian ships `locales`; Rocky ships glibc langpacks). This assumption is now load-bearing and undocumented, and breaks silently if a base image drops it.
 
 ##### Scope
 
@@ -547,30 +551,107 @@ Out of scope: changing locale selection; proxy contract behavior.
 ##### Completion Criteria
 
 - The runbook and ADR record the base-image locale dependency.
-- A guard fails when the base image lacks the required locale support.
+- A guard fails when the base image lacks the required locale support, observed
+  through the negative real-boot case (M6 / T5), not only asserted.
+
+Closure note: the offline items (T1-T3) can be implemented and verified now, but
+the milestone closes only with the real positive and negative self-check
+observations (T4, T5), which run in the M8 real-environment stage. M6 step 2
+edits the same three debian-family templates M8 rewrites on
+`m8-operator-model`; sequence the template edit after M8's template rework to
+avoid a collision.
 
 ##### Dependencies And Decisions
 
 - D018
+- M8 (real-environment stage carries T4 and T5; template edit follows M8's
+  template rework)
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted the reviewed plan on 2026-08-24
+Implementation Authorization: owner authorized implementation on 2026-08-24
 Superseded Plan Artifacts: none
+
+Guard shape: first-boot self-check plus offline template contract (owner
+direction 2026-08-24). The heavier base-image content inspection is deferred to
+the M8 real-environment stage.
+
+1. Documentation. In the proxy ADR and RUNBOOK_BAKE, record that under proxy
+   injection the first-boot `locale-gen` depends on the base image already
+   shipping locale support (Debian family: the `locales` package; Rocky: glibc
+   langpacks), because `create_vm` strips the cloud-init `packages:` directive
+   and the `locales` entry with it while keeping the runcmd locale commands.
+   Reference D018, and extend the ADR `Decision IDs` header to include D018.
+2. First-boot self-check. In each debian-family cloud-init template
+   (`user-data.debian13`, `user-data.ubuntu24`, `user-data.ubuntu26`), append a
+   runcmd assertion after the locale commands that verifies `en_US.utf8` is
+   present (`locale -a`) and, when absent, both writes a distinct failure marker
+   and exits nonzero. Because a nonzero runcmd exit does not by itself fail a
+   bake, wire the signal to a state the bake's readiness/cloud-init completion
+   gate already treats as failure (for example failing cloud-init so
+   `wait_for_cloud_init` does not report done), so the absence surfaces and
+   stops publication instead of passing silently.
+3. Offline contract guard. In `tests/check-proxy-injection.bash`, add a
+   template locale-contract lint: a helper that, given a template file path,
+   asserts the `locales` package entry, the three locale-gen runcmd commands,
+   and the new self-check line are all present together. Run it over the shipped
+   debian-family templates for the positive case, and for the negative case
+   write scratch copies of a shipped template into the test workspace with one
+   element removed and assert the lint fails on each. This is a pure file lint
+   reading the template path directly, so it needs no template-directory
+   override in `create_vm`; the `expect_contains`/`expect_not_contains` helpers
+   already take an arbitrary (file, text) pair and the file's `WORKSPACE`/mktemp/
+   trap-cleanup pattern already exists, so the lint reuses those helpers and that
+   workspace. The existing locale assertions the plan cites operate on captured
+   `create_vm` output, not a template path, so this file-based lint does not
+   reuse their capture setup; co-locate it in the same test file rather than a
+   parallel file. The genuinely new artifact is the first-boot self-check line
+   and this negative-case lint, not the already-pinned positive invariant.
+4. Documentation content guard. Add `tests/check-proxy-doc-statements.bash`
+   asserting by grep that the proxy ADR and RUNBOOK_BAKE carry the base-image
+   locale dependency and the D018 reference (M6), and — shared with M7 — the
+   post-apply package-install ordering and its reason. The grep target is a
+   phrase from the doc text this milestone writes in step 1, so the assertion
+   and the prose are authored together and cannot drift apart. Wire it into
+   `make check-docs` as a `check-doc-refs` sibling prerequisite in
+   `configure/RULES_DOCS`, since `check-doc-refs` validates only source-coordinate
+   pins and cannot assert prose content.
 
 ##### Test Plan
 
-To be defined at planning.
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M6 / T1 | Syntax and static analysis | `bash -n` and `shellcheck -S warning` on any changed Bash; `make check-docs` | Local checkout | Exit 0 and no unreviewed warning; doc checks pass |
+| M6 / T2 | Template locale contract | Run the `check-proxy-injection.bash` locale-contract lint over the shipped debian-family templates (positive) and over scratch copies with the `locales` entry, the locale-gen runcmd, or the self-check line removed (negative) | Local checkout; shipped templates | The lint passes the shipped templates and fails each scratch copy missing any one of the three |
+| M6 / T3 | Documentation content | Run `tests/check-proxy-doc-statements.bash` (new, wired into `make check-docs`) and `make check-docs` | Local checkout | The lint confirms the base-image locale dependency and D018 reference are present in the ADR and RUNBOOK_BAKE, and the doc checks pass |
+| M6 / T4 | First-boot self-check, positive (real) | Boot one fresh debian-family VM on a base image that ships locale support and read the self-check result | Supported Libvirt/KVM after M8 | `en_US.utf8` is present and the self-check reports success; the bake completes |
+| M6 / T5 | First-boot self-check, negative (real) | Boot a debian-family VM whose base image lacks locale support (a fixture or a prepared base with the locale package removed) and observe the self-check | Supported Libvirt/KVM after M8 | The self-check fails loudly, the readiness/completion gate treats it as failure, and publication does not proceed |
 
 ##### Verification Results
 
-None observed.
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M6 / T1 | 2026-08-24 | Local checkout on `m8-operator-model`; uncommitted implementation | Pass | `bash -n` and `shellcheck -S warning` exited 0 for the changed Bash (`tests/check-proxy-injection.bash`, `tests/check-proxy-doc-statements.bash`); `make check-docs` 3/3 |
+| M6 / T2 | 2026-08-24 | Local checkout; shipped templates and scratch fixtures | Pass | `make check-proxy-injection` 141/141; the locale-contract lint passes the three shipped debian-family templates and fails a scratch copy with the `locales` entry, the locale-gen runcmd, the self-check line, or the self-check ordering removed |
+| M6 / T3 | 2026-08-24 | Local checkout | Pass | `tests/check-proxy-doc-statements.bash` 8/8 confirms the base-image locale dependency and D018 reference in the ADR and RUNBOOK_BAKE; `make check-docs` 3/3 |
+| M6 / T4 | 2026-08-25 | Supported Libvirt/KVM; the M8 / T4 debian-family bare boots (debian13, ubuntu24, ubuntu26) on locale-shipping base images | Pass | Each debian-family VM generates `en_US.UTF-8`, the last-runcmd self-check reports success, and cloud-init reaches `done` (READY) - the positive self-check path. |
+| M6 / T5 | 2026-08-25 | Supported Libvirt/KVM; a debian13 boot on a prepared base with the `locales` package removed via `virt-customize` | Pass | The self-check fails loudly (`locale-gen: not found`, then `en_US.UTF-8 locale absent after locale-gen; base image lacks locale support`), cloud-init reaches `status: error` and never `done`, and the completion gate reports `cloud-init: not complete` - so a bake would not publish. |
 
 ##### Closure Evidence
 
-None.
+Offline items (T1-T3) are implemented and verified in the `m8-operator-model`
+working tree on 2026-08-24: the ADR and RUNBOOK_BAKE record the base-image
+locale dependency and the runcmd-last invariant referencing D018, the
+debian-family templates carry the first-boot self-check, and both the
+template-contract lint and the documentation-content lint pass. The real
+positive and negative self-check observations (T4, T5) ran in the M8
+real-environment stage on 2026-08-25: the debian-family bare boots generate
+`en_US.UTF-8` and the self-check reports success (T4), and a prepared base with
+`locales` removed makes the self-check fail loudly while cloud-init reaches
+`error` and the completion gate reports not-complete (T5). The milestone is
+complete.
 
 <a id="m7"></a>
 #### M7 - Record the package-install ordering in the proxy ADR and runbook
@@ -578,7 +659,7 @@ None.
 Origin: c53e17e / M7
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: Complete
 
 ##### Summary
 
@@ -586,7 +667,7 @@ D018 changed how packages reach the golden image. The durable proxy ADR and RUNB
 
 ##### Scope
 
-- Record in the proxy ADR and RUNBOOK_BAKE that packages install after the proxy apply through Ansible, not through the cloud-init package module.
+- Record in the proxy ADR and RUNBOOK_BAKE that under proxy injection packages install after the proxy apply through Ansible, not through the cloud-init package module; without proxy injection the cloud-init baseline installs them at first boot (the hand-off subset defined in `docs/IMAGE_WORKFLOW.md`, Operator definition).
 - State the reason: the cloud-init package module runs before the runcmd apply and cannot use the proxy.
 
 Out of scope: proxy contract behavior; changing the install mechanism.
@@ -602,22 +683,52 @@ Out of scope: proxy contract behavior; changing the install mechanism.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted the reviewed plan on 2026-08-24
+Implementation Authorization: owner authorized implementation on 2026-08-24
 Superseded Plan Artifacts: none
+
+1. Proxy ADR. Add a package-install-ordering statement to the Consequences (or
+   a dedicated subsection): under proxy injection packages install post-apply
+   through Ansible because the cloud-init package module runs in the config
+   stage before the runcmd proxy apply and cannot fetch through the proxy;
+   without proxy injection the cloud-init baseline (the hand-off subset of
+   P_common defined in `docs/IMAGE_WORKFLOW.md`) installs them at first boot.
+   Reference D018, and extend the ADR `Decision IDs` header to include D018.
+2. RUNBOOK_BAKE. State the same ordering and reason in the "Baking behind a site
+   proxy" section so an operator does not re-derive it from the code.
+3. Content assertion. Add M7's ordering-statement assertions (a phrase from the
+   text of step 1 and step 2, plus the D018 reference) to the shared
+   `tests/check-proxy-doc-statements.bash` introduced in M6 step 4. Because M7
+   writes both the doc prose and the assertion, the grep target is a phrase M7
+   controls; there is no cross-milestone wording-mismatch risk.
+
+Coordinated with M6: both edit the same two documents in one pass and assert
+content through the same shared lint. `make check-docs`
+(`tests/check-doc-refs.bash`) validates only source-coordinate pins, not prose
+content, so this shared lint is what catches a later edit that removes the
+statements.
 
 ##### Test Plan
 
-To be defined at planning.
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M7 / T1 | Documentation content | Run `tests/check-proxy-doc-statements.bash` (shared with M6, wired into `make check-docs`) asserting the post-apply ordering, its reason, and the D018 reference in the proxy ADR and RUNBOOK_BAKE, plus `make check-docs` | Local checkout | The ordering statement and D018 reference are present in both documents and the doc checks pass |
 
 ##### Verification Results
 
-None observed.
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M7 / T1 | 2026-08-24 | Local checkout on `m8-operator-model`; uncommitted implementation | Pass | `tests/check-proxy-doc-statements.bash` 8/8 confirms the post-apply package-install ordering, its reason, and the D018 reference in both the proxy ADR and RUNBOOK_BAKE; `make check-docs` 3/3 |
 
 ##### Closure Evidence
 
-None.
+The proxy ADR (Consequences) and RUNBOOK_BAKE ("Baking behind a site proxy")
+state the post-apply package-install ordering and its reason, referencing D018;
+the ADR `Decision IDs` header now covers D009-D018. `tests/check-proxy-doc-statements.bash`,
+wired into `make check-docs`, guards the statements against later removal. All
+of M7 is offline documentation, so the milestone is complete; the carrying
+commit is recorded by the next register update.
 
 <a id="m8"></a>
 #### M8 - Redesign the image and node model around pipeline roles and retire the testbed concept
@@ -625,56 +736,170 @@ None.
 Origin: c53e17e / M8
 Identity History: none
 GitHub Issue: none; ansible-provision side tracked by [jeonghanlee/ansible-provision#17](https://github.com/jeonghanlee/ansible-provision/issues/17)
-Status: Not started
+Status: In progress
 
 ##### Summary
 
 The testbed concept conflates three things: the NAT environment name, the default VM prefix, and the plain base-node role. The `debian13`/`rocky8` node is really the shared start of three uses: a builder that bakes a golden image, an un-provisioned node in the lab, and a standalone provisioning target. Redesign the image and node model around explicit pipeline roles, grounded in the actual ansible-provision usage and standard golden-image practice.
 
-Under D018 the proxy-injection merge drops the cloud-init `packages:` directive for every VM, so a plain `testbed` VM that runs no post-apply Ansible now installs no packages. The absorbed bare-node piece (D019) makes the `bare` role a package-minimal base image any test can boot and retires the server=1/node=2 concept as part of this redesign.
+Under D018 the proxy-injection merge drops the cloud-init `packages:` directive for every VM, so a plain `testbed` VM that runs no post-apply Ansible now installs no packages. The absorbed bare-node piece (D019) makes the `bare` species a package-minimal base image any test can boot and retires the server=1/node=2 concept as part of this redesign.
 
 ##### Scope
 
 - Retire the testbed concept and the server=1/node=2 cluster numbering.
 - Implement the image model defined in `docs/IMAGE_WORKFLOW.md` (Operator definition): vacua, operators, and species, with `bare` as the common ancestor species.
 - Decide the two concepts that document does not define because they belong to image life, not to species: builder (the ephemeral bake VM) and verify (the fresh-boot consumer); and settle the golden flavor and latest-pointer convention recorded in that document's Open decisions.
-- Reflect the model in `create_vm` OS types, prefixes, and the runbook and ADR.
+- Reflect the model in `create_vm` OS types, prefixes, the runbooks, and the operator definition in `docs/IMAGE_WORKFLOW.md`; the ADR set in `docs/decisions/` stays as it is.
 - Decide a name for the NAT environment that currently reads testbed, coordinated with the ansible-provision trust-posture wording.
 
 Out of scope: implementing before an accepted plan and authority; proxy contract behavior.
 
 ##### Completion Criteria
 
-- The species in `docs/IMAGE_WORKFLOW.md` are buildable on every vacuum the definition assigns them, and the builder and verify concepts are documented.
+- Every vacuum-species pair the definition assigns is accepted by the model and tooling (M8 / T3), the species the Test Plan runs are actually built (M8 / T4 through T6), and the builder and verify concepts are documented. Real builds of the remaining pairs are observed by the later work that first uses them.
 - `create_vm` and the durable documentation reflect the model and the testbed term is retired.
 - The golden flavor and latest-pointer convention is defined.
-- The `bare` role boots as a package-minimal base image with no test-specific assumptions, and no test depends on the retired server=1/node=2 concept.
+- The `bare` species boots as a package-minimal base image with no test-specific assumptions, and no test depends on the retired server=1/node=2 concept.
 
 ##### Dependencies And Decisions
 
 - D018 and D019
 - The ansible-provision changes (P_common role, vacuum-wide inventory groups, one owner for the EPICS development package list) are part of this work unit and are tracked here; jeonghanlee/ansible-provision#17 is the pointer on that repository.
-- Absorbs the former Backlog M4 testbed-to-bare piece (D019); its bare node is defined here as one role of the surrounding model.
+- Absorbs the former Backlog M4 testbed-to-bare piece (D019); its bare node is defined here as one species of the surrounding model.
 - Informed by standard golden-image pipeline practice (builder, golden, and fresh-boot consumer stages; image families; bake heavy and stable, keep cloud-init light) and the ansible-provision usage map.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted the reviewed ten-step plan on 2026-08-24
+Implementation Authorization: owner direction to proceed on 2026-08-24
 Superseded Plan Artifacts: none
+
+Both repositories work on the `m8-operator-model` branch and merge to master when M8 closes. The ansible-provision side is rewritten from the operator definition; existing ansible code is not preserved. The rewrite is total: one role per operator named as the definition's Role column, one playbook per operator under `playbooks/operators/`, one assembly per species under `playbooks/species/`, and the numbered playbooks, `site.yml`, `base_os`, and `pkg_standard` retire. Every variable in today's `group_vars/all.yml` moves to the `defaults/` of the operator role that consumes it; only values consumed by more than one operator (for example `epics_ioc_engineers`) stay in `group_vars/all.yml`, and the existing site-override precedence is unchanged. Every numbered step closes with a third-person review before the next; steps 8 and 9 and every operator-definition edit add a second-person pass; a joint two-repository review precedes the merges.
+
+1. ansible-provision: write `roles/common` new, implementing P_common exactly as the operator definition states it: the package halves with the per-family names, the debian-family locale items, and the configuration content (chrony, sudoers includedir, rocky EPEL/PowerTools and `secure_path`). The package list is authored in the role with the pkg_automation per-OS lists as the reference baseline, not read from that repository.
+2. ansible-provision: rebuild the inventory as five vacuum groups (`debian13`, `rocky8`, `rocky10`, `ubuntu24`, `ubuntu26`) under a `vacua` parent plus the species groups in underscore form (`iocrunner`, `iocrunner_nfs`, `epics_dev`, `nfs_sim`, `rtbase`, `ethercat`), with `group_vars` for the three new vacua; the inventory file renames from `testbed.ini` to `lab.ini`.
+3. ansible-provision: rewrite the playbook layer one playbook per operator, plus one assembly playbook per species that imports its operator playbooks in the definition's order; the EPICS operators carry their configuration content (P_epics the rocky firewalld EPICS ports, P_epics-build Python and pip). Update the repository README command examples and its `testbed` trust wording (README, `docs/STANDALONE.md`, the `ansible.cfg` inventory path) to `lab`, and keep its `tests/` checks passing. Regenerate the ansible-provision make targets (`configure/RULES_ANSIBLE`) for the operator and species playbooks, retiring the `<pb>.<os>.<node>` forms. The cloud-provision callers that hardcode playbook names (`bin/bake_iocrunner_image.bash` with `site.yml`, `04_nfs_sim`, and `07_test_users`, which now publishes the iocrunner and iocrunner-nfs species as separate golden flavors selected by a flavor flag defaulting to iocrunner; `bin/bake_ethercat_image.bash` with `05_ethercat_base`; `bin/run_epics_env_build.bash`, whose default playbook retires with the rewrite) move to the new species assemblies in the same step.
+4. ansible-provision: the EPICS development package list follows the pkg_automation `epics` lists as the reference baseline; `pkg_standard` retires with the rewrite.
+5. cloud-provision: rework `create_vm` OS types to `<vacuum>` and `<vacuum>-<species>`, rename `epics-env-<os>` to `<os>-epics-dev`, add the `<vacuum>-iocrunner-nfs` consumer type for the second golden flavor, redefine the IP bases as a vacuum-by-species table, retire the server/node numbering, and replace the `testbed` default prefix with `lab`; add the plain `rocky10`, `ubuntu24`, and `ubuntu26` bare types that do not exist yet, and update every other reader of the old names and of the retired `-n server` interface: `configure/CONFIG_SITE`, `bin/run_epics_env_build.bash`, `bin/bake_ethercat_image.bash`, `tests/check-proxy-injection.bash`, `bin/audit_iocrunner_images.bash` (whose kind and platform cases widen with the golden flavors and the new vacua), and the cloud-init and inventory tests.
+6. cloud-provision: rewrite `generate_ansible_inventory.bash` to accept species names on every vacuum the definition assigns and emit hosts into both their vacuum group and their species group; a bare host's group is its vacuum group alone, since bare has no separate species group.
+7. cloud-provision: regenerate the make targets in `configure/RULES_VM`, `RULES_EPICS_ENV`, and `RULES_BAKE` for the new names and drop the `.server`/`.node1` forms.
+8. cloud-provision: update `README.md`, `ARCHITECTURE.md`, `RUNBOOK_BAKE.md`, `RUNBOOK_ANSIBLE_INVENTORY.md`, and `VIRSH_CLI.md` to the definition's terms and rename the NAT environment to `lab`.
+9. Settle the golden-naming Open decision by deciding whether the existing `image_workflow_select_latest_image` selection becomes the defined convention, reflect it in the bake publish names, and document builder and verify in the image-life sections of `docs/IMAGE_WORKFLOW.md`.
+10. Keep the operator definition current as the implementation lands: the Role column tracks the delivered role names and each settled Open decisions row is removed in the change that settles it.
 
 ##### Test Plan
 
-To be defined at planning.
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M8 / T1 | Syntax and static analysis | Run `bash -n` and `shellcheck -S warning` on every changed Bash file in both repositories and `ansible-playbook --syntax-check` on every rewritten playbook | Local checkouts | Exit 0 and no unreviewed warning |
+| M8 / T2 | Offline contract checks | Run `make check-bake`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-docs` in cloud-provision and the ansible-provision `tests/` checks, updated for the new names | Local checkouts | Every check passes against the new model |
+| M8 / T3 | Inventory matrix | Drive the shipped `generate_ansible_inventory.bash` with every vacuum-species pair the definition assigns | Local checkout; real generator | Every assigned pair is accepted; bare pairs land in the vacuum group alone, and every other pair lands in both its vacuum and species groups |
+| M8 / T4 | P_common on every vacuum | Boot one fresh VM per vacuum and apply only the bare assembly (`playbooks/species/bare.yml`) with a generated host inventory and `ansible-playbook` | Supported Libvirt/KVM | Every must-have and core-utility package is installed, the configuration content is in place, and the debian family generates `en_US.UTF-8` |
+| M8 / T5 | Golden regression | Run the debian13 and rocky8 iocrunner bakes, one iocrunner-nfs bake, and fresh consumers through the shipped entry points | Supported Libvirt/KVM | Every bake publishes its flavor and every consumer selects the exact just-published pair |
+| M8 / T6 | Source-build vacuum | Run one epics-dev build through `bin/run_epics_env_build.bash` on a vacuum outside the former core pair | Supported Libvirt/KVM | The build completes on the new inventory structure |
 
 ##### Verification Results
 
-None observed.
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M8 / T1 | 2026-08-24 | Local checkouts on `m8-operator-model` | Pass | `bash -n` and `shellcheck -S warning` exited 0 for every changed Bash file in both repositories; `ansible-playbook --syntax-check` passed all 20 rewritten playbooks |
+| M8 / T2 | 2026-08-24 | Local checkouts on `m8-operator-model`; steps 1-3 implementation | Pass | cloud-provision `make check-bake` (7/107/35), `check-proxy-injection` 129/129, `check-runtime-inventory` (58+2), `check-docs` 3/3; ansible-provision tests 35/35, 22/22, 3/3 — all updated for the new names |
+| M8 / T2 | 2026-08-24 | Local checkouts on `m8-operator-model`; steps 5-7 working tree | Pass | Re-run after the steps 5-7 rework: cloud-provision `make check-bake` (7/107/35), `check-proxy-injection` 129/129, `check-runtime-inventory` (165+2, matrix expanded per T3), `check-docs` 3/3, `check-vm-help` (16 OS types), `check-cloud-init-status` 152/152; ansible-provision tests 35/35, 22/22, 3/3 |
+| M8 / T3 | 2026-08-24 | Local checkout on `m8-operator-model`; real generator | Pass | `tests/check-generated-ansible-inventory.bash` drives all 35 vacuum-species pairs plus five suffixed selectors (165/165): bare pairs land in the vacuum group alone, every other pair in vacuum plus its underscore-form species group |
+| M8 / T4 | 2026-08-25 | Supported Libvirt/KVM host; one fresh bare VM per vacuum on the `lab` NAT network, `playbooks/species/bare.yml` applied with `ansible-playbook` over the maintained `inventory/lab.ini` plus the generated per-host inventory | Fail (4 of 5 vacua pass) | debian13, rocky8, rocky10, and ubuntu24 each install the full P_common set (13 must-have plus 8 core); the debian family generates `en_US.UTF-8`, and the rocky family enables EPEL and PowerTools/CRB and writes the `/etc/sudoers.d/secure-path` drop-in that wins through the final `includedir`. ubuntu26 fails: proxy apply aborts with a `visudo crosses a symbolic link` identity error because resolute ships sudo-rs with `visudo` as an alternatives symlink, so no proxy artifact is written and apt cannot reach the configured site proxy to fetch the universe index (the `tree` package). Tracked as M10 (D021). |
+| M8 / T4 | 2026-08-25 | Supported Libvirt/KVM; fresh ubuntu26 bare VM after the M10 proxy-contract fix | Pass | With M10 applied, ubuntu26 proxy apply succeeds and `playbooks/species/bare.yml` installs the full P_common set (21 packages including `tree`, `en_US.UTF-8` generated), so all five vacua now pass M8 / T4 |
+| M8 / T5 | 2026-08-25 | Supported Libvirt/KVM; debian13 and rocky8 iocrunner bakes, a debian13 iocrunner-nfs bake, and fresh consumers, all with the P_python operator (D023) | Pass | All three golden bakes complete end to end (P_python provisions pip so provenance records `pip3` lines, the terminal seal reports `clean=true`, and each pair publishes): `iocrunner-debian13-20260826T000350Z-...`, `iocrunner-rocky8-20260826T005455Z-...`, and `iocrunner-nfs-debian13-20260826T005735Z-...`. Three fresh consumers each select the exact just-published pair by newest-wins and boot to READY: `debian13-iocrunner` (.50), `rocky8-iocrunner` (.150), and `debian13-iocrunner-nfs` (.55). |
+| M8 / T6 | 2026-08-25 | Supported Libvirt/KVM; epics-dev source builds on ubuntu24, rocky10, and ubuntu26 (vacua outside the former core pair), each with the P_python operator (D023) | Pass | All three epics-dev builds complete (P_python runs, then `epics_build` builds EPICS-env from source; `failed=0`): EPICS-env 1.3.0 with base 7.0.10 installs at `/opt/epics/1.3.0/{ubuntu-24.04,rocky-10.2,ubuntu-26.04}/7.0.10/setEpicsEnv.bash` and `pip3` is present on each. ubuntu26 (resolute) also confirms the M10 proxy apply has no symbolic-link error on the source-build path. |
 
 ##### Closure Evidence
 
-None.
+- Steps 1 through 3 are implemented and pushed: ansible-provision `f319df2` (inventory), `724b381` (operators and species rewrite) with the common role in its branch history, and cloud-provision `eaee660` (bake and build callers). Step 4 was absorbed by the rewrite (`pkg_standard` retired with `base_os`). The provenance manifest labels stay `app_*` as the durable manifest schema (Keep, 2026-08-24). Steps 5 through 7 are implemented and verified in the `m8-operator-model` working tree (T1-T3 observed 2026-08-24; iterative third-person and second-person review passes applied until convergence, declared 2026-08-24); the carrying commits are recorded by the next register update; steps 8 through 10 remain. Step 8 is partially consumed by the review-driven corrections: the testbed-to-lab rename is complete across the five named documents (the only remaining `testbed` strings are this register and one deliberate test regex), and the retired-interface passages in README, ARCHITECTURE, RUNBOOK_BAKE, RUNBOOK_ANSIBLE_INVENTORY, and VIRSH_CLI were corrected to executed behavior; step 8's remainder is the definition-terms restructuring of those documents.
+- M8 / T4 through T6 real-environment verification is complete (2026-08-25): all five vacua install bare P_common (ubuntu26 via the M10 fix); the debian13 and rocky8 iocrunner and the debian13 iocrunner-nfs golden bakes publish and three fresh consumers each select the just-published pair; and epics-dev source builds on ubuntu24, rocky10, and ubuntu26 each install EPICS-env 1.3.0. The P_python operator (D023) provisions the Python runtime both the bakes and the source builds need. M8's real-environment stage is done; the branch is ready to merge to master.
+
+<a id="m10"></a>
+#### M10 - Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute
+
+Origin: c53e17e / M10
+Identity History: none
+GitHub Issue: [#37](https://github.com/jeonghanlee/cloud-provision/issues/37)
+Status: Complete
+
+##### Summary
+
+M8 / T4 booted one fresh bare VM per vacuum and applied `playbooks/species/bare.yml`. Four vacua pass. ubuntu26 (resolute) fails at proxy apply: `bin/proxy_contract.bash` validates its fixed identity commands (`cloud-init`, `visudo`, `sshd`, `systemctl`) and dies when any component of the resolved command path is a symbolic link. Resolute ships sudo-rs, whose `visudo` is an alternatives symlink (`/usr/sbin/visudo` to `/etc/alternatives/visudo` to a regular executable). The identity check rejects it, the proxy apply aborts before writing any artifact, and because the site reaches package repositories only through a proxy, the VM cannot fetch packages. The bare install then fails on the first universe-only package it needs. The other four vacua ship a regular-file `visudo` and pass.
+
+##### Scope
+
+- Adjust the proxy contract's identity-command validation (`proxy_contract_resolve_guest_command`) so a fixed identity command whose path resolves, through one or more symbolic links, to a regular executable inside the guest root is accepted. The relaxation covers any symbolic link in the resolved chain, including an intermediate directory symlink, provided the canonical target is an in-root regular executable; every other fail-closed property stays (unsafe absolute, dangling, parent-link, and root-escaping inputs, and a target that leaves the root, still fail).
+- Update the identity-command invariant in `docs/decisions/ADR-20260820-proxy-artifact-lifecycle.md`, which currently requires those commands to be regular files at their exact paths, to the in-root symlink-resolution rule while preserving its no-host-fallback intent (the relaxation follows links only within the guest root; a target that leaves the root still fails), and record the relaxation as decision D022.
+- Add a test-mode accept case built with an in-root relative symlink, plus unsafe-symlink rejections; directly re-confirm on a debian-family and a rocky-family guest that their identity commands remain regular files.
+- Re-run M8 / T4 on ubuntu26 and confirm the proxy artifacts are written and the full P_common set installs.
+- Keep the independent fixture, offline contract checks, and both bake callers passing.
+
+Out of scope: Changing any other proxy artifact identity, path, owner, mode, or form; relaxing the `/etc/os-release` link rules; the package-set parity guard (M5); any change to the four passing vacua.
+
+##### Completion Criteria
+
+- The proxy contract accepts an identity command that resolves through a symbolic link to a regular executable inside the guest root, and still rejects unsafe absolute, dangling, parent-link, and root-escaping inputs, and a resolved target that is not an in-root regular executable.
+- The ADR identity-command invariant reads the relaxed rule and D022 records the decision.
+- ubuntu26 proxy apply writes its full applicable artifact set and M8 / T4 passes on ubuntu26.
+- A debian-family and a rocky-family guest are directly re-confirmed to keep regular-file identity commands, so the relaxation is a no-op for them.
+- The offline contract checks and both bake callers still pass.
+
+##### Dependencies And Decisions
+
+- D009, D021, and D022
+- The relaxation is exercised only under a real root (`/`); a test root cannot follow an absolute alternatives symlink because `readlink -f` resolves it against the host and the escape check then rejects it, so the accept-path test uses an in-root relative symlink. In production (root `/`) the escape check is skipped by design and in-root safety rests on canonical resolution plus the regular-executable check; test mode keeps the escape check.
+- Supported Libvirt/KVM host with a resolute base image for the real re-run
+- resume as Not started
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: owner accepted the review-reflected plan on 2026-08-25
+Implementation Authorization: owner authorized implementation on 2026-08-25
+Superseded Plan Artifacts: none
+
+1. Reproduce the identity-command rejection against a resolute root in the proxy contract's test mode.
+2. In `proxy_contract_resolve_guest_command`, resolve a symlinked command path to its canonical target, validate the resolved path with the existing rooted-path walk and the regular-executable check, and use it; leave every other branch and the shared path walker unchanged.
+3. Update the ADR identity-command invariant to the relaxed rule, preserving its no-host-fallback intent (in-root links only), and record decision D022.
+4. Add a test-mode accept case built with an in-root relative symlink, plus unsafe-symlink rejections (absolute-escaping, dangling, out-of-root target).
+5. Re-run `make check-proxy-injection`, `make check-bake`, and the fixture checks; directly re-confirm regular-file identity commands on a debian-family and a rocky-family guest.
+6. Re-run M8 / T4 on a fresh ubuntu26 bare VM and record the observed result.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M10 / T1 | Identity symlink acceptance | Run the proxy contract test mode against a root whose identity command is an in-root relative symlink to a regular executable, and against unsafe symlink forms (absolute-escaping, dangling, out-of-root target) | Local checkout | The in-root relative symlink is accepted; every unsafe form fails closed |
+| M10 / T2 | Offline contract regression | Run `make check-proxy-injection`, `make check-bake`, and the independent fixture checks | Local checkout | Every check passes with the adjusted identity validation |
+| M10 / T3 | Cross-OS identity re-confirm | Inspect the four fixed identity commands on a debian-family and a rocky-family guest | Supported Libvirt/KVM | All are regular executables, so the relaxation is a no-op for them |
+| M10 / T4 | ubuntu26 bare apply | Boot a fresh ubuntu26 bare VM and apply `playbooks/species/bare.yml` | Supported Libvirt/KVM | Proxy apply writes its artifacts and the full P_common set installs |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| M10 / T1 | 2026-08-25 | Local checkout; real shipped `proxy_contract_resolve_guest_command` against fixture roots | Pass | An in-root relative-symlink `visudo` resolves and is accepted; a symlink through a missing directory fails with `does not resolve`; a symlink to an absent target fails with `requires exact guest command`; an absolute symlink whose target leaves the root fails with `escapes the selected root` |
+| M10 / T2 | 2026-08-25 | Local checkout | Pass | `make check-proxy-injection` 145/145 (four new identity cases, 141 prior unchanged), `make check-bake` 7/107/35, `make check-docs` 8/8 |
+| M10 / T3 | 2026-08-25 | Supported Libvirt/KVM; fresh debian13 and rocky8 bare VMs | Pass | All four identity commands (`cloud-init`, `visudo`, `sshd`, `systemctl`) are regular executables on both, so the relaxation is a no-op for them |
+| M10 / T4 | 2026-08-25 | Supported Libvirt/KVM; fresh ubuntu26 bare VM with the fixed contract | Pass | Proxy apply writes the `95cloud-provision-proxy` artifact with no symbolic-link error in the cloud-init log, and `playbooks/species/bare.yml` installs the full P_common set including `tree`, with `en_US.UTF-8` generated |
+
+##### Closure Evidence
+
+- Opened 2026-08-25 from the M8 / T4 real-environment observation (D021). ubuntu26 is not shipped until this resolves.
+- Implemented and verified in the `m8-operator-model` working tree on 2026-08-25: the identity-command symlink resolution in `bin/proxy_contract.bash`, the ADR invariant update with D022, and the four `check-proxy-injection` identity cases. T1 through T4 observed Pass; a fresh ubuntu26 bare VM applies P_common through the now-written proxy artifact, and debian13 and rocky8 keep regular-file identity commands. Reviewed to convergence (third-person twice and a second-person pass) and committed on 2026-08-25: the `bin/proxy_contract.bash` fix, the ADR update with D022, and the four `check-proxy-injection` identity cases in `4113f5f` (Closes #37), and this verification record in `5e8528d`; both pushed on `m8-operator-model`.
+
+##### GitHub Projection
+
+Title: Proxy contract rejects resolute's symlinked visudo and blocks ubuntu26 proxy apply
+Labels: bug
+GitHub Milestone: Nimbus - Cloud Provisioning Reliability
+Observed State: closed (issue #37)
+Observed Labels: bug
+Observed Milestone: Nimbus - Cloud Provisioning Reliability
+Projection State: reconciled; remote issue #37 created and closed manually on 2026-08-26 ahead of the master merge, with a closing comment naming commit 4113f5f
 
 ## Backlog
 
@@ -710,6 +935,7 @@ Commit `304291b` integrates the EtherCAT bake and consumer with the shared namin
 - Quarantine or replace every affected EtherCAT image and record any required credential rotation outside the repository and GitHub.
 - Record the runtime evidence in this detail section.
 - Verify the EtherCAT bake still installs its packages after the proxy-injection `packages:` strip (D018), since the EtherCAT bake shares the same `create_vm` merge; if it does not install them through a post-apply path, restore that coverage.
+- Species-assembly asymmetry (Keep, examined 2026-08-26). `playbooks/species/ethercat.yml` applies only `../operators/ethercat.yml` - a delta on the booted rtbase golden, per its own comment - while the sibling `playbooks/species/iocrunner_nfs.yml` re-imports its base species assembly (`iocrunner.yml`). The `ethercat = P_ethercat |rtbase>` formula and P_ethercat's `After P_rt` order in `docs/IMAGE_WORKFLOW.md` do not by themselves fix which model is intended, so the two species read `|X>` differently. The golden-consumer model is kept as principled and left as is. When un-deferring EtherCAT, if a different model is chosen, reconcile `ethercat.yml` against three references: `iocrunner_nfs.yml` (the re-import pattern), the `ethercat.yml` comment (the current golden-consumer intent), and the IMAGE_WORKFLOW ethercat formula and P_ethercat order.
 
 Out of scope: Changes to the shared image workflow or proxy contract unless runtime verification exposes a defect; ioc-runner runtime verification and ioc-runner image audit owned by M2 and issue #34; publishing any proxy endpoint or credential.
 

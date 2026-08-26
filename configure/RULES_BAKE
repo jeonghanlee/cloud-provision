@@ -10,6 +10,18 @@ endef
 
 VARS_EXCLUDES += bake_targets
 
+# Generates an iocrunner-nfs flavor bake target for a single base OS.
+# Usage: $(call iocrunner_nfs_bake_targets, os_type)
+define iocrunner_nfs_bake_targets
+.PHONY: bake.iocrunner-nfs.$(1)
+
+bake.iocrunner-nfs.$(1): ## Bake golden iocrunner-nfs image for $(1)
+	$(QUIET) REQUIRED_GROUP="$(REQUIRED_GROUP)" $(BAKE_IMAGE) -o $(1) -f iocrunner-nfs -d $(IMAGE_DIR) -a $(ANSIBLE_DIR)
+
+endef
+
+VARS_EXCLUDES += iocrunner_nfs_bake_targets
+
 # Generates an ethercat bake target for a single base OS.
 # Usage: $(call ethercat_bake_targets, os_type)
 define ethercat_bake_targets
@@ -23,10 +35,12 @@ VARS_EXCLUDES += ethercat_bake_targets
 
 ##@ Image Baking
 
-.PHONY: bake bake.ethercat check-bake check-bake-fresh-inputs check-bake-provenance \
-	check-proxy-lifecycle help.bake
+.PHONY: bake bake.iocrunner-nfs bake.ethercat check-bake check-bake-fresh-inputs \
+	check-bake-provenance check-proxy-lifecycle help.bake
 
 bake: $(addprefix bake., $(BAKE_OS_TYPES)) ## Bake golden iocrunner images for all bakeable OS types
+
+bake.iocrunner-nfs: $(addprefix bake.iocrunner-nfs., $(BAKE_OS_TYPES)) ## Bake golden iocrunner-nfs images for all bakeable OS types
 
 bake.ethercat: $(addprefix bake.ethercat., $(ETHERCAT_BAKE_OS_TYPES)) ## Bake golden ethercat images for all ethercat-bakeable OS types
 
@@ -45,6 +59,8 @@ help.bake: ## Show dynamically generated bake targets
 	$(QUIET) printf "\nPer-OS iocrunner bake targets (OS in: %s):\n" "$(BAKE_OS_TYPES)"
 	$(QUIET) printf "  make bake               Bake all iocrunner OS types sequentially\n"
 	$(QUIET) printf "  make bake.<os>          Bake golden iocrunner image for one OS\n"
+	$(QUIET) printf "  make bake.iocrunner-nfs      Bake the iocrunner-nfs flavor for all OS types\n"
+	$(QUIET) printf "  make bake.iocrunner-nfs.<os> Bake the iocrunner-nfs flavor for one OS\n"
 	$(QUIET) printf "\nValidation targets:\n"
 	$(QUIET) printf "  make check-bake         Run offline bake contract checks\n"
 	$(QUIET) printf "  make check-bake-fresh-inputs\n"
@@ -59,4 +75,5 @@ help.bake: ## Show dynamically generated bake targets
 	$(QUIET) printf "  make bake.ethercat.debian13\n"
 
 $(foreach os, $(BAKE_OS_TYPES), $(eval $(call bake_targets,$(os))))
+$(foreach os, $(BAKE_OS_TYPES), $(eval $(call iocrunner_nfs_bake_targets,$(os))))
 $(foreach os, $(ETHERCAT_BAKE_OS_TYPES), $(eval $(call ethercat_bake_targets,$(os))))
