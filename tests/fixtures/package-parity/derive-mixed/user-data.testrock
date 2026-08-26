@@ -1,0 +1,8 @@
+#cloud-config
+
+packages:
+  - alpha
+  - beta-rock
+  - gamma
+
+timezone: America/Los_Angeles

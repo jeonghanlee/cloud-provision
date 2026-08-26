@@ -192,7 +192,7 @@ The preparation operator P of the physics reading is the product of the operator
 
 | Operator | Role | Order | Content |
 | --- | --- | --- | --- |
-| P_common | `common` | First on every vacuum | Must-have: sudo, chrony, git, wget, unzip, gcc, g++, make, autoconf, automake, libtool, ssl-dev, net-tools. Core utilities: vim, tmux, lsof, tree, sysstat, logrotate, acl, socat. Both halves are P_common and always installed. Debian family only: the `locales` package, `en_US.UTF-8` enabled in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
+| P_common | `common` | First on every vacuum | Packages: the canonical P_common set is defined in `configure/pcommon-packages` - a must-have group and a core-utilities group, both always installed, plus the debian-family-only `locales` package; names that differ by family (`ssl-dev`, `g++`) take the per-family spellings recorded there. On the debian family the locale is also enabled at first boot: `en_US.UTF-8` in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
 | P_rt | `rt` | After P_common; optional | PREEMPT_RT kernel and headers, running-kernel headers, dkms, build toolchain. Stock kernel stays boot default. The resulting rtbase species is published as its own golden image. |
 | P_provenance | `provenance` | Before P_epics, P_procserv, P_conserver, P_con, P_iocrunner | `/usr/local/sbin/record-iocrunner-source`, the tool application operators call to record their source into the bake manifest. |
 | P_python | `python` | After P_common; before P_epics and P_epics-build | Python 3 and pip runtime. Both EPICS acquisition paths need it, so it is a shared prerequisite rather than part of either. |
@@ -207,12 +207,7 @@ The preparation operator P of the physics reading is the product of the operator
 | P_testusers | `testusers` | After P_iocrunner | Operator, observer, and local-mode test accounts; operators joined to the ioc group. |
 | P_ethercat | `ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. P_ethercat can apply on a non-RT bare state, but the `ethercat` species is defined on rtbase because a real EtherCAT deployment runs the RT kernel. |
 
-Package names that differ by family:
-
-| Name in P_common | debian family | rocky |
-| --- | --- | --- |
-| ssl-dev | libssl-dev | openssl-devel |
-| g++ | g++ | gcc-c++ |
+Package names that differ by family (`ssl-dev`, `g++`) are recorded with their debian and rocky spellings in `configure/pcommon-packages`.
 
 Commutation:
 
