@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both repositories are merged to master (cloud-provision merge `2edf5ac`, ansible-provision fast-forward to `b9e3099`). M8's operator rewrite and definition are implemented across cloud-provision and ansible-provision, reviewed to convergence, and real-environment verified (T1-T6): all five vacua install bare P_common (ubuntu26 via the M10 fix), the iocrunner and iocrunner-nfs golden bakes publish and consumers select the just-published pairs, and epics-dev source builds on ubuntu24, rocky10, and ubuntu26 install EPICS-env 1.3.0, all with the shared P_python operator (D023). M5 is now Ready - the package-set parity guard held behind M8 - and its next entry point is `configure/RULES_DOCS`-style wiring of a new `make check-package-parity` that fails when a former cloud-init `packages:` entry falls outside the P_common definition; its open planning finding is whether the guard also compares against the actual ansible-provision install set (decided at implementation). Keep M1.1 EtherCAT deferred in the Backlog (see the kept species-assembly asymmetry note) and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both repositories are merged to master (cloud-provision merge `2edf5ac`, ansible-provision fast-forward to `b9e3099`). M5, the package-set parity guard, is implemented and verified on branch `m5-package-parity`: scope option 1 (the narrow within-P_common guard, D020), `make check-package-parity` and its fixtures pass T1-T4, committed as `c55130c` (implementation) and `1b0eb3c` (register). A conceptual-integrity sweep (2026-08-26) then aligned the guard's packages-block boundary to the `create_vm` proxy-merge stripper so the two parsers agree (Replace, commit `9630a1f`; recorded in `docs/CLOSED_DOORS.md`). The next entry point is to merge `m5-package-parity` to master, which flips M5 to Complete. M11 (new Backlog) restructures P_common into a single structured source the guard derives from, retiring the hand-copied fixture lists; the M5 list-copy seam is transferred there and M11 is Ready once M5 is Complete. Keep M1.1 EtherCAT deferred in the Backlog (see the kept species-assembly asymmetry note) and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -500,6 +500,7 @@ Out of scope: changing the package sets themselves; proxy contract behavior; the
 - No single post-apply path installs the whole P_common set (the intersection across paths is only git and autoconf), so the list is seeded from the P_common definition, not from the paths.
 - Open planning finding: with the list seeded from the definition, every shipped template entry is already in its list, so T4 passes and the guard verifies only that templates stay within the P_common definition; it does not detect a package that ansible-provision fails to install. Whether M5 keeps that narrower purpose or compares against the actual ansible-provision install set is decided after M8 puts P_common in place. M8 runs first.
 - Resolved 2026-08-26: M5 keeps the narrower purpose. The guard verifies one direction only, that every template `packages:` entry is within its OS's P_common-seeded list, and does not compare against the ansible-provision install set. Comparing against the actual install set would cross the repository boundary D020 draws (the lists are owned inside cloud-provision) and no single post-apply path installs the whole P_common set, so it stays out of scope.
+- Transferred 2026-08-26: the fixture lists are a hand-copied duplicate of the P_common definition (conceptual-integrity sweep). This copy is not a permanent Keep; it is transferred to M11, which restructures P_common into a single structured source the guard derives from and retires these fixtures. M5 ships the hand-copy as its interim deliverable.
 
 ##### Implementation Plan
 
@@ -917,6 +918,7 @@ Projection State: reconciled; remote issue #37 created and closed manually on 20
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 Deferred EtherCAT acceptance | M1.1 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D014-D015, D017, M3 | After M3, restore and update the deferred EtherCAT test surfaces from `733edf0`, then run the real bake, consumer, proxy-clean check, and separately authorized image audit; [M1.1 detail](#m11). |
+| Package-set single source | M11 | Restructure the P_common definition into prose plus a structured data source so the parity guard derives per-OS lists from one place | Milestone | Not started | No | D020, M5 | The P_common package names live in one structured source that the operator definition references without re-listing, the parity guard derives each OS list from it, and the hand-copied fixture lists are retired; [M11 detail](#m11-pcommon). |
 
 ### Backlog Details
 
@@ -1032,6 +1034,58 @@ Observed Labels: bug
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
 Last Compared: 2026-08-20 18:43:18 PDT; remote updated 2026-08-20 18:43:11 PDT
 Projection State: reconciled; remote title and body match the canonical projection and the issue remains open
+
+<a id="m11-pcommon"></a>
+#### M11 - Restructure P_common into a single structured source the guard derives from
+
+Origin: c53e17e / M11
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+The M5 parity guard reads its per-OS expected lists from `tests/fixtures/expected-post-apply-packages/*.txt`, which are a hand-copied duplicate of the P_common set defined in prose in `docs/IMAGE_WORKFLOW.md` (owned by D020). The package names therefore live in two places with nothing enforcing agreement: editing the definition does not update the lists, and the guard checks templates against the copy rather than the definition. Restructure P_common so the names live once, in a structured source that the normative prose references and the guard derives from.
+
+##### Scope
+
+- Add a structured P_common package source: the must-have and core-utility groups, the debian-family-only additions, and the canonical-name-to-per-family spelling map (`ssl-dev`, `g++`).
+- Change the `docs/IMAGE_WORKFLOW.md` P_common description to state the structure and reference the source, without re-listing the package names in prose.
+- Make the parity guard derive each OS's expected list from the single source, and retire `tests/fixtures/expected-post-apply-packages/*.txt`.
+- Keep the guard's one-directional check and the covered and divergence fixture behavior (M5 / T2, T3).
+
+Out of scope: unifying with the ansible-provision `pkg_automation` EPICS package lists, which is a further consolidation; changing which packages P_common contains.
+
+##### Completion Criteria
+
+- The P_common package names exist in exactly one structured source; the operator definition prose references it and does not re-list them.
+- The guard derives every OS list from that source and no hand-copied fixture list remains.
+- The five shipped templates still pass the parity check through the real derived path.
+
+##### Dependencies And Decisions
+
+- D020: the guard owns its per-OS expected lists inside cloud-provision. This milestone changes how those lists are expressed, from a hand-copy to a derivation from the single source, not where they are owned.
+- Transferred from the M5 conceptual-integrity sweep (2026-08-26): the fixture lists are a hand-copied duplicate of the P_common definition. Rather than a permanent Keep, the copy is scheduled here; M11 supersedes the M5 fixtures when it lands.
+- Deferred obstacle recorded 2026-08-26: deriving by parsing the current P_common prose is brittle because the definition is free-form English. This milestone instead restructures the definition into prose plus structured data so the guard reads data, not prose.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+##### Test Plan
+
+Defined when the plan is accepted.
+
+##### Verification Results
+
+None observed.
+
+##### Closure Evidence
+
+None.
 
 ## History
 
