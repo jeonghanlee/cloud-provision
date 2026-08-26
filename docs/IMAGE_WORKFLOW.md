@@ -195,8 +195,9 @@ The preparation operator P of the physics reading is the product of the operator
 | P_common | `common` | First on every vacuum | Must-have: sudo, chrony, git, wget, unzip, gcc, g++, make, autoconf, automake, libtool, ssl-dev, net-tools. Core utilities: vim, tmux, lsof, tree, sysstat, logrotate, acl, socat. Both halves are P_common and always installed. Debian family only: the `locales` package, `en_US.UTF-8` enabled in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
 | P_rt | `rt` | After P_common; optional | PREEMPT_RT kernel and headers, running-kernel headers, dkms, build toolchain. Stock kernel stays boot default. The resulting rtbase species is published as its own golden image. |
 | P_provenance | `provenance` | Before P_epics, P_procserv, P_conserver, P_con, P_iocrunner | `/usr/local/sbin/record-iocrunner-source`, the tool application operators call to record their source into the bake manifest. |
-| P_epics | `epics` | After P_provenance | Binary EPICS-env distribution and its activation script under `/etc/profile.d`; on rocky, firewalld enabled with the EPICS CA and PVA ports open. Alternative to P_epics-build; never both on one vacuum. |
-| P_epics-build | `epics_build` | After P_common | Python 3 and pip, the EPICS development packages, then EPICS-env built and installed from source. Alternative to P_epics. |
+| P_python | `python` | After P_common; before P_epics and P_epics-build | Python 3 and pip runtime. Both EPICS acquisition paths need it, so it is a shared prerequisite rather than part of either. |
+| P_epics | `epics` | After P_provenance and P_python | Binary EPICS-env distribution and its activation script under `/etc/profile.d`; on rocky, firewalld enabled with the EPICS CA and PVA ports open. Requires P_python. Alternative to P_epics-build; never both on one vacuum. |
+| P_epics-build | `epics_build` | After P_common and P_python | The EPICS development packages, then EPICS-env built and installed from source. Requires P_python. Alternative to P_epics. |
 | P_epics-support | `epics_support` | After P_epics-build | AreaDetector modules built from source on the installed EPICS-env. |
 | P_procserv | `procserv` | After P_common | procServ built and installed from procServ-env. |
 | P_conserver | `conserver` | After P_common | conserver built and installed from conserver-env with OpenSSL. |
@@ -232,9 +233,9 @@ other species is one species on every vacuum it is defined for, built on that va
 | bare_rocky10 | P_common \|0_rocky10⟩ | rocky10 |
 | bare_ubuntu24 | P_common \|0_ubuntu24⟩ | ubuntu24 |
 | bare_ubuntu26 | P_common \|0_ubuntu26⟩ | ubuntu26 |
-| iocrunner | P_testusers P_iocrunner (P_con P_conserver P_procserv) (P_epics or P_epics-build) P_provenance \|bare⟩ | all |
+| iocrunner | P_testusers P_iocrunner (P_con P_conserver P_procserv) (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | all |
 | iocrunner-nfs | P_nfs-sim \|iocrunner⟩ | all |
-| epics-dev | P_epics-support P_epics-build \|bare⟩ | all |
+| epics-dev | P_epics-support P_epics-build P_python \|bare⟩ | all |
 | nfs-sim | P_nfs-sim \|bare⟩ | all |
 | rtbase | P_rt \|bare⟩ | all |
 | ethercat | P_ethercat \|rtbase⟩ | all |
@@ -245,5 +246,5 @@ rather than a named species; a real use for one is what promotes it, and none is
 | Product | Meaning |
 | --- | --- |
 | (P_con P_conserver P_procserv) \|bare⟩ | console host without EPICS; any subset and order. The three are base software of the iocrunner species, not a standalone host. |
-| P_iocrunner (P_con P_conserver P_procserv) P_epics P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack; reachable from rtbase and the iocrunner operators. |
-| P_ethercat P_epics P_provenance \|rtbase⟩ | EtherCAT host with EPICS. A real EtherCAT host runs EPICS IOCs, so this is the anticipated end state; the `ethercat` species stays EtherCAT-only until end-to-end work reaches the EPICS layer. |
+| P_iocrunner (P_con P_conserver P_procserv) P_epics P_python P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack; reachable from rtbase and the iocrunner operators. |
+| P_ethercat P_epics P_python P_provenance \|rtbase⟩ | EtherCAT host with EPICS. A real EtherCAT host runs EPICS IOCs, so this is the anticipated end state; the `ethercat` species stays EtherCAT-only until end-to-end work reaches the EPICS layer. |
