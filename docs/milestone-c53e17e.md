@@ -890,10 +890,10 @@ Superseded Plan Artifacts: none
 Title: Proxy contract rejects resolute's symlinked visudo and blocks ubuntu26 proxy apply
 Labels: bug
 GitHub Milestone: Nimbus - Cloud Provisioning Reliability
-Observed State: open (issue #37)
+Observed State: closed (issue #37)
 Observed Labels: bug
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
-Projection State: reconciled; remote issue #37 created with the drafted title, label, milestone, and body
+Projection State: reconciled; remote issue #37 created and closed manually on 2026-08-26 ahead of the master merge, with a closing comment naming commit 4113f5f
 
 ## Backlog
 
