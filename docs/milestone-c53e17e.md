@@ -23,7 +23,7 @@ Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 | Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
-| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
+| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | In progress | - | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Complete | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done and the real positive and negative self-checks observed; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
 | Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Complete | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, the absorbed testbed-to-bare piece ships as the `bare` species, real-environment verification (T1-T6) passes, and both repositories merge to master; [M8 detail](#m8). |
@@ -471,7 +471,7 @@ Projection State: reconciled; remote closed with the M9 / T4 result in its closi
 Origin: c53e17e / M5
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -499,12 +499,13 @@ Out of scope: changing the package sets themselves; proxy contract behavior; the
 - Post-apply paths per OS today: `rocky8` and `debian13` through `base_os` (`pkg_base` + `pkg_standard`) for ioc-node, nfs-sim-node, and ioc-runner-build; `debian13` additionally through the ethercat roles; all five through `epics_env_build` plus the `pkg_automation` per-OS package file.
 - No single post-apply path installs the whole P_common set (the intersection across paths is only git and autoconf), so the list is seeded from the P_common definition, not from the paths.
 - Open planning finding: with the list seeded from the definition, every shipped template entry is already in its list, so T4 passes and the guard verifies only that templates stay within the P_common definition; it does not detect a package that ansible-provision fails to install. Whether M5 keeps that narrower purpose or compares against the actual ansible-provision install set is decided after M8 puts P_common in place. M8 runs first.
+- Resolved 2026-08-26: M5 keeps the narrower purpose. The guard verifies one direction only, that every template `packages:` entry is within its OS's P_common-seeded list, and does not compare against the ansible-provision install set. Comparing against the actual install set would cross the repository boundary D020 draws (the lists are owned inside cloud-provision) and no single post-apply path installs the whole P_common set, so it stays out of scope.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: 2026-08-26 (scope option 1, the narrow within-P_common guard)
+Implementation Authorization: 2026-08-26
 Superseded Plan Artifacts: none
 
 1. Add `tests/fixtures/expected-post-apply-packages/<os>.txt` for the five OS types, seeded from the P_common set in `docs/IMAGE_WORKFLOW.md` (Operator definition). Names are identical across families except the two in the definition's family table (ssl-dev, g++); the rocky lists omit the locale items, which the definition assigns to the debian family only.
@@ -523,11 +524,18 @@ Superseded Plan Artifacts: none
 
 ##### Verification Results
 
-None observed.
+Observed 2026-08-26 on branch `m5-package-parity`, real check path executed:
+
+| Label | Command | Observed |
+| --- | --- | --- |
+| M5 / T1 | `bash -n` and `shellcheck -S warning tests/check-package-parity.bash` | Exit 0, no warning |
+| M5 / T2 | `check-package-parity.bash tests/fixtures/package-parity/covered tests/fixtures/expected-post-apply-packages` | Exit 0; the fixture's `users:` and `runcmd:` list items are not read as packages, confirming the packages-block scoping |
+| M5 / T3 | `check-package-parity.bash tests/fixtures/package-parity/divergence tests/fixtures/expected-post-apply-packages` | Nonzero exit naming `postgresql` |
+| M5 / T4 | `make check-package-parity` | Five shipped templates pass; every entry is within its OS list. `make -n check-bake` shows the check in the offline graph |
 
 ##### Closure Evidence
 
-None.
+Implemented and verified in commit `c55130c` on `m5-package-parity`. The milestone completes on merge to master.
 
 <a id="m6"></a>
 #### M6 - Document and guard the base-image locale assumption
