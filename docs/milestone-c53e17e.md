@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, M7, M9, and M10 are Complete. M8 is In progress: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch. M8 / T4 through T6 real-environment verification is complete: all five vacua install bare P_common (ubuntu26 via the M10 fix), the three iocrunner and iocrunner-nfs golden bakes publish and fresh consumers select the just-published pairs, and epics-dev source builds on ubuntu24, rocky10, and ubuntu26 install EPICS-env 1.3.0, all with the shared P_python operator (D023). M8's real-environment stage is done and the branch is ready to merge to master; the remaining step is M6's negative locale self-check (M6 / T5: a base image lacking locale support fails loudly). M6 is otherwise In progress with its offline items done (documented locale dependency and runcmd-last invariant, first-boot self-check, and the two lints); its positive self-check (M6 / T4) was observed during the M8 / T4 boots. M5 stays planned and held behind M8. The operator definition and all M8/M6/M7 work ride the `m8-operator-model` branch until M8 closes and merges to master. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M6, M7, M9, and M10 are Complete. M8 is In progress only pending its merge: its two-repo operator rewrite and definition are implemented, reviewed to convergence, and committed on the `m8-operator-model` branch, and M8 / T4 through T6 real-environment verification is complete - all five vacua install bare P_common (ubuntu26 via the M10 fix), the three iocrunner and iocrunner-nfs golden bakes publish and fresh consumers select the just-published pairs, and epics-dev source builds on ubuntu24, rocky10, and ubuntu26 install EPICS-env 1.3.0, all with the shared P_python operator (D023). M6 is Complete: its offline lints pass and both real self-checks are observed - the debian-family bare boots generate `en_US.UTF-8` and the self-check succeeds (M6 / T4), and a base image with `locales` removed makes the self-check fail loudly with the completion gate treating it as failure (M6 / T5). The remaining step is merging `m8-operator-model` to master, which closes M8 and unblocks M5. M5 stays planned and held behind M8. Keep M1.1 EtherCAT deferred in the Backlog and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -24,7 +24,7 @@ Next session entry point: M2, M3, M7, M9, and M10 are Complete. M8 is In progres
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 | Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
 | Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | No | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
-| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | In progress | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done, closes on the real self-check in the M8 stage; [M6 detail](#m6). |
+| Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Complete | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done and the real positive and negative self-checks observed; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
 | Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | In progress | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, and the absorbed testbed-to-bare piece ships as the `bare` species; [M8 detail](#m8). |
 | Proxy contract portability | M10 | Accept an alternatives-symlinked identity command in the proxy contract so proxy apply succeeds on resolute | Milestone | Complete | No | D009, D021 | The proxy contract's identity-command validation accepts a command path that resolves through a symbolic link to a regular executable inside the guest root, ubuntu26 proxy apply writes its artifacts, and M8 / T4 passes on ubuntu26; [M10 detail](#m10). |
@@ -535,7 +535,7 @@ None.
 Origin: c53e17e / M6
 Identity History: none
 GitHub Issue: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -636,6 +636,8 @@ the M8 real-environment stage.
 | M6 / T1 | 2026-08-24 | Local checkout on `m8-operator-model`; uncommitted implementation | Pass | `bash -n` and `shellcheck -S warning` exited 0 for the changed Bash (`tests/check-proxy-injection.bash`, `tests/check-proxy-doc-statements.bash`); `make check-docs` 3/3 |
 | M6 / T2 | 2026-08-24 | Local checkout; shipped templates and scratch fixtures | Pass | `make check-proxy-injection` 141/141; the locale-contract lint passes the three shipped debian-family templates and fails a scratch copy with the `locales` entry, the locale-gen runcmd, the self-check line, or the self-check ordering removed |
 | M6 / T3 | 2026-08-24 | Local checkout | Pass | `tests/check-proxy-doc-statements.bash` 8/8 confirms the base-image locale dependency and D018 reference in the ADR and RUNBOOK_BAKE; `make check-docs` 3/3 |
+| M6 / T4 | 2026-08-25 | Supported Libvirt/KVM; the M8 / T4 debian-family bare boots (debian13, ubuntu24, ubuntu26) on locale-shipping base images | Pass | Each debian-family VM generates `en_US.UTF-8`, the last-runcmd self-check reports success, and cloud-init reaches `done` (READY) - the positive self-check path. |
+| M6 / T5 | 2026-08-25 | Supported Libvirt/KVM; a debian13 boot on a prepared base with the `locales` package removed via `virt-customize` | Pass | The self-check fails loudly (`locale-gen: not found`, then `en_US.UTF-8 locale absent after locale-gen; base image lacks locale support`), cloud-init reaches `status: error` and never `done`, and the completion gate reports `cloud-init: not complete` - so a bake would not publish. |
 
 ##### Closure Evidence
 
@@ -643,9 +645,13 @@ Offline items (T1-T3) are implemented and verified in the `m8-operator-model`
 working tree on 2026-08-24: the ADR and RUNBOOK_BAKE record the base-image
 locale dependency and the runcmd-last invariant referencing D018, the
 debian-family templates carry the first-boot self-check, and both the
-template-contract lint and the documentation-content lint pass. The milestone
-closes only with the real positive and negative self-check observations (T4,
-T5), which run in the M8 real-environment stage.
+template-contract lint and the documentation-content lint pass. The real
+positive and negative self-check observations (T4, T5) ran in the M8
+real-environment stage on 2026-08-25: the debian-family bare boots generate
+`en_US.UTF-8` and the self-check reports success (T4), and a prepared base with
+`locales` removed makes the self-check fail loudly while cloud-init reaches
+`error` and the completion gate reports not-complete (T5). The milestone is
+complete.
 
 <a id="m7"></a>
 #### M7 - Record the package-install ordering in the proxy ADR and runbook
