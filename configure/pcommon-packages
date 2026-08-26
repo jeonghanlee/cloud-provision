@@ -5,6 +5,10 @@
 # Package names live only here.
 #
 # Format: one "key: values" line per group. Blank lines and # comments ignored.
+# The guard enforces this source's integrity and otherwise fails loudly:
+#   - keys are limited to must_have, core, debian_only, spelling, and family;
+#   - each key appears on exactly one line;
+#   - family values are debian or rocky only (ubuntu spells like debian).
 # The single source is cloud-provision-local; the ansible-provision common role
 # keeps its own installer list, which this guard does not compare against (D020).
 

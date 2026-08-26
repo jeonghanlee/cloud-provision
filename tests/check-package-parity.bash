@@ -64,11 +64,16 @@ function extract_template_packages {
 
 # Parse the P_common source into the groups, per-family spellings, and OS-to-
 # family map. Blank lines and # comments are ignored; each data line is a single
-# "key: values" entry.
+# "key: values" entry. The source is the one authoritative list, so its own
+# integrity is guarded: an unrecognized key, a group key repeated on two lines,
+# and a family value the guard cannot spell (anything but debian or rocky) each
+# fail loudly rather than being silently ignored, kept-last, or mapped to the
+# canonical, non-installable names.
 function load_pcommon {
     local data_file="$1"
-    local line key rest tok name val
+    local line key rest tok name val famval
     local -a toks
+    local -A seen=()
     PC_MUST_HAVE=(); PC_CORE=(); PC_DEBIAN_ONLY=()
     PC_SPELL_DEBIAN=(); PC_SPELL_ROCKY=(); PC_FAMILY=()
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -80,6 +85,18 @@ function load_pcommon {
         key="${line%%:*}"
         rest="${line#*:}"
         rest="${rest#"${rest%%[![:space:]]*}"}"
+        case "${key}" in
+            must_have|core|debian_only|spelling|family)
+                if [[ -n "${seen[${key}]:-}" ]]; then
+                    printf "pcommon: %s: duplicate '%s' line; one line per key\n" "${data_file}" "${key}" >&2
+                    exit 1
+                fi
+                seen["${key}"]=1 ;;
+            *)
+                printf "pcommon: %s: unknown key '%s'; expected must_have, core, debian_only, spelling, or family\n" \
+                    "${data_file}" "${key}" >&2
+                exit 1 ;;
+        esac
         case "${key}" in
             must_have)   read -r -a PC_MUST_HAVE   <<< "${rest}" ;;
             core)        read -r -a PC_CORE        <<< "${rest}" ;;
@@ -95,7 +112,13 @@ function load_pcommon {
             family)
                 read -r -a toks <<< "${rest}"
                 for tok in "${toks[@]}"; do
-                    PC_FAMILY["${tok%%=*}"]="${tok#*=}"
+                    famval="${tok#*=}"
+                    if [[ "${famval}" != debian && "${famval}" != rocky ]]; then
+                        printf "pcommon: %s: unknown package family '%s' for '%s' (expected debian or rocky)\n" \
+                            "${data_file}" "${famval}" "${tok%%=*}" >&2
+                        exit 1
+                    fi
+                    PC_FAMILY["${tok%%=*}"]="${famval}"
                 done ;;
         esac
     done < "${data_file}"
