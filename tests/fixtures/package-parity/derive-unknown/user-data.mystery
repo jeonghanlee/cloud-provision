@@ -1,0 +1,6 @@
+#cloud-config
+
+packages:
+  - alpha
+
+timezone: America/Los_Angeles

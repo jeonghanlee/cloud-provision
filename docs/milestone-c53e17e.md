@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both repositories are merged to master (cloud-provision merge `2edf5ac`, ansible-provision fast-forward to `b9e3099`). M8's operator rewrite and definition are implemented across cloud-provision and ansible-provision, reviewed to convergence, and real-environment verified (T1-T6): all five vacua install bare P_common (ubuntu26 via the M10 fix), the iocrunner and iocrunner-nfs golden bakes publish and consumers select the just-published pairs, and epics-dev source builds on ubuntu24, rocky10, and ubuntu26 install EPICS-env 1.3.0, all with the shared P_python operator (D023). M5 is now Ready - the package-set parity guard held behind M8 - and its next entry point is `configure/RULES_DOCS`-style wiring of a new `make check-package-parity` that fails when a former cloud-init `packages:` entry falls outside the P_common definition; its open planning finding is whether the guard also compares against the actual ansible-provision install set (decided at implementation). Keep M1.1 EtherCAT deferred in the Backlog (see the kept species-assembly asymmetry note) and run no EtherCAT test or runtime action.
+Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both repositories are merged to master (cloud-provision merge `2edf5ac`, ansible-provision fast-forward to `b9e3099`). M5, the package-set parity guard, is implemented and verified on branch `m5-package-parity`: scope option 1 (the narrow within-P_common guard, D020), `make check-package-parity` and its fixtures pass T1-T4, committed as `c55130c` (implementation) and `1b0eb3c` (register). A conceptual-integrity sweep (2026-08-26) then aligned the guard's packages-block boundary to the `create_vm` proxy-merge stripper so the two parsers agree (Replace, commit `9630a1f`; recorded in `docs/CLOSED_DOORS.md`). M11 then restructured P_common into a single structured source (`configure/pcommon-packages`) the guard derives from, retiring the hand-copied fixture lists; it is implemented and verified (T1-T5) on branch `m11-pcommon-source` (implementation commit `5f356cb`), stacked on `m5-package-parity`, so master never carries the transient fixtures. The next entry point is to merge `m11-pcommon-source` to master, which flips both M5 and M11 to Complete. Keep M1.1 EtherCAT deferred in the Backlog (see the kept species-assembly asymmetry note) and run no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -23,7 +23,7 @@ Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 | Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
-| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Not started | Yes | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
+| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | In progress | - | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Complete | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done and the real positive and negative self-checks observed; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
 | Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Complete | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, the absorbed testbed-to-bare piece ships as the `bare` species, real-environment verification (T1-T6) passes, and both repositories merge to master; [M8 detail](#m8). |
@@ -471,7 +471,7 @@ Projection State: reconciled; remote closed with the M9 / T4 result in its closi
 Origin: c53e17e / M5
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -499,12 +499,14 @@ Out of scope: changing the package sets themselves; proxy contract behavior; the
 - Post-apply paths per OS today: `rocky8` and `debian13` through `base_os` (`pkg_base` + `pkg_standard`) for ioc-node, nfs-sim-node, and ioc-runner-build; `debian13` additionally through the ethercat roles; all five through `epics_env_build` plus the `pkg_automation` per-OS package file.
 - No single post-apply path installs the whole P_common set (the intersection across paths is only git and autoconf), so the list is seeded from the P_common definition, not from the paths.
 - Open planning finding: with the list seeded from the definition, every shipped template entry is already in its list, so T4 passes and the guard verifies only that templates stay within the P_common definition; it does not detect a package that ansible-provision fails to install. Whether M5 keeps that narrower purpose or compares against the actual ansible-provision install set is decided after M8 puts P_common in place. M8 runs first.
+- Resolved 2026-08-26: M5 keeps the narrower purpose. The guard verifies one direction only, that every template `packages:` entry is within its OS's P_common-seeded list, and does not compare against the ansible-provision install set. Comparing against the actual install set would cross the repository boundary D020 draws (the lists are owned inside cloud-provision) and no single post-apply path installs the whole P_common set, so it stays out of scope.
+- Transferred 2026-08-26: the fixture lists are a hand-copied duplicate of the P_common definition (conceptual-integrity sweep). This copy is not a permanent Keep; it is transferred to M11, which restructures P_common into a single structured source the guard derives from and retires these fixtures. M5 ships the hand-copy as its interim deliverable.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: 2026-08-26 (scope option 1, the narrow within-P_common guard)
+Implementation Authorization: 2026-08-26
 Superseded Plan Artifacts: none
 
 1. Add `tests/fixtures/expected-post-apply-packages/<os>.txt` for the five OS types, seeded from the P_common set in `docs/IMAGE_WORKFLOW.md` (Operator definition). Names are identical across families except the two in the definition's family table (ssl-dev, g++); the rocky lists omit the locale items, which the definition assigns to the debian family only.
@@ -523,11 +525,18 @@ Superseded Plan Artifacts: none
 
 ##### Verification Results
 
-None observed.
+Observed 2026-08-26 on branch `m5-package-parity`, real check path executed:
+
+| Label | Command | Observed |
+| --- | --- | --- |
+| M5 / T1 | `bash -n` and `shellcheck -S warning tests/check-package-parity.bash` | Exit 0, no warning |
+| M5 / T2 | `check-package-parity.bash tests/fixtures/package-parity/covered tests/fixtures/expected-post-apply-packages` | Exit 0; the fixture's `users:` and `runcmd:` list items are not read as packages, confirming the packages-block scoping |
+| M5 / T3 | `check-package-parity.bash tests/fixtures/package-parity/divergence tests/fixtures/expected-post-apply-packages` | Nonzero exit naming `postgresql` |
+| M5 / T4 | `make check-package-parity` | Five shipped templates pass; every entry is within its OS list. `make -n check-bake` shows the check in the offline graph |
 
 ##### Closure Evidence
 
-None.
+Implemented and verified in commit `c55130c` on `m5-package-parity`. The milestone completes on merge to master.
 
 <a id="m6"></a>
 #### M6 - Document and guard the base-image locale assumption
@@ -909,6 +918,7 @@ Projection State: reconciled; remote issue #37 created and closed manually on 20
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 Deferred EtherCAT acceptance | M1.1 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D014-D015, D017, M3 | After M3, restore and update the deferred EtherCAT test surfaces from `733edf0`, then run the real bake, consumer, proxy-clean check, and separately authorized image audit; [M1.1 detail](#m11). |
+| Package-set single source | M11 | Restructure the P_common definition into prose plus a structured data source so the parity guard derives per-OS lists from one place | Milestone | In progress | - | D020, M5 | The P_common package names live in one structured source that the operator definition references without re-listing, the parity guard derives each OS list from it, and the hand-copied fixture lists are retired; [M11 detail](#m11-pcommon). |
 
 ### Backlog Details
 
@@ -1024,6 +1034,89 @@ Observed Labels: bug
 Observed Milestone: Nimbus - Cloud Provisioning Reliability
 Last Compared: 2026-08-20 18:43:18 PDT; remote updated 2026-08-20 18:43:11 PDT
 Projection State: reconciled; remote title and body match the canonical projection and the issue remains open
+
+<a id="m11-pcommon"></a>
+#### M11 - Restructure P_common into a single structured source the guard derives from
+
+Origin: c53e17e / M11
+Identity History: none
+GitHub Issue: none
+Status: In progress
+
+##### Summary
+
+The M5 parity guard reads its per-OS expected lists from `tests/fixtures/expected-post-apply-packages/*.txt`, which are a hand-copied duplicate of the P_common set defined in prose in `docs/IMAGE_WORKFLOW.md` (owned by D020). The package names therefore live in two places with nothing enforcing agreement: editing the definition does not update the lists, and the guard checks templates against the copy rather than the definition. Restructure P_common so the names live once, in a structured source that the normative prose references and the guard derives from.
+
+##### Scope
+
+- Add a structured P_common package source: the must-have and core-utility groups, the debian-family-only additions, and the canonical-name-to-per-family spelling map (`ssl-dev`, `g++`).
+- Change the `docs/IMAGE_WORKFLOW.md` P_common description to state the structure and reference the source, without re-listing the package names in prose.
+- Make the parity guard derive each OS's expected list from the single source, and retire `tests/fixtures/expected-post-apply-packages/*.txt`.
+- Keep the guard's one-directional check and the covered and divergence fixture behavior (M5 / T2, T3).
+
+Out of scope: unifying with the ansible-provision package lists, which is a further consolidation; changing which packages P_common contains.
+
+The single source is cloud-provision-local. The ansible-provision `common` role keeps its own installer list of these packages (`roles/common/defaults/main.yml`), which the guard still does not compare against, per D020. M11 closes the definition-to-guard duplication inside cloud-provision; the definition-to-installer copy across repositories remains the further consolidation noted above.
+
+##### Completion Criteria
+
+- The P_common package names exist in exactly one structured source; the operator definition prose references it and does not re-list them.
+- The guard derives every OS list from that source and no hand-copied fixture list remains.
+- The five shipped templates still pass the parity check through the real derived path.
+
+##### Dependencies And Decisions
+
+- D020: the guard owns its per-OS expected lists inside cloud-provision. This milestone changes how those lists are expressed, from a hand-copy to a derivation from the single source, not where they are owned.
+- Transferred from the M5 conceptual-integrity sweep (2026-08-26): the fixture lists are a hand-copied duplicate of the P_common definition. Rather than a permanent Keep, the copy is scheduled here; M11 supersedes the M5 fixtures when it lands.
+- Deferred obstacle recorded 2026-08-26: deriving by parsing the current P_common prose is brittle because the definition is free-form English. This milestone instead restructures the definition into prose plus structured data so the guard reads data, not prose.
+- Decided 2026-08-26: the structured source is a separate data file `configure/pcommon-packages`, not a fenced block inside the normative document, because bash reads a simple data file more robustly than it parses markdown.
+- Decided 2026-08-26: the OS-to-family classification is an explicit `family:` map in the data source and fails loudly on an unmapped OS, rather than a name-prefix rule that would silently misclassify an OS named neither rocky nor debian. This adds a small OS-type list, accepted because it is fail-loud and is not the package-name duplication this milestone removes. Ubuntu spells its packages like the debian family, so the family values are debian and rocky only and ubuntu maps to debian.
+- Added 2026-08-26 from later third-person sweeps: because the data source is now the one authoritative list, the guard protects its integrity - an unrecognized key, a family value it cannot spell (anything but debian or rocky), and a group key repeated on two lines all fail loudly rather than being silently ignored, mapped to canonical non-installable names, or kept-last. A mistyped family for a shipped OS is already caught by T4 through the OS's family-spelled packages; these guards turn that into a clear diagnostic and also cover an OS whose template lists only canonical names. Each integrity message names the offending data file so a reader knows where to fix it (second-person pass).
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-08-26 (option 2, a separate data file; explicit family map)
+Implementation Authorization: 2026-08-26
+Superseded Plan Artifacts: none
+
+1. Add the data source `configure/pcommon-packages`: `must_have`, `core`, and `debian_only` groups, a `spelling` map (canonical=debian:rocky), and a `family` map (OS type to package family).
+2. Restructure the `docs/IMAGE_WORKFLOW.md` P_common cell and the family-spelling table to state the structure and reference the data source, with no package names in the prose.
+3. Rewrite `tests/check-package-parity.bash` to parse the data source and derive each OS's expected set (must-have and core, plus debian-only for the debian family, each name spelled per family), preserving the create_vm-aligned packages-block boundary and its reciprocal comment.
+4. Retire `tests/fixtures/expected-post-apply-packages/*.txt`; keep the covered and divergence templates, now checked against the real derived set; add a minimal fixture data source and derivation fixtures.
+5. Run T1-T5 and record observed results.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| M11 / T1 | Syntax and static analysis | `bash -n` and `shellcheck -S warning` on the rewritten guard | Local checkout | Exit 0 and no unreviewed warning |
+| M11 / T2 | Covered template | Drive the guard with the covered fixture template against the real data source | Local checkout | Exit 0 |
+| M11 / T3 | Divergence template | Drive the guard with the divergence fixture template against the real data source | Local checkout | Nonzero exit naming the absent package |
+| M11 / T4 | Shipped templates | `make check-package-parity` against the five shipped templates and the real data source | Local checkout | Every template entry is within its OS's derived set |
+| M11 / T5 | Derivation logic | Drive the guard with a minimal fixture data source covering spelling in both families, debian-only inclusion and exclusion, and an unmapped OS | Local checkout; controlled fixture input | Both families derive with the correct spellings, debian-only is in the debian set and absent from rocky, and an unmapped OS fails loudly |
+| M11 / T6 | Unknown family value | Drive the guard with a data source whose family value is neither debian nor rocky | Local checkout; controlled fixture input | Fails loudly naming the unknown family, rather than silently using canonical names |
+| M11 / T7 | Duplicate group key | Drive the guard with a data source that repeats a group key on two lines | Local checkout; controlled fixture input | Fails loudly rather than silently keeping only the last line |
+| M11 / T8 | Unrecognized key | Drive the guard with a data source whose key is misspelled | Local checkout; controlled fixture input | Fails loudly naming the unknown key rather than silently ignoring the line |
+
+##### Verification Results
+
+Observed 2026-08-26 on branch `m11-pcommon-source`, real derived path executed:
+
+| Label | Command | Observed |
+| --- | --- | --- |
+| M11 / T1 | `bash -n` and `shellcheck -S warning tests/check-package-parity.bash` | Exit 0, no warning |
+| M11 / T2 | `check-package-parity.bash tests/fixtures/package-parity/covered` | Exit 0 |
+| M11 / T3 | `check-package-parity.bash tests/fixtures/package-parity/divergence` | Nonzero, names `postgresql` |
+| M11 / T4 | `make check-package-parity` | Five shipped templates pass; `make check-docs` also passes with the restructured definition |
+| M11 / T5 | `check-package-parity.bash` with `tests/fixtures/package-parity/pcommon-mini` over the derive-mixed, derive-rocky-excl, and derive-unknown fixtures | debian and rocky derive with per-family spelling; `delta` (debian-only) passes for debian and fails for rocky; an unmapped OS fails with "no package family mapped" |
+| M11 / T6 | Guard driven with a data source whose family value is `weird`; also verified that mistyping a shipped OS's real family (`rocky8=rockey`) makes T4 fail | Fails with "pcommon: &lt;data-file&gt;: unknown package family 'weird' ... (expected debian or rocky)"; the shipped-OS typo fails T4 naming `openssl-devel` |
+| M11 / T7 | Guard driven with a data source repeating `must_have` on two lines | Fails with "pcommon: &lt;data-file&gt;: duplicate 'must_have' line; one line per key" |
+| M11 / T8 | Guard driven with a data source whose key is `must_haves` | Fails with "pcommon: &lt;data-file&gt;: unknown key 'must_haves'; expected must_have, core, debian_only, spelling, or family" |
+
+##### Closure Evidence
+
+Implemented and verified in commit `5f356cb` on `m11-pcommon-source`. The milestone completes on merge to master.
 
 ## History
 

@@ -1,0 +1,23 @@
+# P_common package set - the single source of truth for the cloud-provision
+# operator definition. docs/IMAGE_WORKFLOW.md (Operator definition, P_common)
+# describes the structure and references this file; the package-parity guard in
+# tests/check-package-parity.bash derives each OS's expected list from it.
+# Package names live only here.
+#
+# Format: one "key: values" line per group. Blank lines and # comments ignored.
+# The guard enforces this source's integrity and otherwise fails loudly:
+#   - keys are limited to must_have, core, debian_only, spelling, and family;
+#   - each key appears on exactly one line;
+#   - family values are debian or rocky only (ubuntu spells like debian).
+# The single source is cloud-provision-local; the ansible-provision common role
+# keeps its own installer list, which this guard does not compare against (D020).
+
+must_have: sudo chrony git wget unzip gcc g++ make autoconf automake libtool ssl-dev net-tools
+core: vim tmux lsof tree sysstat logrotate acl socat
+debian_only: locales
+
+# canonical-name=debian-spelling:rocky-spelling, only where the two families differ
+spelling: ssl-dev=libssl-dev:openssl-devel g++=g++:gcc-c++
+
+# base OS type -> package family (the debian family covers debian and ubuntu)
+family: debian13=debian ubuntu24=debian ubuntu26=debian rocky8=rocky rocky10=rocky

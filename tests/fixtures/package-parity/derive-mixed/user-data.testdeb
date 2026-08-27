@@ -1,0 +1,9 @@
+#cloud-config
+
+packages:
+  - alpha
+  - beta-deb
+  - gamma
+  - delta
+
+timezone: America/Los_Angeles

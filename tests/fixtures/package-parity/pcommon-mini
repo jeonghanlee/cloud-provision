@@ -1,0 +1,6 @@
+# Minimal P_common source for derivation tests. Not the real package set.
+must_have: alpha beta
+core: gamma
+debian_only: delta
+spelling: beta=beta-deb:beta-rock
+family: testdeb=debian testrock=rocky
