@@ -19,7 +19,7 @@ species playbook.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
 | Operator model | M2 | Add the P_proxy precondition and the iocserver species, landing with their ansible-provision implementation | Milestone | Not started | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the `iocserver` species, and the matching ansible-provision species playbook exists so definition and implementation land together; [M2 detail](#m2). |
-| OS coverage | M3 | Support Debian 12 as a sixth vacuum | Milestone | Not started | Yes | M1 | Debian 12 is added to the vacua definition, the cloud-init template and package source, and the package-parity guard, and a real Debian 12 bare provision passes; [M3 detail](#m3). |
+| OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Not started | Yes | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 
 ### Decisions
 
@@ -180,44 +180,82 @@ Status: Not started
 
 ##### Summary
 
-A Linux support request adds Debian 12 to the supported OS matrix. Today the
-vacua are debian13, rocky8, rocky10, ubuntu24, and ubuntu26; Debian 12 becomes
-the sixth, in the debian family.
+A Linux support request adds Debian 12 (bookworm) to the supported OS matrix.
+Today the vacua are debian13, rocky8, rocky10, ubuntu24, and ubuntu26; Debian 12
+becomes the sixth, in the debian family. It mirrors debian13 wiring, and the
+`debian12-epics-dev` source-build variant is included so Debian 12 can carry the
+layers 1+2 EPICS build like the other vacua.
 
 ##### Scope
 
-- Add `debian12` (debian family) to the Vacua definition in
-  `docs/OPERATOR_MODEL.md`.
-- Add the Debian 12 cloud-init template and its entry in the P_common single
-  source (`configure/pcommon-packages`) and the package-parity guard.
-- Provision a real Debian 12 bare state and confirm P_common installs.
+- Bare vacuum: add `debian12` (debian family) everywhere a vacuum is wired -
+  `docs/OPERATOR_MODEL.md` (Vacua and a `bare_debian12` species), the P_common
+  single source `configure/pcommon-packages` (`family:` map), a
+  `templates/user-data.debian12` cloud-init template mirroring debian13, the
+  `configure/CONFIG_SITE` `OS_TYPES`, the `bin/create_vm.bash` base-image branch
+  (bookworm GenericCloud), the `bin/generate_ansible_inventory.bash` bare vacuum
+  list, and the package-parity guard coverage.
+- Source-build variant: add `debian12-epics-dev` to `CONFIG_SITE` `OS_TYPES`, the
+  `create_vm.bash` epics-dev branch and IP-base declaration and mapping
+  (`DEBIAN12_IP_BASE`, `DEBIAN12_EPICS_DEV_IP_BASE`), and the
+  `bin/run_epics_env_build.bash` epics-dev allowlist.
 
-Out of scope: EPICS layer verification on Debian 12 (owned by the pipeline);
-the `P_proxy`/`iocserver` work (M2).
+Out of scope: internal site modules; the `P_proxy` / `iocserver` work (M2);
+changes to EPICS-env itself (its Debian 12 support already exists in CI).
 
 ##### Completion Criteria
 
-- The vacua definition lists debian12.
-- The package-parity guard covers debian12 and passes.
+- The vacua definition and `bare_debian12` species list debian12.
+- `make check-package-parity` covers debian12 and passes.
 - A real Debian 12 bare provision installs the P_common set.
+- `make debian12-epics-dev.main` provisions and `run_epics_env_build.bash -o
+  debian12-epics-dev` builds layers 1+2 on it.
 
 ##### Dependencies And Decisions
 
 - M1 (the vacua definition lives in the new document).
+- EPICS-env Debian 12 support (present in its CI) for the epics-dev build check.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
+Plan Status: accepted
+Plan Acceptance: owner-accepted 2026-08-27 after plan, third-person, and second-person review
 Implementation Authorization: none
 Superseded Plan Artifacts: none
+
+1. `configure/pcommon-packages`: add `debian12=debian` to the `family:` line.
+2. `bin/create_vm.bash`: add the `debian12` base-image case - `BASE_IMAGE_NAME`
+   `debian-12-genericcloud-amd64.qcow2` and `BASE_URL`
+   `https://cloud.debian.org/images/cloud/bookworm/latest/${BASE_IMAGE_NAME}`
+   (Debian 12 is stable, so `bookworm/latest`, not the `trixie/daily` path
+   debian13 uses), mirroring the debian13 case's other fields (`OS_VARIANT`,
+   `VM_BOOT_FIRMWARE=uefi`) - and the `debian12-epics-dev` case mirroring
+   `debian13-epics-dev`; declare `DEBIAN12_IP_BASE=15` and
+   `DEBIAN12_EPICS_DEV_IP_BASE=45` in the IP-base declare block and add both to
+   the IP-base case; update the help and header vacua lists.
+3. `configure/CONFIG_SITE`: add `debian12` and `debian12-epics-dev` to
+   `OS_TYPES`.
+4. `templates/user-data.debian12`: mirror `user-data.debian13`, keeping the
+   debian-family locale self-check as the last runcmd entry.
+5. `bin/generate_ansible_inventory.bash`: add `debian12` to the bare vacuum
+   selector list.
+6. `bin/run_epics_env_build.bash`: add `debian12-epics-dev` to the epics-dev
+   allowlist.
+7. `docs/OPERATOR_MODEL.md`: add the `debian12 | debian` vacuum row and the
+   `bare_debian12 = P_common |0_debian12⟩` species row (unicode ket, as the
+   existing species rows use).
+8. package-parity guard: no new fixture is needed - the guard derives the
+   debian12 expected set from the `family:` map and checks the production
+   `templates/user-data.debian12` (step 4). Confirm `make check-package-parity`
+   passes; the `tests/fixtures/package-parity/` sets test the parser, not each OS.
 
 ##### Test Plan
 
 | Check | Method |
 | --- | --- |
-| M3 / T1 | `make check-package-parity` passes with a debian12 template and coverage list. |
-| M3 / T2 | A real Debian 12 bare provision installs the P_common must-have and core-utility sets. |
+| M3 / T1 | `make check-package-parity` passes with debian12 covered. |
+| M3 / T2 | A real Debian 12 bare provision (`make debian12.main`) installs the P_common must-have and core-utility sets. |
+| M3 / T3 | `make debian12-epics-dev.main` provisions and `run_epics_env_build.bash -o debian12-epics-dev` builds layers 1+2. |
 
 ##### Verification Results
 
