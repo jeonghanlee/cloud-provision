@@ -1,8 +1,8 @@
 # Image Workflow
 
 How this repository makes and uses images: terms, the chain, and the rules every image obeys. Settled in the 2026-08-01
-design discussion. The physics reading is a shared shorthand, not normative. The operator definition after it is
-normative.
+design discussion. The physics reading is a shared shorthand, not normative. The operator definition is
+normative and lives in its own document, `OPERATOR_MODEL.md`.
 
 ## Terms
 
@@ -170,76 +170,7 @@ new       |B⟩ ⊗ |C_1⟩ ⊗ |C_2⟩ ⊗ …    product state: local stays lo
 
 ## Operator definition
 
-Normative. Defines the operators applied to a vacuum, their order, and the species they produce. The operators are
-ansible-provision roles; this repository creates, copies, and destroys the states they act on. The terms vacuum type,
-bare, rtbase, and species are defined here, not in Terms.
-
-### Vacua
-
-The OS type is the vacuum type. An operator is the same operator on every vacuum; only package names differ.
-
-| Vacuum | Family |
-| --- | --- |
-| debian13 | debian |
-| rocky8 | rocky |
-| rocky10 | rocky |
-| ubuntu24 | debian |
-| ubuntu26 | debian |
-
-### Operators
-
-The preparation operator P of the physics reading is the product of the operators below.
-
-| Operator | Role | Order | Content |
-| --- | --- | --- | --- |
-| P_common | `common` | First on every vacuum | Packages: the canonical P_common set is defined in `configure/pcommon-packages` - a must-have group and a core-utilities group, both always installed, plus the debian-family-only `locales` package; names that differ by family (`ssl-dev`, `g++`) take the per-family spellings recorded there. On the debian family the locale is also enabled at first boot: `en_US.UTF-8` in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
-| P_rt | `rt` | After P_common; optional | PREEMPT_RT kernel and headers, running-kernel headers, dkms, build toolchain. Stock kernel stays boot default. The resulting rtbase species is published as its own golden image. |
-| P_provenance | `provenance` | Before P_epics, P_procserv, P_conserver, P_con, P_iocrunner | `/usr/local/sbin/record-iocrunner-source`, the tool application operators call to record their source into the bake manifest. |
-| P_python | `python` | After P_common; before P_epics and P_epics-build | Python 3 and pip runtime. Both EPICS acquisition paths need it, so it is a shared prerequisite rather than part of either. |
-| P_epics | `epics` | After P_provenance and P_python | Binary EPICS-env distribution and its activation script under `/etc/profile.d`; on rocky, firewalld enabled with the EPICS CA and PVA ports open. Requires P_python. Alternative to P_epics-build; never both on one vacuum. |
-| P_epics-build | `epics_build` | After P_common and P_python | The EPICS development packages, then EPICS-env built and installed from source. Requires P_python. Alternative to P_epics. |
-| P_epics-support | `epics_support` | After P_epics-build | AreaDetector modules built from source on the installed EPICS-env. |
-| P_procserv | `procserv` | After P_common | procServ built and installed from procServ-env. |
-| P_conserver | `conserver` | After P_common | conserver built and installed from conserver-env with OpenSSL. |
-| P_con | `con` | After P_common | con console client built and installed. |
-| P_nfs-sim | `nfs_sim` | After P_common | A directory exported over NFS from the same host, mounted back under `/home/nfs`, and linked into the user home. |
-| P_iocrunner | `iocrunner` | After P_con, P_procserv, and one of P_epics or P_epics-build | epics-ioc-runner cloned at the pinned ref and its runner binary installed. |
-| P_testusers | `testusers` | After P_iocrunner | Operator, observer, and local-mode test accounts; operators joined to the ioc group. |
-| P_ethercat | `ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. P_ethercat can apply on a non-RT bare state, but the `ethercat` species is defined on rtbase because a real EtherCAT deployment runs the RT kernel. |
-
-Package names that differ by family (`ssl-dev`, `g++`) are recorded with their debian and rocky spellings in `configure/pcommon-packages`.
-
-Commutation:
-
-```
-[P_rt, P_common] ≠ 0                     P_rt needs P_common's toolchain
-[P_procserv, P_conserver] = [P_procserv, P_con] = [P_con, P_nfs-sim] = 0
-```
-
-### Species
-
-Each bare state is a distinct species, one per vacuum: bare_debian13 is not bare_rocky8 under another name. Every
-other species is one species on every vacuum it is defined for, built on that vacuum's bare state.
-
-| Species | Product | Vacua |
-| --- | --- | --- |
-| bare_debian13 | P_common \|0_debian13⟩ | debian13 |
-| bare_rocky8 | P_common \|0_rocky8⟩ | rocky8 |
-| bare_rocky10 | P_common \|0_rocky10⟩ | rocky10 |
-| bare_ubuntu24 | P_common \|0_ubuntu24⟩ | ubuntu24 |
-| bare_ubuntu26 | P_common \|0_ubuntu26⟩ | ubuntu26 |
-| iocrunner | P_testusers P_iocrunner (P_con P_conserver P_procserv) (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | all |
-| iocrunner-nfs | P_nfs-sim \|iocrunner⟩ | all |
-| epics-dev | P_epics-support P_epics-build P_python \|bare⟩ | all |
-| nfs-sim | P_nfs-sim \|bare⟩ | all |
-| rtbase | P_rt \|bare⟩ | all |
-| ethercat | P_ethercat \|rtbase⟩ | all |
-
-Legal products that are not named species. Each follows from the commutation rules and stays a recorded product
-rather than a named species; a real use for one is what promotes it, and none is needed today:
-
-| Product | Meaning |
-| --- | --- |
-| (P_con P_conserver P_procserv) \|bare⟩ | console host without EPICS; any subset and order. The three are base software of the iocrunner species, not a standalone host. |
-| P_iocrunner (P_con P_conserver P_procserv) P_epics P_python P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack; reachable from rtbase and the iocrunner operators. |
-| P_ethercat P_epics P_python P_provenance \|rtbase⟩ | EtherCAT host with EPICS. A real EtherCAT host runs EPICS IOCs, so this is the anticipated end state; the `ethercat` species stays EtherCAT-only until end-to-end work reaches the EPICS layer. |
+Normative, and moved to its own document: see `OPERATOR_MODEL.md`. It defines the
+vacua, the operators and their order, the species they produce, and the
+realization modes (Golden, Live, Instant). The terms vacuum type, bare, rtbase,
+species, and realization mode are defined there, not in Terms.
