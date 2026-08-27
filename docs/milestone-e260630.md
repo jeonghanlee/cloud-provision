@@ -20,6 +20,7 @@ species playbook.
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
 | Operator model | M2 | Add the P_proxy precondition and the iocserver species, landing with their ansible-provision implementation | Milestone | Not started | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the `iocserver` species, and the matching ansible-provision species playbook exists so definition and implementation land together; [M2 detail](#m2). |
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Not started | Yes | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
+| Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Not started | Yes |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 
 ### Decisions
 
@@ -260,6 +261,45 @@ Superseded Plan Artifacts: none
 ##### Verification Results
 
 Pending.
+
+<a id="m5"></a>
+#### M5 - Add an extra-vars passthrough to the epics-dev build driver
+
+Origin: 5 / M5
+Identity History: none
+GitHub Issue: [#38](https://github.com/jeonghanlee/cloud-provision/issues/38)
+Status: Not started
+
+##### Summary
+
+`bin/run_epics_env_build.bash` invokes `ansible-playbook` with no `-e` /
+`ANSIBLE_OPTS` passthrough, so the build flavor (`epics_env_build_flavor`, e.g.
+`gz`) cannot be overridden from the driver; only the ansible-provision make
+target (`ANSIBLE_OPTS="-e epics_env_build_flavor=gz"`) can. Surfaced during the
+1.3.0 gz step. Minor: the make-target path already works.
+
+##### Scope
+
+- Add a repeatable `-e` option, or an `-O "<ANSIBLE_OPTS>"` append, to the
+  driver's `ansible-playbook` invocation so extra-vars reach the run.
+
+Out of scope: changing the default flavor or the ansible-provision make path.
+
+##### Completion Criteria
+
+- The driver forwards caller-supplied extra-vars, and a gz build can be driven
+  through `run_epics_env_build.bash` without editing role defaults.
+
+##### Dependencies And Decisions
+
+- None. Tracked as issue #38.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
 
 ## Backlog
 
