@@ -10,7 +10,7 @@ Canonical branch or ref: master
 Git upstream: origin/master
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both repositories are merged to master (cloud-provision merge `2edf5ac`, ansible-provision fast-forward to `b9e3099`). M5, the package-set parity guard, is implemented and verified on branch `m5-package-parity`: scope option 1 (the narrow within-P_common guard, D020), `make check-package-parity` and its fixtures pass T1-T4, committed as `c55130c` (implementation) and `1b0eb3c` (register). A conceptual-integrity sweep (2026-08-26) then aligned the guard's packages-block boundary to the `create_vm` proxy-merge stripper so the two parsers agree (Replace, commit `9630a1f`; recorded in `docs/CLOSED_DOORS.md`). M11 then restructured P_common into a single structured source (`configure/pcommon-packages`) the guard derives from, retiring the hand-copied fixture lists; it is implemented and verified (T1-T5) on branch `m11-pcommon-source` (implementation commit `5f356cb`), stacked on `m5-package-parity`, so master never carries the transient fixtures. The next entry point is to merge `m11-pcommon-source` to master, which flips both M5 and M11 to Complete. Keep M1.1 EtherCAT deferred in the Backlog (see the kept species-assembly asymmetry note) and run no EtherCAT test or runtime action.
+Next session entry point: every milestone in this register is Complete. M2, M3, M6, M7, M8, M9, and M10 merged earlier (cloud-provision merge `2edf5ac`, ansible-provision fast-forward to `b9e3099`), and the package-parity stack merged to master as `e8c197c` on 2026-08-27, completing M5 and M11. M5 is the package-set parity guard (scope option 1, the narrow within-P_common guard, D020): `make check-package-parity` passes the shipped templates and its fixtures (M5 / T1-T4), and a conceptual-integrity sweep aligned the guard's packages-block boundary to the `create_vm` proxy-merge stripper (Replace, commit `9630a1f`; recorded in `docs/CLOSED_DOORS.md`). M11 restructured P_common into the single structured source `configure/pcommon-packages` the guard derives from, retiring the hand-copied fixture lists, with fail-loud integrity guards on the source (M11 / T1-T8). No milestone is open or Ready; the only remaining work is M1.1 EtherCAT, kept deferred in the Backlog (see the kept species-assembly asymmetry note) with no EtherCAT test or runtime action.
 
 ## Milestone
 
@@ -23,7 +23,7 @@ Next session entry point: M2, M3, M6, M7, M8, M9, and M10 are Complete, and both
 | Proxy lifecycle | G1 | Deliver the consumer behavior required by the two IOC real gates | External gate | Complete | No |  | Retired by D016 because issue #33 is now owned directly by M3; no delivery result is claimed; [G1 detail](#g1). |
 | Proxy lifecycle | G2 | Authorize and complete the ioc-runner existing-artifact audit | External gate | Complete | No |  | A separate value-safe audit plan is accepted, authorized, and executed for M2 / T13; [G2 detail](#g2). |
 | Image audit | M9 | Preserve the IOC runner existing-image audit as a tracked tool | Milestone | Complete | No | G2 | The tracked entry point, runbook, and real existing-image verification satisfy issue #36; [M9 detail](#m9). |
-| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | In progress | - | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; whether the guard also compares against the actual ansible-provision install set is decided after M8; [M5 detail](#m5). |
+| Proxy ordering follow-up | M5 | Guard package-set parity between the retired cloud-init packages and post-apply install | Milestone | Complete | No | D018, D020, M8 | A check fails when a former cloud-init `packages:` entry falls outside the P_common definition; the guard keeps the narrower within-P_common purpose (D020) and does not compare against the ansible-provision install set; [M5 detail](#m5). |
 | Proxy ordering follow-up | M6 | Document and guard the base-image locale assumption | Milestone | Complete | No | D018, M8 | The runbook and ADR record that locale-gen depends on base-image locale support, and a guard catches its absence; offline items done and the real positive and negative self-checks observed; [M6 detail](#m6). |
 | Proxy ordering follow-up | M7 | Record the package-install ordering in the proxy ADR and runbook | Milestone | Complete | No | D018 | The proxy ADR and RUNBOOK_BAKE state that under proxy injection packages install post-apply via Ansible, and without proxy injection the cloud-init baseline installs them; [M7 detail](#m7). |
 | Image and node model redesign | M8 | Redesign the image and node model around pipeline roles and retire the testbed concept | Milestone | Complete | No | D018, D019 | The operator definition in `docs/IMAGE_WORKFLOW.md` (vacua, operators, species) is implemented across both repositories, the testbed concept and server=1/node=2 numbering are retired, the absorbed testbed-to-bare piece ships as the `bare` species, real-environment verification (T1-T6) passes, and both repositories merge to master; [M8 detail](#m8). |
@@ -471,7 +471,7 @@ Projection State: reconciled; remote closed with the M9 / T4 result in its closi
 Origin: c53e17e / M5
 Identity History: none
 GitHub Issue: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -536,7 +536,7 @@ Observed 2026-08-26 on branch `m5-package-parity`, real check path executed:
 
 ##### Closure Evidence
 
-Implemented and verified in commit `c55130c` on `m5-package-parity`. The milestone completes on merge to master.
+Implemented and verified in commit `c55130c` on `m5-package-parity` (register `1b0eb3c`; create_vm boundary alignment `9630a1f`). Merged to master as `e8c197c` on 2026-08-27; M5 is Complete.
 
 <a id="m6"></a>
 #### M6 - Document and guard the base-image locale assumption
@@ -918,7 +918,7 @@ Projection State: reconciled; remote issue #37 created and closed manually on 20
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 Deferred EtherCAT acceptance | M1.1 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D014-D015, D017, M3 | After M3, restore and update the deferred EtherCAT test surfaces from `733edf0`, then run the real bake, consumer, proxy-clean check, and separately authorized image audit; [M1.1 detail](#m11). |
-| Package-set single source | M11 | Restructure the P_common definition into prose plus a structured data source so the parity guard derives per-OS lists from one place | Milestone | In progress | - | D020, M5 | The P_common package names live in one structured source that the operator definition references without re-listing, the parity guard derives each OS list from it, and the hand-copied fixture lists are retired; [M11 detail](#m11-pcommon). |
+| Package-set single source | M11 | Restructure the P_common definition into prose plus a structured data source so the parity guard derives per-OS lists from one place | Milestone | Complete | No | D020, M5 | The P_common package names live in one structured source that the operator definition references without re-listing, the parity guard derives each OS list from it, and the hand-copied fixture lists are retired; [M11 detail](#m11-pcommon). |
 
 ### Backlog Details
 
@@ -1041,7 +1041,7 @@ Projection State: reconciled; remote title and body match the canonical projecti
 Origin: c53e17e / M11
 Identity History: none
 GitHub Issue: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -1116,7 +1116,7 @@ Observed 2026-08-26 on branch `m11-pcommon-source`, real derived path executed:
 
 ##### Closure Evidence
 
-Implemented and verified in commit `5f356cb` on `m11-pcommon-source`. The milestone completes on merge to master.
+Implemented and verified in commit `5f356cb` on `m11-pcommon-source` (integrity guards `885a429`; register `678dd8a`, `f605321`). Merged to master as `e8c197c` on 2026-08-27; M11 is Complete.
 
 ## History
 
