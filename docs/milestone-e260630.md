@@ -2,11 +2,12 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M6 (the `lab` libvirt network in the host setup path)
-is implemented and verified (T1, T2 pass) and M3 / T2 passed with the
-base-image variant corrected to `debian-12-generic-amd64.qcow2`; both await a
-commit to land. The remaining M3 step is T3, the `debian12-epics-dev`
-layers 1+2 build. M2 (the `P_proxy` precondition) awaits its
+Next session entry point: M3 (Debian 12) and M6 (the `lab` libvirt network) are
+Complete - all their checks pass and the code is landed; this Complete-marking
+awaits a register commit. The nearest actionable open work is M5 (the driver
+extra-vars passthrough, issue #38), which is Ready. M2 (the `P_proxy`
+precondition) still awaits its ansible-provision `proxy` role; EtherCAT stays
+Deferred in the Backlog. M2 (the `P_proxy` precondition) awaits its
 ansible-provision `proxy` role and is not yet Ready; M5 (the driver extra-vars
 passthrough, issue #38) is open; EtherCAT validation stays Deferred in the
 Backlog.
@@ -19,9 +20,9 @@ Backlog.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
 | Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | Not started | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
-| OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | In progress | Yes | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
+| OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Complete | No | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Not started | Yes |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
-| Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | In progress | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
+| Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
 
 ### Decisions
 
@@ -175,7 +176,7 @@ Pending.
 
 Origin: 3 / M3
 Identity History: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -271,7 +272,17 @@ Superseded Plan Artifacts: none
   installed, `en_US.utf8` present. The plan's genericcloud image name is
   superseded by the generic variant for both the `debian12` and
   `debian12-epics-dev` cases (owner-decided 2026-08-28).
-- T3: not run - the epics-dev layers 1+2 build is still pending.
+- T3: pass (2026-08-28). `make debian12-epics-dev.main` provisioned the
+  `epics-dev` VM (192.168.123.45) and `bin/run_epics_env_build.bash -o
+  debian12-epics-dev` ran all four operators (common, python, epics_build,
+  epics_support) - PLAY RECAP `ok=15 changed=4 unreachable=0 failed=0`. In-guest
+  readback confirms layer 1 (EPICS-env 1.3.0 with EPICS base 7.0.10 at
+  `/opt/epics/1.3.0/debian-12/7.0.10/base`) and layer 2 (AreaDetector
+  `.../modules/ADCore`). This depended on the ansible-provision counterpart: the
+  build first skipped every play because `inventory/lab.ini` `[vacua:children]`
+  omitted debian12 (operator plays target `hosts: vacua` under `--limit
+  epics_dev`); the peer added the `[debian12]` group and the `vacua` membership
+  (ansible-provision `35f00fe`), after which the build ran.
 - T2/T3 base-image pre-check: pass. The `debian-12-genericcloud-amd64.qcow2`
   URL (`cloud.debian.org/.../bookworm/latest/`) resolves 200 OK (~332 MB) and
   redirects to a Debian mirror that `curl -f -L` follows, so the base-image
@@ -328,7 +339,7 @@ Superseded Plan Artifacts: none
 
 Origin: 6 / M6
 Identity History: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
