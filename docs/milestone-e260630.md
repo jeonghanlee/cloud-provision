@@ -2,13 +2,14 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M1 (operator model document) is Complete at commit
-`e260630`, and the `iocserver` species has since landed in the SOT with the
-ansible-provision playbook. The nearest actionable entry is M3 (add Debian 12 as
-a sixth vacuum): its plan is accepted, so implementation can begin. M2 (the
-`P_proxy` precondition) awaits its ansible-provision `proxy` role and is not yet
-Ready; M5 (the driver extra-vars passthrough, issue #38) is open; EtherCAT
-validation stays Deferred in the Backlog.
+Next session entry point: M3 (Debian 12) code landed across the eight plan steps
+and M3 / T1 passed; M3 / T2 and M3 / T3 (real provision) are blocked on M6. The
+nearest actionable entry is M6 (define and create the `lab` libvirt network in
+the host setup path): its plan is accepted, so implementation can begin once
+authorized - completing it unblocks M3's real-path verification. M2 (the `P_proxy` precondition) awaits its
+ansible-provision `proxy` role and is not yet Ready; M5 (the driver extra-vars
+passthrough, issue #38) is open; EtherCAT validation stays Deferred in the
+Backlog.
 
 ## Milestone
 
@@ -18,8 +19,9 @@ validation stays Deferred in the Backlog.
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
 | Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | Not started | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
-| OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Not started | Yes | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
+| OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | In progress | Yes | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Not started | Yes |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
+| Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Not started | Yes |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
 
 ### Decisions
 
@@ -173,7 +175,7 @@ Pending.
 
 Origin: 3 / M3
 Identity History: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -217,7 +219,7 @@ changes to EPICS-env itself (its Debian 12 support already exists in CI).
 
 Plan Status: accepted
 Plan Acceptance: owner-accepted 2026-08-27 after plan, third-person, and second-person review
-Implementation Authorization: none
+Implementation Authorization: owner-authorized 2026-08-28
 Superseded Plan Artifacts: none
 
 1. `configure/pcommon-packages`: add `debian12=debian` to the `family:` line.
@@ -256,7 +258,24 @@ Superseded Plan Artifacts: none
 
 ##### Verification Results
 
-Pending.
+- T1: pass. `make check-package-parity` reports 6 checked, 6 passed, with
+  debian12 covered.
+- T2, T3: blocked on M6 - the real bare provision and the epics-dev layers 1+2
+  build have not been run. This host carries only the `default` network
+  (192.168.122.0/24); `create_vm.bash` targets the `lab` network
+  (192.168.123.0/24), which no path defines yet (M6). The provision needs either
+  the lab host or M6's setup path.
+- T2/T3 base-image pre-check: pass. The `debian-12-genericcloud-amd64.qcow2`
+  URL (`cloud.debian.org/.../bookworm/latest/`) resolves 200 OK (~332 MB) and
+  redirects to a Debian mirror that `curl -f -L` follows, so the base-image
+  fetch step is verified without a full provision.
+
+Implementation landed the eight plan steps: the `family:` map, the
+`create_vm.bash` base-image and epics-dev cases plus IP bases
+(`DEBIAN12_IP_BASE=15`, `DEBIAN12_EPICS_DEV_IP_BASE=45`) and help text, the
+`CONFIG_SITE` `OS_TYPES`, `templates/user-data.debian12`, the inventory bare
+selector, the epics-dev build allowlist, and the operator model vacua and
+`bare_debian12` species rows.
 
 <a id="m5"></a>
 #### M5 - Add an extra-vars passthrough to the epics-dev build driver
@@ -296,6 +315,97 @@ Plan Status: draft
 Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
+
+<a id="m6"></a>
+#### M6 - Define and create the lab libvirt network in the host setup path
+
+Origin: 6 / M6
+Identity History: none
+Status: Not started
+
+##### Summary
+
+Commit `8cc1993` (2026-08-25) isolated the lab VM model onto its own network
+(`lab`), subnet (192.168.123.0/24), and MAC space (`52:54:00:01`), and pointed
+`bin/create_vm.bash` at the `lab` libvirt network. No path defines or creates
+that network: `bin/setup_host.bash` only ensures the libvirt-provided `default`
+network is autostarted and active (it assumes `default` already exists), and the
+repository ships no `lab` network definition. On a host that carries only
+`default`, a provision fails at the first `virsh net-update lab` reservation
+because `lab` is undefined. This surfaced attempting M3 / T2 on a default-only
+host.
+
+##### Scope
+
+- Add a `lab` libvirt network definition (name `lab`, NAT forward, its own
+  bridge, ip 192.168.123.1/24 with a DHCP range) as a file the setup path
+  applies.
+- Generalize `bin/setup_host.bash` so it defines the `lab` network from that
+  file with `net-define` when absent, then autostarts and starts it, the same
+  way `default` is ensured active, without disturbing `default`.
+- Keep the per-host static reservations dynamic: `create_vm.bash` continues to
+  add and remove `ip-dhcp-host` entries via `net-update` at provision time; the
+  definition supplies only the subnet and a DHCP range.
+
+Out of scope: the subnet and MAC scheme chosen by `8cc1993`; any change to the
+`default` network; M3's Debian 12 wiring, which already landed.
+
+##### Completion Criteria
+
+- On a host that had only `default`, the setup path leaves an active `lab`
+  network.
+- `virsh net-dumpxml lab` shows 192.168.123.0/24 with a DHCP range compatible
+  with the static reservations `create_vm.bash` adds.
+- A vacuum provision reaches and passes the `net-update lab` reservation step
+  without a "network not found" failure.
+
+##### Dependencies And Decisions
+
+- Consequence of `8cc1993`. No M or G dependencies. Completing M6 unblocks
+  M3 / T2 and M3 / T3, whose real path needs the `lab` network.
+- Owner decisions (2026-08-28): the network uses a fixed bridge name
+  `virbr-lab` (predictable, consistent with the fixed MAC space `8cc1993`
+  chose) rather than a libvirt-auto bridge; the definition lives at
+  `configure/lab-network.xml`, alongside the other `configure/` inputs.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: owner-accepted 2026-08-28 after plan, two third-person reviews, and two second-person reviews
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Add `configure/lab-network.xml`, a libvirt network definition: `<network>`
+   named `lab`, `<forward mode='nat'/>`, `<bridge name='virbr-lab' stp='on'
+   delay='0'/>`, and `<ip address='192.168.123.1' netmask='255.255.255.0'>` with
+   `<dhcp><range start='192.168.123.2' end='192.168.123.254'/></dhcp>`. No
+   `<uuid>`, `<mac>`, or static `<host>` entries: libvirt generates the identity
+   and `create_vm.bash` adds the per-host reservations at provision time. The
+   DHCP range spans the static bases (`.10`-`.155`) and the fallback hash window
+   (`.160`-`.254`).
+2. Generalize `bin/setup_host.bash`. Factor the existing `default`
+   autostart-and-start block (lines 67-83) into a helper taking a network name.
+   Resolve the repository top from `${BASH_SOURCE[0]}`'s directory parent. After
+   ensuring `default`, ensure `lab`: when `virsh net-info lab` reports it
+   undefined, `virsh net-define "${TOP}/configure/lab-network.xml"`, then
+   autostart and start it through the shared helper. Leave the `default` handling
+   unchanged. The script runs under `set -e`, so probe definedness with the
+   set-e-safe form `if ! virsh net-info lab >/dev/null 2>&1; then net-define; fi`,
+   never a bare `status=$?` capture, which the nonzero exit of an undefined
+   network would turn into an immediate script abort. The refactored helper keeps
+   the existing autostart and active guards so a re-run stays idempotent.
+3. Verify T1 and T2 below on this default-only host.
+
+##### Test Plan
+
+| Check | Method |
+| --- | --- |
+| M6 / T1 | On a host with only `default`, `make setup` defines and activates `lab`; `virsh net-dumpxml lab` shows 192.168.123.0/24 with the DHCP range `.2`-`.254`. |
+| M6 / T2 | A vacuum provision passes the `virsh net-update lab` reservation step with no "network not found" error. The same real provision run satisfies M3 / T2 (P_common install), so `make debian12.main` covers both at once - no separate provision is scheduled for M6. |
+
+##### Verification Results
+
+Pending.
 
 ## Backlog
 
