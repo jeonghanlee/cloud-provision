@@ -33,8 +33,9 @@ stays in `IMAGE_WORKFLOW.md` and is not normative. This document is.
   mode-neutral contracts is deferred to a later pass.
 - Internal site modules (`P_site`) are out of scope; they are managed in
   ansible-provision and alsu-site-modules.
-- The `P_proxy` precondition and the `iocserver` species are deferred to a
-  separate pass that lands together with their ansible-provision implementation.
+- The `iocserver` species (`iocrunner` without `P_testusers`) is defined here,
+  matching the ansible-provision `iocserver` species playbook. The `P_proxy`
+  precondition remains deferred to a pass that lands with its role.
 
 ## Vacua
 
@@ -109,11 +110,16 @@ vacuum it is defined for, built on that vacuum's bare state.
 | bare_ubuntu24 | P_common \|0_ubuntu24⟩ | ubuntu24 |
 | bare_ubuntu26 | P_common \|0_ubuntu26⟩ | ubuntu26 |
 | iocrunner | P_testusers P_iocrunner (P_epics or P_epics-build) P_python (P_con P_conserver P_procserv) P_provenance \|bare⟩ | all |
+| iocserver | P_iocrunner (P_epics or P_epics-build) P_python (P_con P_conserver P_procserv) P_provenance \|bare⟩ | all |
 | iocrunner-nfs | P_nfs-sim \|iocrunner⟩ | all |
 | epics-dev | P_epics-support P_epics-build P_python \|bare⟩ | all |
 | nfs-sim | P_nfs-sim \|bare⟩ | all |
 | rtbase | P_rt \|bare⟩ | all |
 | ethercat | P_ethercat \|rtbase⟩ | all |
+
+`iocserver` is `iocrunner` without the test accounts (`P_testusers`); the IOC
+server runs the runner and its base software but adds no operator, observer, or
+local-mode users.
 
 Valid unnamed products. Each follows from the order dependencies above and
 stays a recorded product rather than a named species; a real use for

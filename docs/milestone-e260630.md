@@ -3,13 +3,12 @@
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
 Next session entry point: M1 (operator model document) is Complete at commit
-`e260630`. Two owner-assigned milestones are open and Not started: M2 adds the
-`P_proxy` precondition and the `iocserver` species to `docs/OPERATOR_MODEL.md`,
-landing together with its ansible-provision species playbook; M3 adds Debian 12
-as a sixth vacuum. EtherCAT validation stays Deferred in the Backlog. The
-nearest actionable entry is M2: draft its plan against
-`work/operator-model-pending-B.md` and coordinate the ansible-provision
-species playbook.
+`e260630`, and the `iocserver` species has since landed in the SOT with the
+ansible-provision playbook. The nearest actionable entry is M3 (add Debian 12 as
+a sixth vacuum): its plan is accepted, so implementation can begin. M2 (the
+`P_proxy` precondition) awaits its ansible-provision `proxy` role and is not yet
+Ready; M5 (the driver extra-vars passthrough, issue #38) is open; EtherCAT
+validation stays Deferred in the Backlog.
 
 ## Milestone
 
@@ -18,7 +17,7 @@ species playbook.
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
-| Operator model | M2 | Add the P_proxy precondition and the iocserver species, landing with their ansible-provision implementation | Milestone | Not started | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the `iocserver` species, and the matching ansible-provision species playbook exists so definition and implementation land together; [M2 detail](#m2). |
+| Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | Not started | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Not started | Yes | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Not started | Yes |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 
@@ -64,7 +63,7 @@ its `epics-dev` build environment.
 - Replace the operator-definition section in `IMAGE_WORKFLOW.md` with a pointer
   and align its header.
 
-Out of scope: the `P_proxy` precondition and the `iocserver` species (M2);
+Out of scope: the `P_proxy` precondition (M2) and the `iocserver` species;
 internal site modules; any change to the operator or species definitions
 themselves.
 
@@ -111,7 +110,7 @@ Committed as `e260630` on 2026-08-27. Deliverable, completion criteria, and the
 four local checks are satisfied; the milestone has no external gate.
 
 <a id="m2"></a>
-#### M2 - Add the P_proxy precondition and the iocserver species
+#### M2 - Add the P_proxy precondition
 
 Origin: 2 / M2
 Identity History: none
@@ -119,11 +118,11 @@ Status: Not started
 
 ##### Summary
 
-`P_proxy` and `iocserver` were designed during the M1 session but held out of
-the committed document because the document's own rule is that a new definition
-and its ansible-provision implementation land together, and the species
-playbook does not yet exist. The full draft is preserved in
-`work/operator-model-pending-B.md`.
+The `iocserver` species (`iocrunner` without `P_testusers`) landed in the SOT
+with the operator-model document, matching the ansible-provision `iocserver`
+species playbook. What remains for M2 is the `P_proxy` precondition, held out
+because it lands with its `proxy` role in ansible-provision. The full draft is
+preserved in `work/operator-model-pending-B.md`.
 
 ##### Scope
 
@@ -132,25 +131,23 @@ playbook does not yet exist. The full draft is preserved in
   before every fetch. Record the single authority `bin/proxy_contract.bash`, the
   ADR-defined artifact inventory, and the per-realization fate (Golden seals it,
   Live and Instant keep it).
-- Add the `iocserver` species (`iocrunner` without `P_testusers`) to the Species
-  table and restore the realization proxy-fate column and the from-vacuum
-  walkthrough removed for M1.
-- Land the matching ansible-provision species playbook and confirm the
-  role name for `P_proxy` in the same change set.
+- Restore the realization proxy-fate column and the from-vacuum walkthrough
+  removed for M1, now that the proxy notation exists.
+- Land the matching ansible-provision `proxy` role in the same change set.
 
-Out of scope: internal site modules; any Debian 12 work (M3).
+Out of scope: internal site modules; any Debian 12 work (M3); the `iocserver`
+species (already landed).
 
 ##### Completion Criteria
 
-- `docs/OPERATOR_MODEL.md` defines `P_proxy` and `iocserver` as above.
-- The ansible-provision `playbooks/species/` implementation for `iocserver`
-  exists and its `P_proxy` role name matches the document.
-- The one-to-one map between definition and species playbooks holds.
+- `docs/OPERATOR_MODEL.md` defines `P_proxy` as above.
+- The ansible-provision `proxy` role exists and its name matches the document.
+- The one-to-one map between the definition and the role holds.
 
 ##### Dependencies And Decisions
 
 - M1 (the document must exist first).
-- Coordinated with ansible-provision; definition and species playbook land
+- Coordinated with ansible-provision; the definition and the `proxy` role land
   together.
 
 ##### Implementation Plan
@@ -164,9 +161,8 @@ Superseded Plan Artifacts: none
 
 | Check | Method |
 | --- | --- |
-| M2 / T1 | `iocserver` equals `iocrunner` with `P_testusers` removed, verified against the Species table. |
-| M2 / T2 | The `P_proxy` artifact inventory in the document matches `ADR-20260820`. |
-| M2 / T3 | The ansible-provision `iocserver` species playbook applies the same operators in the documented order. |
+| M2 / T1 | The `P_proxy` artifact inventory in the document matches `ADR-20260820`. |
+| M2 / T2 | The ansible-provision `proxy` role applies the artifact set through `bin/proxy_contract.bash`. |
 
 ##### Verification Results
 
@@ -201,7 +197,7 @@ layers 1+2 EPICS build like the other vacua.
   (`DEBIAN12_IP_BASE`, `DEBIAN12_EPICS_DEV_IP_BASE`), and the
   `bin/run_epics_env_build.bash` epics-dev allowlist.
 
-Out of scope: internal site modules; the `P_proxy` / `iocserver` work (M2);
+Out of scope: internal site modules; the `P_proxy` work (M2);
 changes to EPICS-env itself (its Debian 12 support already exists in CI).
 
 ##### Completion Criteria
