@@ -56,7 +56,7 @@ its `epics-dev` build environment.
 ##### Scope
 
 - Create `docs/OPERATOR_MODEL.md` and carry the Vacua, Operators, Commutation,
-  Species, and legal-product tables verbatim from `IMAGE_WORKFLOW.md`.
+  Species, and valid-unnamed-product tables verbatim from `IMAGE_WORKFLOW.md`.
 - Add a Notation section, the realization-mode axis, and a Produced-artifacts
   section (distribution producer `epics-dev`, build mechanisms local make and
   ansible, consumer `P_epics`); defer run-purpose classification to the

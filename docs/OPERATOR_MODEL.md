@@ -74,12 +74,26 @@ software and configuration a species is made of.
 
 Package names that differ by family (`ssl-dev`, `g++`) are recorded with their debian and rocky spellings in `configure/pcommon-packages`.
 
-Commutation:
+## Order dependencies
 
-```
-[P_rt, P_common] ≠ 0                     P_rt needs P_common's toolchain
-[P_procserv, P_conserver] = [P_procserv, P_con] = [P_con, P_nfs-sim] = 0
-```
+Some operators must be applied before others; the rest can be applied in either
+order without changing the result.
+
+Dependencies (one must come first) - recorded in the Operators table's Order
+column: the app operators (P_con, P_conserver, P_procserv) need P_provenance
+first; P_rt needs P_common; P_python needs P_common; P_epics needs P_provenance
+and P_python; P_epics-build needs P_common and P_python; P_epics-support needs
+P_epics-build; P_iocrunner needs P_con, P_procserv, and one of P_epics or
+P_epics-build; P_testusers needs P_iocrunner; P_ethercat needs P_rt.
+
+Free order (either order produces the same species) - any two operators with no
+dependency between them can be applied in either order. For example, the app
+operators can go before or after P_python and P_epics, and P_rt can go before or
+after P_python, P_con, or P_epics.
+
+A written product lists one order - the order the ansible-provision species
+playbooks apply the operators - but a free-order choice does not change the
+species.
 
 ## Species
 
@@ -94,21 +108,21 @@ vacuum it is defined for, built on that vacuum's bare state.
 | bare_rocky10 | P_common \|0_rocky10⟩ | rocky10 |
 | bare_ubuntu24 | P_common \|0_ubuntu24⟩ | ubuntu24 |
 | bare_ubuntu26 | P_common \|0_ubuntu26⟩ | ubuntu26 |
-| iocrunner | P_testusers P_iocrunner (P_con P_conserver P_procserv) (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | all |
+| iocrunner | P_testusers P_iocrunner (P_epics or P_epics-build) P_python (P_con P_conserver P_procserv) P_provenance \|bare⟩ | all |
 | iocrunner-nfs | P_nfs-sim \|iocrunner⟩ | all |
 | epics-dev | P_epics-support P_epics-build P_python \|bare⟩ | all |
 | nfs-sim | P_nfs-sim \|bare⟩ | all |
 | rtbase | P_rt \|bare⟩ | all |
 | ethercat | P_ethercat \|rtbase⟩ | all |
 
-Legal products that are not named species. Each follows from the commutation
-rules and stays a recorded product rather than a named species; a real use for
+Valid unnamed products. Each follows from the order dependencies above and
+stays a recorded product rather than a named species; a real use for
 one is what promotes it, and none is needed today:
 
 | Product | Meaning |
 | --- | --- |
-| (P_con P_conserver P_procserv) \|bare⟩ | console host without EPICS; any subset and order. The three are base software of the iocrunner species, not a standalone host. |
-| P_iocrunner (P_con P_conserver P_procserv) P_epics P_python P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack; reachable from rtbase and the iocrunner operators. |
+| (P_con P_conserver P_procserv) P_provenance \|bare⟩ | console host without EPICS; any subset and order of the app operators. The three are base software of the iocrunner species, not a standalone host. |
+| P_iocrunner P_epics P_python (P_con P_conserver P_procserv) P_provenance \|rtbase⟩ | IOC host on the RT kernel without the EtherCAT stack; reachable from rtbase and the iocrunner operators. |
 | P_ethercat P_epics P_python P_provenance \|rtbase⟩ | EtherCAT host with EPICS. A real EtherCAT host runs EPICS IOCs, so this is the anticipated end state; the `ethercat` species stays EtherCAT-only until end-to-end work reaches the EPICS layer. |
 
 ## Realization modes
