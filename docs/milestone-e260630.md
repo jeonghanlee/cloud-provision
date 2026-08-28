@@ -2,11 +2,11 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M3 (Debian 12) code landed across the eight plan steps
-and M3 / T1 passed; M3 / T2 and M3 / T3 (real provision) are blocked on M6. The
-nearest actionable entry is M6 (define and create the `lab` libvirt network in
-the host setup path): its plan is accepted, so implementation can begin once
-authorized - completing it unblocks M3's real-path verification. M2 (the `P_proxy` precondition) awaits its
+Next session entry point: M6 (the `lab` libvirt network in the host setup path)
+is implemented and verified (T1, T2 pass) and M3 / T2 passed with the
+base-image variant corrected to `debian-12-generic-amd64.qcow2`; both await a
+commit to land. The remaining M3 step is T3, the `debian12-epics-dev`
+layers 1+2 build. M2 (the `P_proxy` precondition) awaits its
 ansible-provision `proxy` role and is not yet Ready; M5 (the driver extra-vars
 passthrough, issue #38) is open; EtherCAT validation stays Deferred in the
 Backlog.
@@ -21,7 +21,7 @@ Backlog.
 | Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | Not started | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | In progress | Yes | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Not started | Yes |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
-| Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Not started | Yes |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
+| Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | In progress | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
 
 ### Decisions
 
@@ -260,11 +260,18 @@ Superseded Plan Artifacts: none
 
 - T1: pass. `make check-package-parity` reports 6 checked, 6 passed, with
   debian12 covered.
-- T2, T3: blocked on M6 - the real bare provision and the epics-dev layers 1+2
-  build have not been run. This host carries only the `default` network
-  (192.168.122.0/24); `create_vm.bash` targets the `lab` network
-  (192.168.123.0/24), which no path defines yet (M6). The provision needs either
-  the lab host or M6's setup path.
+- T2: pass (2026-08-28, after M6 landed the `lab` network). The first attempt
+  with `debian-12-genericcloud-amd64.qcow2` failed: the VM booted but cloud-init
+  never saw the SATA seed cdrom (hostname stayed `localhost`, no DHCP lease, no
+  SSH), while `make debian13.main` succeeded through the identical wiring.
+  Owner-directed variant experiment: switching the base image to
+  `debian-12-generic-amd64.qcow2` (full driver set) made `make debian12.main`
+  complete - SSH ready, cloud-init complete. In-guest readback: hostname
+  `lab-debian12-main`, lease 192.168.123.15, all ten template baseline packages
+  installed, `en_US.utf8` present. The plan's genericcloud image name is
+  superseded by the generic variant for both the `debian12` and
+  `debian12-epics-dev` cases (owner-decided 2026-08-28).
+- T3: not run - the epics-dev layers 1+2 build is still pending.
 - T2/T3 base-image pre-check: pass. The `debian-12-genericcloud-amd64.qcow2`
   URL (`cloud.debian.org/.../bookworm/latest/`) resolves 200 OK (~332 MB) and
   redirects to a Debian mirror that `curl -f -L` follows, so the base-image
@@ -321,7 +328,7 @@ Superseded Plan Artifacts: none
 
 Origin: 6 / M6
 Identity History: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -372,7 +379,7 @@ Out of scope: the subnet and MAC scheme chosen by `8cc1993`; any change to the
 
 Plan Status: accepted
 Plan Acceptance: owner-accepted 2026-08-28 after plan, two third-person reviews, and two second-person reviews
-Implementation Authorization: none
+Implementation Authorization: owner-authorized 2026-08-28
 Superseded Plan Artifacts: none
 
 1. Add `configure/lab-network.xml`, a libvirt network definition: `<network>`
@@ -405,7 +412,19 @@ Superseded Plan Artifacts: none
 
 ##### Verification Results
 
-Pending.
+- T1: pass. On this default-only host, `make setup` ran the real shipped path
+  and reported `Network lab defined ... marked as autostarted ... started`.
+  Read back with `virsh net-dumpxml lab`: `forward mode='nat'`, bridge
+  `virbr-lab`, ip `192.168.123.1/24`, DHCP range `.2`-`.254`; `net-list` shows
+  `lab active yes autostart yes persistent yes`.
+- T2: pass. A real `make debian12.main` run reached and passed the
+  `virsh net-update lab` step: the reservation `lab-debian12-main ->
+  192.168.123.15` (mac `52:54:00:01:0f:00`) is present in `net-dumpxml lab`,
+  with no "network not found" error. Both `make debian13.main` and (after the
+  M3 base-image variant fix) `make debian12.main` then completed end to end on
+  the `lab` network - SSH ready, cloud-init complete, DHCP leases visible in
+  `net-dhcp-leases lab`. An initial debian12 failure past this step was the
+  M3 base-image variant issue, recorded under M3 / T2, not an M6 defect.
 
 ## Backlog
 
