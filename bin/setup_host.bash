@@ -64,23 +64,43 @@ if ! systemctl is-active --quiet libvirtd; then
 fi
 printf "  libvirtd        [ACTIVE]\n"
 
-# libvirt default network
+# libvirt networks
 LIBVIRT_URI="qemu:///system"
-NET_NAME="default"
-NET_AUTOSTART="$(sudo virsh --connect "${LIBVIRT_URI}" net-info "${NET_NAME}" 2>/dev/null \
-    | awk '/^Autostart:/ {print $2}')"
-NET_ACTIVE="$(sudo virsh --connect "${LIBVIRT_URI}" net-info "${NET_NAME}" 2>/dev/null \
-    | awk '/^Active:/ {print $2}')"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TOP="$(dirname "${SCRIPT_DIR}")"
 
-if [[ "${NET_AUTOSTART}" != "yes" ]]; then
-    printf "Setting %s network autostart...\n" "${NET_NAME}"
-    sudo virsh --connect "${LIBVIRT_URI}" net-autostart "${NET_NAME}"
+# Ensure a defined libvirt network is autostarted and active. Idempotent: a
+# network already autostarting or already active is left as is.
+ensure_network() {
+    local net_name="$1"
+    local autostart active
+    autostart="$(sudo virsh --connect "${LIBVIRT_URI}" net-info "${net_name}" 2>/dev/null \
+        | awk '/^Autostart:/ {print $2}')"
+    active="$(sudo virsh --connect "${LIBVIRT_URI}" net-info "${net_name}" 2>/dev/null \
+        | awk '/^Active:/ {print $2}')"
+    if [[ "${autostart}" != "yes" ]]; then
+        printf "Setting %s network autostart...\n" "${net_name}"
+        sudo virsh --connect "${LIBVIRT_URI}" net-autostart "${net_name}"
+    fi
+    if [[ "${active}" != "yes" ]]; then
+        printf "Starting %s network...\n" "${net_name}"
+        sudo virsh --connect "${LIBVIRT_URI}" net-start "${net_name}"
+    fi
+    printf "  %s network [ACTIVE]\n" "${net_name}"
+}
+
+# The libvirt-provided default network already exists; just ensure it runs.
+ensure_network "default"
+
+# The lab network is repository-defined and isolated onto its own subnet and
+# MAC space; define it from the shipped file when the host does not have it
+# yet, then ensure it runs. The probe stays set-e-safe: a bare net-info of an
+# undefined network exits nonzero and would abort the script.
+if ! sudo virsh --connect "${LIBVIRT_URI}" net-info "lab" >/dev/null 2>&1; then
+    printf "Defining lab network from %s...\n" "${TOP}/configure/lab-network.xml"
+    sudo virsh --connect "${LIBVIRT_URI}" net-define "${TOP}/configure/lab-network.xml"
 fi
-if [[ "${NET_ACTIVE}" != "yes" ]]; then
-    printf "Starting %s network...\n" "${NET_NAME}"
-    sudo virsh --connect "${LIBVIRT_URI}" net-start "${NET_NAME}"
-fi
-printf "  %s network [ACTIVE]\n" "${NET_NAME}"
+ensure_network "lab"
 
 # Group membership
 if groups "$USER" | grep -q "\b${REQUIRED_GROUP}\b"; then
