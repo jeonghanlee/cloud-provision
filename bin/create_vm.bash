@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Cloud-init based VM provisioner for libvirt/KVM.
-# Provisions the lab vacua (debian13, rocky8, rocky10, ubuntu24, ubuntu26)
+# Provisions the lab vacua (debian12, debian13, rocky8, rocky10, ubuntu24, ubuntu26)
 # and their species consumers per docs/IMAGE_WORKFLOW.md (Operator definition).
 
 set -e
@@ -60,6 +60,8 @@ declare -g MAC_PREFIX="52:54:00:01"
 # pairs than are listed; a pair gains a row when work first builds it.
 declare -g DEBIAN13_IP_BASE=10
 declare -g DEBIAN13_EPICS_DEV_IP_BASE=20
+declare -g DEBIAN12_IP_BASE=15
+declare -g DEBIAN12_EPICS_DEV_IP_BASE=45
 declare -g UBUNTU26_IP_BASE=25
 declare -g UBUNTU26_EPICS_DEV_IP_BASE=30
 declare -g UBUNTU24_IP_BASE=35
@@ -98,12 +100,13 @@ function print_usage {
     printf "\n"
     printf "Options:\n"
     printf "  -o <os_type>   OS type (default: rocky8)\n"
-    printf "                 Vacua: rocky8, debian13, rocky10, ubuntu24, ubuntu26\n"
+    printf "                 Vacua: rocky8, debian12, debian13, rocky10, ubuntu24, ubuntu26\n"
     printf "                 Golden consumers: rocky8-iocrunner, debian13-iocrunner,\n"
     printf "                 rocky8-iocrunner-nfs, debian13-iocrunner-nfs,\n"
     printf "                 debian13-ethercat, debian13-rtbase\n"
-    printf "                 Source-build hosts: rocky8-epics-dev, debian13-epics-dev,\n"
-    printf "                 rocky10-epics-dev, ubuntu24-epics-dev, ubuntu26-epics-dev\n"
+    printf "                 Source-build hosts: rocky8-epics-dev, debian12-epics-dev,\n"
+    printf "                 debian13-epics-dev, rocky10-epics-dev, ubuntu24-epics-dev,\n"
+    printf "                 ubuntu26-epics-dev\n"
     printf "  -n <instance>  Instance label (default: main). main takes the static\n"
     printf "                 base address, dhcp takes a DHCP lease, any other label\n"
     printf "                 hashes into the shared 160-254 window.\n"
@@ -201,6 +204,13 @@ elif [[ "${OS_TYPE}" == "debian13" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "debian12" ]]; then
+    # Debian 12 (bookworm) is stable, so its GenericCloud image comes from the
+    # bookworm/latest release path, not the trixie/daily path debian13 uses.
+    OS_VARIANT="debian12"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="debian-12-genericcloud-amd64.qcow2"
+    BASE_URL="https://cloud.debian.org/images/cloud/bookworm/latest/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "rocky10" ]]; then
     # RHEL 10 family dropped legacy BIOS boot on x86_64, so UEFI is required;
     # the host osinfo database tops out at rocky9, which stands in for
@@ -272,6 +282,11 @@ elif [[ "${OS_TYPE}" == "debian13-epics-dev" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "debian12-epics-dev" ]]; then
+    OS_VARIANT="debian12"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="debian-12-genericcloud-amd64.qcow2"
+    BASE_URL="https://cloud.debian.org/images/cloud/bookworm/latest/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "rocky10-epics-dev" ]]; then
     OS_VARIANT="rocky10"
     OSINFO_VARIANT="rocky9"
@@ -339,6 +354,7 @@ function resolve_network {
 
     case "${OS_TYPE}" in
         debian13)               os_base=${DEBIAN13_IP_BASE} ;;
+        debian12)               os_base=${DEBIAN12_IP_BASE} ;;
         rocky8)                 os_base=${ROCKY8_IP_BASE} ;;
         rocky10)                os_base=${ROCKY10_IP_BASE} ;;
         ubuntu24)               os_base=${UBUNTU24_IP_BASE} ;;
@@ -350,6 +366,7 @@ function resolve_network {
         debian13-ethercat)      os_base=${DEBIAN13_ETHERCAT_IP_BASE} ;;
         debian13-rtbase)        os_base=${DEBIAN13_RTBASE_IP_BASE} ;;
         debian13-epics-dev)     os_base=${DEBIAN13_EPICS_DEV_IP_BASE} ;;
+        debian12-epics-dev)     os_base=${DEBIAN12_EPICS_DEV_IP_BASE} ;;
         rocky8-epics-dev)       os_base=${ROCKY8_EPICS_DEV_IP_BASE} ;;
         rocky10-epics-dev)      os_base=${ROCKY10_EPICS_DEV_IP_BASE} ;;
         ubuntu24-epics-dev)     os_base=${UBUNTU24_EPICS_DEV_IP_BASE} ;;

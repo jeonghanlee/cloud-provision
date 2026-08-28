@@ -98,7 +98,7 @@ ANSIBLE_PLAYBOOK_BIN="$(command -v ansible-playbook 2>/dev/null || true)"
 
 for os_type in "${OS_TYPES[@]}"; do
     case "${os_type}" in
-        rocky8-epics-dev|debian13-epics-dev|rocky10-epics-dev|ubuntu24-epics-dev|ubuntu26-epics-dev) ;;
+        rocky8-epics-dev|debian12-epics-dev|debian13-epics-dev|rocky10-epics-dev|ubuntu24-epics-dev|ubuntu26-epics-dev) ;;
         *)
             die "unsupported epics-dev OS selector: ${os_type}"
             ;;

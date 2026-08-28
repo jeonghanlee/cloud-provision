@@ -1,0 +1,35 @@
+#cloud-config
+
+ssh_pwauth: false
+
+users:
+  - name: vmadmin
+    gecos: System Administrator
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    ssh_authorized_keys:
+      - SSH_AUTHORIZED_KEY_PLACEHOLDER
+
+packages:
+  - git
+  - vim
+  - tmux
+  - net-tools
+  - autoconf
+  - automake
+  - gcc
+  - make
+  - libssl-dev
+  - locales
+
+timezone: America/Los_Angeles
+
+runcmd:
+  - [sed, -i, 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/', /etc/locale.gen]
+  - [locale-gen, en_US.UTF-8]
+  - [update-locale, LANG=en_US.UTF-8]
+  - "locale -a | grep -qi en_US.utf8 || { echo 'cloud-provision: en_US.UTF-8 locale absent after locale-gen; base image lacks locale support' >&2; exit 1; }"
+
+final_message: "Debian 12 ready after $UPTIME seconds"

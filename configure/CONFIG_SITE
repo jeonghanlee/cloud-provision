@@ -5,7 +5,7 @@ REQUIRED_GROUP  := libvirt
 ANSIBLE_DIR     := $(TOP)/../ansible-provision
 
 VM_PREFIX := lab
-OS_TYPES  := rocky8 debian13 rocky10 ubuntu24 ubuntu26 rocky8-iocrunner debian13-iocrunner rocky8-iocrunner-nfs debian13-iocrunner-nfs debian13-ethercat debian13-rtbase rocky8-epics-dev debian13-epics-dev rocky10-epics-dev ubuntu24-epics-dev ubuntu26-epics-dev
+OS_TYPES  := rocky8 debian12 debian13 rocky10 ubuntu24 ubuntu26 rocky8-iocrunner debian13-iocrunner rocky8-iocrunner-nfs debian13-iocrunner-nfs debian13-ethercat debian13-rtbase rocky8-epics-dev debian12-epics-dev debian13-epics-dev rocky10-epics-dev ubuntu24-epics-dev ubuntu26-epics-dev
 NODE_IDS  := main
 
 # Subset of OS_TYPES included in `make all`. Pre-baked variants are

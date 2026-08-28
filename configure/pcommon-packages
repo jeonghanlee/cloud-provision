@@ -20,4 +20,4 @@ debian_only: locales
 spelling: ssl-dev=libssl-dev:openssl-devel g++=g++:gcc-c++
 
 # base OS type -> package family (the debian family covers debian and ubuntu)
-family: debian13=debian ubuntu24=debian ubuntu26=debian rocky8=rocky rocky10=rocky
+family: debian12=debian debian13=debian ubuntu24=debian ubuntu26=debian rocky8=rocky rocky10=rocky

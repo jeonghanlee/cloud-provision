@@ -128,7 +128,7 @@ declare -ag INVENTORY_GROUPS=()
 # operator definition assigns every species to every vacuum, so the
 # selector constrains only the vacuum, never the species argument.
 case "${OS_TYPE}" in
-    debian13|rocky8|rocky10|ubuntu24|ubuntu26)
+    debian12|debian13|rocky8|rocky10|ubuntu24|ubuntu26)
         VACUUM="${OS_TYPE}"
         ;;
     *-iocrunner-nfs) VACUUM="${OS_TYPE%-iocrunner-nfs}" ;;
@@ -139,7 +139,7 @@ case "${OS_TYPE}" in
     *) die "unsupported OS selector: ${OS_TYPE}" ;;
 esac
 case "${VACUUM}" in
-    debian13|rocky8|rocky10|ubuntu24|ubuntu26) ;;
+    debian12|debian13|rocky8|rocky10|ubuntu24|ubuntu26) ;;
     *) die "unsupported vacuum in OS selector: ${OS_TYPE}" ;;
 esac
 

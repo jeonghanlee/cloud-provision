@@ -44,6 +44,7 @@ vacuum; only package names differ.
 
 | Vacuum | Family |
 | --- | --- |
+| debian12 | debian |
 | debian13 | debian |
 | rocky8 | rocky |
 | rocky10 | rocky |
@@ -104,6 +105,7 @@ vacuum it is defined for, built on that vacuum's bare state.
 
 | Species | Product | Vacua |
 | --- | --- | --- |
+| bare_debian12 | P_common \|0_debian12⟩ | debian12 |
 | bare_debian13 | P_common \|0_debian13⟩ | debian13 |
 | bare_rocky8 | P_common \|0_rocky8⟩ | rocky8 |
 | bare_rocky10 | P_common \|0_rocky10⟩ | rocky10 |
