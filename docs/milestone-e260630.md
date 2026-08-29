@@ -2,11 +2,12 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2 (the `P_proxy` precondition) is grafted into
-`docs/OPERATOR_MODEL.md` and matches the landed ansible-provision `proxy` role
-(`a02298f`) one-to-one; M2 / T1 passed. It awaits a commit to land the SOT
-graft, and its only open check is M2 / T2's live apply on a real proxied host
-(the ansible-provision side's M4/T3 live check). M3 (Debian 12) and M6 (the `lab` network) are Complete
+Next session entry point: the only open milestone is M2 (the `P_proxy`
+precondition) - its definition is landed and matches the ansible-provision
+`proxy` role (`a02298f`) one-to-one, M2 / T1 passed, and its single remaining
+check is M2 / T2's live apply on a real proxied host (the ansible-provision
+side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, and M6 are
+Complete; EtherCAT (M4) stays Deferred in the Backlog. M3 (Debian 12) and M6 (the `lab` network) are Complete
 and landed. M5 (the driver extra-vars passthrough, issue #38) has an accepted
 plan (repeatable `-e`) awaiting implementation authorization; EtherCAT stays
 Deferred in the Backlog. M2 (the `P_proxy` precondition) awaits its
@@ -23,7 +24,7 @@ Backlog.
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
 | Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | In progress | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Complete | No | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
-| Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Not started | Yes |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
+| Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Complete | No |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
 
 ### Decisions
@@ -372,7 +373,7 @@ selector, the epics-dev build allowlist, and the operator model vacua and
 Origin: 5 / M5
 Identity History: none
 GitHub Issue: [#38](https://github.com/jeonghanlee/cloud-provision/issues/38)
-Status: Not started
+Status: Complete
 
 ##### Summary
 
@@ -408,7 +409,7 @@ Out of scope: changing the default flavor or the ansible-provision make path.
 
 Plan Status: accepted
 Plan Acceptance: owner-accepted 2026-08-29 after plan, three third-person reviews, and two second-person reviews
-Implementation Authorization: none
+Implementation Authorization: owner-authorized 2026-08-29
 Superseded Plan Artifacts: none
 
 Add a repeatable `-e <key=value>` option to `bin/run_epics_env_build.bash` that
@@ -439,7 +440,30 @@ value, no string word-splitting).
 
 ##### Verification Results
 
-Pending.
+- T1: pass (2026-08-29). `bash -n bin/run_epics_env_build.bash` is clean; `-h`
+  lists `-e <key=value>`; the unknown-option guard still rejects an unknown flag.
+  The four plan steps landed: `EXTRA_VARS` array, `e:` in getopts with its case,
+  the usage line, and the `EXTRA_VARS_ARGS` build appended before `"${PLAYBOOK}"`
+  with the set-u-safe guarded expansion.
+- T2: pass (2026-08-29). Against a provisioned `debian12-epics-dev` host
+  (192.168.123.45), with a recording `ansible-playbook` shim first on `PATH`
+  (the outermost boundary only), the real driver run with
+  `-e epics_env_build_flavor=gz -e foo=bar` recorded the argv
+  `... --limit epics_dev -e epics_env_build_flavor=gz -e foo=bar
+  playbooks/species/epics_dev.yml` - both extra-vars forwarded verbatim and
+  placed before the playbook path. The same run with no `-e` recorded no `-e`
+  token. The driver's own `create_vm.bash -s` and inventory generation ran for
+  real; only the ansible-playbook binary was replaced.
+- T3: pass (2026-08-29). `bin/run_epics_env_build.bash -o debian12-epics-dev -e
+  epics_env_build_flavor=gz` drove a real build on the host: the running
+  `epics_build` task carried `flavor="gz"` (the forwarded extra-var reached
+  ansible), so its `if [ "${flavor}" = "gz" ]; then make build.gz` branch ran
+  `make build.gz` - defined in EPICS-env `configure/RULES_SRC` as `conf.gz.base
+  build.base conf.gz.modules build.modules`, a distinct gz-configured path, not
+  the internal `make build`. PLAY RECAP `ok=15 changed=4 failed=0`; the install
+  completed (base, modules, AreaDetector, setEpicsEnv.bash). The flavor was
+  selected from the driver without editing role defaults - the completion
+  criterion.
 
 <a id="m6"></a>
 #### M6 - Define and create the lab libvirt network in the host setup path
