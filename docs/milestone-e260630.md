@@ -2,12 +2,11 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M2 (the `P_proxy` precondition) is active - its graft
-plan is accepted (definition matched one-to-one to the confirmed `proxy` role),
-and the ansible-provision session is implementing `roles/proxy` (their M4/T3,
-owner-approved). The agreed sequence: the role commits first, then this side
-grafts the P_proxy definition into `docs/OPERATOR_MODEL.md` per the accepted plan
-and lands it in lockstep. M3 (Debian 12) and M6 (the `lab` network) are Complete
+Next session entry point: M2 (the `P_proxy` precondition) is grafted into
+`docs/OPERATOR_MODEL.md` and matches the landed ansible-provision `proxy` role
+(`a02298f`) one-to-one; M2 / T1 passed. It awaits a commit to land the SOT
+graft, and its only open check is M2 / T2's live apply on a real proxied host
+(the ansible-provision side's M4/T3 live check). M3 (Debian 12) and M6 (the `lab` network) are Complete
 and landed. M5 (the driver extra-vars passthrough, issue #38) has an accepted
 plan (repeatable `-e`) awaiting implementation authorization; EtherCAT stays
 Deferred in the Backlog. M2 (the `P_proxy` precondition) awaits its
@@ -22,7 +21,7 @@ Backlog.
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
-| Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | Not started | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
+| Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | In progress | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Complete | No | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Not started | Yes |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
@@ -121,7 +120,7 @@ four local checks are satisfied; the milestone has no external gate.
 
 Origin: 2 / M2
 Identity History: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -175,7 +174,7 @@ species (already landed).
 
 Plan Status: accepted
 Plan Acceptance: owner-accepted 2026-08-29 after plan, two third-person reviews, and three second-person reviews
-Implementation Authorization: none
+Implementation Authorization: owner-authorized 2026-08-29 (ansible-provision `roles/proxy` landed at `a02298f`)
 Superseded Plan Artifacts: none
 
 Graft the P_proxy content from `work/operator-model-pending-B.md` onto the
@@ -222,7 +221,26 @@ implementation land together (M2 Dependencies).
 
 ##### Verification Results
 
-Pending.
+- Graft landed (2026-08-29): the seven plan items were added to
+  `docs/OPERATOR_MODEL.md` - the `precondition` term, the Status note, the
+  Operators-intro sentence, the `## Preconditions` section with the P_proxy row
+  (Role `proxy`), the Species-intro sentence, the realization Proxy-fate column,
+  and the from-vacuum walkthrough. The regression guards held: debian12 rows,
+  the plain-English `## Order dependencies`, `Valid unnamed products`, and the
+  current iocserver/Instant wording are all intact (no QM block, no "Legal").
+- T1: pass. The document's P_proxy artifact list (shell profile,
+  `/etc/environment`, apt/dnf, sudo, sshd, vmadmin ssh environment, pip, system
+  git) matches the `ADR-20260820` inventory.
+- T2: structurally verified, live apply pending. The ansible-provision `proxy`
+  role (`a02298f`) consumes `bin/proxy_contract.bash` in apply mode without
+  reimplementation - it stages the script to the target's `/run/cloud-provision`,
+  writes the schema-1 input (schema=1/proxy_url/script_sha256), and runs
+  `bash "${staged}" apply`, matching the apply-mode contract. A real apply on a
+  live proxied host has not been run; it is the ansible-provision side's M4/T3
+  live check, tracked there.
+- One-to-one map holds: the definition's Role `proxy` and the landed
+  `playbooks/operators/proxy.yml` match, both precondition-first over the same
+  `proxy_contract.bash` artifact set.
 
 <a id="m3"></a>
 #### M3 - Support Debian 12 as a sixth vacuum
