@@ -2,12 +2,14 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M3 (Debian 12) and M6 (the `lab` libvirt network) are
-Complete - all their checks pass and the code is landed; this Complete-marking
-awaits a register commit. The nearest actionable open work is M5 (the driver
-extra-vars passthrough, issue #38), which is Ready. M2 (the `P_proxy`
-precondition) still awaits its ansible-provision `proxy` role; EtherCAT stays
-Deferred in the Backlog. M2 (the `P_proxy` precondition) awaits its
+Next session entry point: M2 (the `P_proxy` precondition) is active - its graft
+plan is accepted (definition matched one-to-one to the confirmed `proxy` role),
+and the ansible-provision session is implementing `roles/proxy` (their M4/T3,
+owner-approved). The agreed sequence: the role commits first, then this side
+grafts the P_proxy definition into `docs/OPERATOR_MODEL.md` per the accepted plan
+and lands it in lockstep. M3 (Debian 12) and M6 (the `lab` network) are Complete
+and landed. M5 (the driver extra-vars passthrough, issue #38) is Ready; EtherCAT
+stays Deferred in the Backlog. M2 (the `P_proxy` precondition) awaits its
 ansible-provision `proxy` role and is not yet Ready; M5 (the driver extra-vars
 passthrough, issue #38) is open; EtherCAT validation stays Deferred in the
 Backlog.
@@ -57,7 +59,8 @@ its `epics-dev` build environment.
 
 ##### Scope
 
-- Create `docs/OPERATOR_MODEL.md` and carry the Vacua, Operators, Commutation,
+- Create `docs/OPERATOR_MODEL.md` and carry the Vacua, Operators, Commutation
+  (later replaced by the plain-English `## Order dependencies` section),
   Species, and valid-unnamed-product tables verbatim from `IMAGE_WORKFLOW.md`.
 - Add a Notation section, the realization-mode axis, and a Produced-artifacts
   section (distribution producer `epics-dev`, build mechanisms local make and
@@ -134,9 +137,14 @@ preserved in `work/operator-model-pending-B.md`.
   before every fetch. Record the single authority `bin/proxy_contract.bash`, the
   ADR-defined artifact inventory, and the per-realization fate (Golden seals it,
   Live and Instant keep it).
-- Restore the realization proxy-fate column and the from-vacuum walkthrough
-  removed for M1, now that the proxy notation exists.
-- Land the matching ansible-provision `proxy` role in the same change set.
+- Add the realization proxy-fate column and the from-vacuum walkthrough to the
+  realization-mode section. Both were drafted in `work/operator-model-pending-B.md`
+  but held out of the leaner section M1 shipped, since they depend on the proxy
+  notation; M2 adds them now that P_proxy is defined.
+- Land the matching ansible-provision `proxy` role in coordination so the
+  definition and the role land together. The two live in separate repositories,
+  so this is a lockstep sequence, not one change set: the role commits first,
+  then the SOT definition.
 
 Out of scope: internal site modules; any Debian 12 work (M3); the `iocserver`
 species (already landed).
@@ -152,13 +160,57 @@ species (already landed).
 - M1 (the document must exist first).
 - Coordinated with ansible-provision; the definition and the `proxy` role land
   together.
+- Role shape confirmed with the ansible-provision session (2026-08-28): the role
+  is named `proxy` (`playbooks/operators/proxy.yml`), an optional precondition
+  applied first before P_common and every fetch, not a species-product member; it
+  applies the ADR-20260820 artifact set by calling this repository's
+  `bin/proxy_contract.bash` in apply mode (the third caller of the single
+  authority, no reimplementation); mode-fate is Golden seal / Live and Instant
+  keep. The role is tracked on the ansible-provision side as their M4/T3 (Build
+  `roles/proxy`), planned but unscheduled; my owner has requested they implement
+  it so the two can land together.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
+Plan Status: accepted
+Plan Acceptance: owner-accepted 2026-08-29 after plan, two third-person reviews, and three second-person reviews
 Implementation Authorization: none
 Superseded Plan Artifacts: none
+
+Graft the P_proxy content from `work/operator-model-pending-B.md` onto the
+current `docs/OPERATOR_MODEL.md`. draft-B predates several landed changes, so add
+only the P_proxy-new material and do not regress the current surroundings
+(guards below). Full working checklist: `work/m2-graft-checklist.md`.
+
+1. Intro (defined-terms line): add `precondition` to the list of terms defined
+   here.
+2. Status of this pass: replace the "P_proxy remains deferred" bullet with one
+   stating P_proxy is now defined and lands with its ansible-provision `proxy`
+   role. Do not re-announce iocserver or the realization axis as new.
+3. Operators intro: add the sentence that a precondition is not a member of any
+   product.
+4. Add a new `## Preconditions` section (after `## Order dependencies`, before
+   `## Species`) with the P_proxy operator row (Role `proxy`), the "why first"
+   rationale, the proxy-fate-by-mode bullets, and the optional-vs-first note.
+   Drop draft-B's "(ansible role name pending)" qualifier from the Role field -
+   the name `proxy` is confirmed (Dependencies).
+5. Species intro: add that a species is defined by its operator product alone and
+   P_proxy, being a precondition, never appears in a species definition.
+6. Realization modes table: add a fourth column, Proxy fate - Golden seal
+   (transient), Live and Instant keep (persistent).
+7. Add a `### From vacuum to iocserver, without and with proxy` subsection inside
+   `## Realization modes` (the with/without-proxy walkthrough).
+
+Regression guards (keep current, ignore draft-B's older form): keep the debian12
+vacua and `bare_debian12` rows; keep the plain-English `## Order dependencies`
+(never restore the QM `Commutation:` block); keep the `Valid unnamed products`
+heading and wording (never "Legal"/"commutation rules"); keep the current
+`P_provenance`-bearing first unnamed-product row; keep the current iocserver and
+Instant-realization wording.
+
+Landing: the graft is written to match the confirmed `proxy` role one-to-one, but
+the commit is held until ansible-provision `roles/proxy` lands, so definition and
+implementation land together (M2 Dependencies).
 
 ##### Test Plan
 
