@@ -24,6 +24,7 @@ declare -g INVENTORY_PATH=""
 declare -g ANSIBLE_LIMIT=""
 declare -ag OS_TYPES=()
 declare -ag RUNTIME_INVENTORIES=()
+declare -ag EXTRA_VARS=()
 
 function die {
     printf "Error: %s\n" "$*" >&2
@@ -44,10 +45,11 @@ function print_usage {
     printf "  -n <instance>   VM instance label (default: main)\n"
     printf "  -i <inventory>  Maintained group inventory relative to ansible-provision\n"
     printf "  -P <playbook>   Playbook relative to ansible-provision\n"
+    printf "  -e <key=value>  Extra var forwarded to ansible-playbook; may be repeated\n"
     printf "  -h              Show this help\n"
 }
 
-while getopts ":o:a:d:p:n:i:P:h" opt; do
+while getopts ":o:a:d:p:n:i:P:e:h" opt; do
     case "${opt}" in
         o) OS_TYPES+=("${OPTARG}") ;;
         a) ANSIBLE_DIR="${OPTARG}" ;;
@@ -56,6 +58,7 @@ while getopts ":o:a:d:p:n:i:P:h" opt; do
         n) NODE_ID="${OPTARG}" ;;
         i) INVENTORY="${OPTARG}" ;;
         P) PLAYBOOK="${OPTARG}" ;;
+        e) EXTRA_VARS+=("${OPTARG}") ;;
         h) print_usage; exit 0 ;;
         :) die "-${OPTARG} requires an argument" ;;
         ?) die "unknown option: -${OPTARG}" ;;
@@ -129,9 +132,16 @@ for runtime_inventory in "${RUNTIME_INVENTORIES[@]}"; do
     INVENTORY_ARGS+=(-i "${runtime_inventory}")
 done
 
+declare -ag EXTRA_VARS_ARGS=()
+for extra_var in "${EXTRA_VARS[@]+"${EXTRA_VARS[@]}"}"; do
+    EXTRA_VARS_ARGS+=(-e "${extra_var}")
+done
+
 printf "Running %s on %s\n" "${PLAYBOOK}" "${ANSIBLE_LIMIT}"
 (
     cd "${ANSIBLE_DIR}"
     "${ANSIBLE_PLAYBOOK_BIN}" "${INVENTORY_ARGS[@]}" \
-        --limit "${ANSIBLE_LIMIT}" "${PLAYBOOK}"
+        --limit "${ANSIBLE_LIMIT}" \
+        "${EXTRA_VARS_ARGS[@]+"${EXTRA_VARS_ARGS[@]}"}" \
+        "${PLAYBOOK}"
 )
