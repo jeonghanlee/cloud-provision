@@ -4,7 +4,7 @@ Normative. Single source of truth for the operators applied to a vacuum, their
 order, the species they produce, and the realization modes those species are
 built in. The operators are ansible-provision roles; this repository creates,
 copies, and destroys the states they act on. The terms vacuum type, bare,
-rtbase, species, and realization mode are defined here, not in
+rtbase, species, precondition, and realization mode are defined here, not in
 the `IMAGE_WORKFLOW.md` Terms section.
 
 The physics-reading shorthand (vacuum, creation operator, particle species)
@@ -34,8 +34,11 @@ stays in `IMAGE_WORKFLOW.md` and is not normative. This document is.
 - Internal site modules (`P_site`) are out of scope; they are managed in
   ansible-provision and alsu-site-modules.
 - The `iocserver` species (`iocrunner` without `P_testusers`) is defined here,
-  matching the ansible-provision `iocserver` species playbook. The `P_proxy`
-  precondition remains deferred to a pass that lands with its role.
+  matching the ansible-provision `iocserver` species playbook.
+- The `P_proxy` precondition is defined here, landing with its ansible-provision
+  `proxy` role (`playbooks/operators/proxy.yml`), so the definition and the role
+  hold a one-to-one map. Its realization proxy-fate column and the from-vacuum
+  walkthrough are added now that the proxy notation exists.
 
 ## Vacua
 
@@ -55,7 +58,8 @@ vacuum; only package names differ.
 
 The preparation operator P of the physics reading is the product of the
 operators below. These are the members of a species product — the persistent
-software and configuration a species is made of.
+software and configuration a species is made of. A precondition (see the
+`## Preconditions` section) is not a member of any product.
 
 | Operator | Role | Order | Content |
 | --- | --- | --- | --- |
@@ -97,11 +101,49 @@ A written product lists one order - the order the ansible-provision species
 playbooks apply the operators - but a free-order choice does not change the
 species.
 
+## Preconditions
+
+A precondition is applied to a target before the species product, is not a
+member of the product, and does not change the species identity. It establishes
+something the product operators need in order to run; it is not itself part of
+what the species is.
+
+### P_proxy
+
+| Operator | Role | Order | Content |
+| --- | --- | --- | --- |
+| P_proxy | `proxy` | Optional. When present, unconditionally first — before P_common and before every fetch. | The complete proxy artifact set, applied through the single authority `bin/proxy_contract.bash` in apply mode. Exact inventory is defined by `docs/decisions/ADR-20260820-proxy-artifact-lifecycle.md`: proxy settings for the shell profile, `/etc/environment`, apt or dnf, sudo, sshd, the vmadmin ssh environment, pip, and system git. The ansible-provision `proxy` role is the third caller of `proxy_contract.bash`, streaming it to the target and running its apply mode rather than reimplementing the set. |
+
+Why first: the target reaches the network only through the site proxy, so no
+package install (P_common) and no source or distribution clone (P_epics,
+P_epics-build, P_procserv, P_conserver, P_con, P_iocrunner) can fetch until the
+proxy artifacts are in place. Under proxy injection, `create_vm.bash` strips the
+cloud-init `packages:` directive so packages install through the P_common role
+after the proxy is applied, not through the cloud-init package module
+(ADR-20260820, D018).
+
+P_proxy carries site-specific, credential-bearing values, so a published golden
+image must not retain it. Its fate is therefore set by the realization mode, not
+by the species:
+
+- Golden: apply, use to fetch, then seal — remove value-free and verify absence
+  before publication. The published image carries no proxy.
+- Live and Instant: apply and keep. The running host or container reaches the
+  network through the retained proxy.
+
+Optional and unconditionally-first do not conflict: optional governs whether the
+precondition is present at all (a direct-network target has none);
+unconditionally-first governs its order when it is present.
+
 ## Species
 
 Each bare state is a distinct species, one per vacuum: bare_debian13 is not
 bare_rocky8 under another name. Every other species is one species on every
 vacuum it is defined for, built on that vacuum's bare state.
+
+A species is defined by its operator product alone. P_proxy is a precondition,
+not a product member, so it never appears in a species definition; whether a
+realization is proxied is a mode-and-site matter, not a difference in species.
 
 | Species | Product | Vacua |
 | --- | --- | --- |
@@ -140,11 +182,11 @@ state is produced and shipped. The two are orthogonal: one species definition is
 realized by any mode. The operator's contract — what state it establishes — is
 mode-invariant; only its mechanism differs by mode.
 
-| Mode | What it produces | Mechanism |
-| --- | --- | --- |
-| Golden | A published cloud image (KVM/libvirt qcow2), consumed by many ephemeral copies | cloud-init bake on a throwaway build VM; systemd units |
-| Live | A running server, configured in place; no image is published | ansible roles run against the live host; systemd units |
-| Instant | A container image (Docker), published to a registry | Dockerfile layers; no systemd init; entrypoint instead of init |
+| Mode | What it produces | Mechanism | Proxy fate |
+| --- | --- | --- | --- |
+| Golden | A published cloud image (KVM/libvirt qcow2), consumed by many ephemeral copies | cloud-init bake on a throwaway build VM; systemd units | apply then seal (transient) |
+| Live | A running server, configured in place; no image is published | ansible roles run against the live host; systemd units | apply and keep (persistent) |
+| Instant | A container image (Docker), published to a registry | Dockerfile layers; no systemd init; entrypoint instead of init | apply and keep (persistent) |
 
 The five vacua are the five flavors. Running one species across all five vacua,
 in a given mode, is the consistency check the environment must pass: the same
@@ -157,6 +199,29 @@ Current realizations:
 - Instant: `jeonghanlee/Dockerfiles` builds debian13, rocky8, and rocky10 images
   today. They carry the distribution (P_epics clone) with procServ and con; the
   systemd-free container work continues in epics-ioc-runner.
+
+### From vacuum to iocserver, without and with proxy
+
+The species product is identical in both cases; the proxy precondition is the
+only difference, and it is outside the product (read right to left, as the
+Notation section states).
+
+Without proxy (direct network):
+
+```
+|iocserver⟩ = P_iocrunner (P_epics or P_epics-build) P_python (P_con P_conserver P_procserv) P_provenance |bare⟩
+```
+
+P_common is first (as its Order requires). This is the canonical form on |bare⟩.
+
+With proxy (behind the site proxy):
+
+```
+|iocserver⟩ = P_iocrunner (P_epics or P_epics-build) P_python (P_con P_conserver P_procserv) P_provenance P_common P_proxy |0⟩
+```
+
+P_proxy is applied before P_common. Golden seals it after the build; Live and
+Instant keep it. The species reached is the same `iocserver` either way.
 
 ## Produced artifacts
 
