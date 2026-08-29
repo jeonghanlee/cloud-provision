@@ -8,8 +8,9 @@ and the ansible-provision session is implementing `roles/proxy` (their M4/T3,
 owner-approved). The agreed sequence: the role commits first, then this side
 grafts the P_proxy definition into `docs/OPERATOR_MODEL.md` per the accepted plan
 and lands it in lockstep. M3 (Debian 12) and M6 (the `lab` network) are Complete
-and landed. M5 (the driver extra-vars passthrough, issue #38) is Ready; EtherCAT
-stays Deferred in the Backlog. M2 (the `P_proxy` precondition) awaits its
+and landed. M5 (the driver extra-vars passthrough, issue #38) has an accepted
+plan (repeatable `-e`) awaiting implementation authorization; EtherCAT stays
+Deferred in the Backlog. M2 (the `P_proxy` precondition) awaits its
 ansible-provision `proxy` role and is not yet Ready; M5 (the driver extra-vars
 passthrough, issue #38) is open; EtherCAT validation stays Deferred in the
 Backlog.
@@ -365,8 +366,9 @@ target (`ANSIBLE_OPTS="-e epics_env_build_flavor=gz"`) can. Surfaced during the
 
 ##### Scope
 
-- Add a repeatable `-e` option, or an `-O "<ANSIBLE_OPTS>"` append, to the
-  driver's `ansible-playbook` invocation so extra-vars reach the run.
+- Add a repeatable `-e <key=value>` option to the driver's `ansible-playbook`
+  invocation so extra-vars reach the run. (A single `-O "<ANSIBLE_OPTS>"` string
+  append was the alternative; the repeatable `-e` was chosen - see Decisions.)
 
 Out of scope: changing the default flavor or the ansible-provision make path.
 
@@ -378,13 +380,48 @@ Out of scope: changing the default flavor or the ansible-provision make path.
 ##### Dependencies And Decisions
 
 - None. Tracked as issue #38.
+- Decision (2026-08-29): forward extra-vars as a repeatable `-e <key=value>`
+  (option A) rather than a single `-O "<ANSIBLE_OPTS>"` string append (option B).
+  A passes one argv token per value with no string word-splitting and mirrors
+  ansible-playbook's own flag; B's arbitrary-option generality is not needed for
+  the gz flavor and adds quoting risk.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
+Plan Status: accepted
+Plan Acceptance: owner-accepted 2026-08-29 after plan, three third-person reviews, and two second-person reviews
 Implementation Authorization: none
 Superseded Plan Artifacts: none
+
+Add a repeatable `-e <key=value>` option to `bin/run_epics_env_build.bash` that
+forwards each value to the `ansible-playbook` invocation as its own `-e`
+argument (option A: mirrors ansible-playbook's own flag, one argv token per
+value, no string word-splitting).
+
+1. Declare `declare -ag EXTRA_VARS=()` alongside the other option variables.
+2. Add `e:` to the `getopts` string (`:o:a:d:p:n:i:P:e:h`) and an
+   `e) EXTRA_VARS+=("${OPTARG}") ;;` case.
+3. Add a usage line: `-e <key=value>  Extra var forwarded to ansible-playbook;
+   may be repeated`.
+4. Before the `ansible-playbook` call, build `EXTRA_VARS_ARGS` as
+   `(-e "<value>" ...)` from `EXTRA_VARS`, and add it to the invocation - before
+   the `"${PLAYBOOK}"` argument, since ansible-playbook expects options ahead of
+   the playbook path - with the set-u-safe expansion
+   `"${EXTRA_VARS_ARGS[@]+"${EXTRA_VARS_ARGS[@]}"}"` (the same guarded form
+   `create_vm.bash` uses for `boot_args`), so an empty list does not trip
+   `set -u`.
+
+##### Test Plan
+
+| Check | Method |
+| --- | --- |
+| M5 / T1 | `bin/run_epics_env_build.bash -h` lists the `-e` option and `bash -n bin/run_epics_env_build.bash` is clean. |
+| M5 / T2 | With a recording `ansible-playbook` shim first on `PATH` (the outermost boundary only) and a provisioned epics-dev host, the real driver run with `-e epics_env_build_flavor=gz -e foo=bar` forwards exactly `-e epics_env_build_flavor=gz -e foo=bar` into the `ansible-playbook` argv; the same run with no `-e` forwards no extra `-e`. |
+| M5 / T3 | A real gz build driven through `bin/run_epics_env_build.bash -e epics_env_build_flavor=gz` against a provisioned epics-dev host produces the gz distribution without editing role defaults (the completion criterion). |
+
+##### Verification Results
+
+Pending.
 
 <a id="m6"></a>
 #### M6 - Define and create the lab libvirt network in the host setup path
