@@ -7,13 +7,7 @@ precondition) - its definition is landed and matches the ansible-provision
 `proxy` role (`a02298f`) one-to-one, M2 / T1 passed, and its single remaining
 check is M2 / T2's live apply on a real proxied host (the ansible-provision
 side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, and M6 are
-Complete; EtherCAT (M4) stays Deferred in the Backlog. M3 (Debian 12) and M6 (the `lab` network) are Complete
-and landed. M5 (the driver extra-vars passthrough, issue #38) has an accepted
-plan (repeatable `-e`) awaiting implementation authorization; EtherCAT stays
-Deferred in the Backlog. M2 (the `P_proxy` precondition) awaits its
-ansible-provision `proxy` role and is not yet Ready; M5 (the driver extra-vars
-passthrough, issue #38) is open; EtherCAT validation stays Deferred in the
-Backlog.
+Complete; EtherCAT (M4) stays Deferred in the Backlog.
 
 ## Milestone
 
