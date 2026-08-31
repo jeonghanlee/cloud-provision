@@ -1,5 +1,5 @@
 # P_common package set - the single source of truth for the cloud-provision
-# operator definition. docs/IMAGE_WORKFLOW.md (Operator definition, P_common)
+# operator definition. docs/OPERATOR_MODEL.md (Operators table, P_common)
 # describes the structure and references this file; the package-parity guard in
 # tests/check-package-parity.bash derives each OS's expected list from it.
 # Package names live only here.

@@ -1,0 +1,34 @@
+# EPICS OS build dependencies - the single source of truth for the package set
+# both EPICS acquisition paths install. IOCs are compiled on the P_epics
+# (distribution) image as well as on the P_epics-build (source) one, so the set
+# is shared: docs/OPERATOR_MODEL.md (Operators table, P_epics and
+# P_epics-build) references this file from both Content definitions. The guard
+# in tests/check-epics-packages.bash enforces this source's integrity. Package
+# names live only here.
+#
+# Format: one "os: packages" line per vacuum. Blank lines and # comments
+# ignored. Unlike configure/pcommon-packages, there is no canonical name or
+# spelling map: the names differ across OSes by family AND version
+# (net-snmp-devel vs libsnmp-dev, libssh2-1t64 vs libssh2-1), so each vacuum
+# carries its own verbatim list. ubuntu26 duplicates ubuntu24 on purpose - the
+# lists are managed independently and diverge by editing one line.
+#
+# The guard checks the file itself: every vacuum in the
+# configure/pcommon-packages family map has exactly one non-empty line here,
+# and no unknown OS appears. These packages install post-boot through the
+# ansible-provision epics and epics_build roles, never through cloud-init, so
+# no template-subset check applies. The single source is cloud-provision-local;
+# the ansible-provision roles keep their own installer lists, which the guard
+# does not compare against (D020).
+
+rocky8: readline-devel libXt-devel libXmu-devel libXpm-devel motif-devel net-snmp-devel libusb-devel libusbx-devel systemd-devel libxml2-devel hdf5-devel netcdf-devel libtiff-devel libjpeg-turbo-devel libpng-devel libtirpc-devel libtirpc boost-devel libssh2-devel libssh2 flex-devel ncurses-devel perl-devel net-snmp net-snmp-utils pcre-devel libcurl-devel libevent-devel rpcgen
+
+rocky10: patch readline-devel libXt-devel libXmu-devel libXpm-devel ncurses-devel perl-devel net-snmp net-snmp-utils net-snmp-devel libzip-devel boost-devel libcurl-devel libxml2-devel hdf5-devel netcdf-devel libtiff-devel libjpeg-turbo-devel zlib-devel libpng-devel libusb1-devel systemd-devel libtirpc-devel libtirpc rpcgen re2c perl-FindBin perl-Sys-Hostname libevent-devel cmake libssh2-devel libssh2
+
+debian12: build-essential libreadline-dev libxt-dev libxmu-headers libxmu-dev libxmu6 libxpm-dev libxmuu-dev libxmuu1 libpcre3-dev libmotif-dev libsnmp-dev re2c darcs libbz2-dev libusb-dev libusb-1.0-0-dev remake libudev-dev libsystemd-dev linux-source libxml2-dev libnetcdf-dev libhdf5-dev libblosc-dev libtiff-dev libjpeg-dev libz-dev libevent-dev libboost-dev libboost-regex-dev libboost-filesystem-dev libraw1394-11 libopencv-dev libpng-dev libtirpc-dev libhidapi-libusb0 libhidapi-dev libusb-1.0-0 libssh2-1-dev libssh2-1 libssl3
+
+debian13: build-essential libreadline-dev libxt-dev libxmu-dev libxmu-headers libxmu6 libxpm-dev libxmuu-dev libxmuu1 libmotif-dev libsnmp-dev libusb-dev libusb-1.0-0-dev libusb-1.0-0 libudev-dev libsystemd-dev libxml2-dev libhdf5-dev libnetcdf-dev libtiff-dev libjpeg-dev libpng-dev libz-dev libtirpc-dev libboost-dev libboost-regex-dev libboost-filesystem-dev libssh2-1-dev libssh2-1t64 libbz2-dev libevent-dev libopencv-dev libhidapi-dev libhidapi-libusb0
+
+ubuntu24: build-essential libreadline-dev libxt-dev libxmu-headers libxmu-dev libxmu6 libxpm-dev libxmuu-dev libxmuu1 libsnmp-dev re2c libnetcdf-dev libhdf5-dev libpng-dev libbz2-dev libxml2-dev libusb-dev libusb-1.0-0-dev remake libudev-dev libsystemd-dev linux-source libblosc-dev libtiff-dev libjpeg-dev libz-dev libevent-dev libboost-dev libboost-regex-dev libboost-filesystem-dev libopencv-dev libraw1394-11 libtirpc-dev tclx8.4 libhidapi-dev libhidapi-libusb0 libusb-1.0-0 cmake libssh2-1 libssh2-1-dev
+
+ubuntu26: build-essential libreadline-dev libxt-dev libxmu-headers libxmu-dev libxmu6 libxpm-dev libxmuu-dev libxmuu1 libsnmp-dev re2c libnetcdf-dev libhdf5-dev libpng-dev libbz2-dev libxml2-dev libusb-dev libusb-1.0-0-dev remake libudev-dev libsystemd-dev linux-source libblosc-dev libtiff-dev libjpeg-dev libz-dev libevent-dev libboost-dev libboost-regex-dev libboost-filesystem-dev libopencv-dev libraw1394-11 libtirpc-dev tclx8.4 libhidapi-dev libhidapi-libusb0 libusb-1.0-0 cmake libssh2-1 libssh2-1-dev

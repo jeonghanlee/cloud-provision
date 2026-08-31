@@ -39,6 +39,11 @@ stays in `IMAGE_WORKFLOW.md` and is not normative. This document is.
   `proxy` role (`playbooks/operators/proxy.yml`), so the definition and the role
   hold a one-to-one map. Its realization proxy-fate column and the from-vacuum
   walkthrough are added now that the proxy notation exists.
+- The EPICS OS build dependencies are named as a package set shared by both
+  EPICS acquisition paths, defined per OS in `configure/epics-packages` and
+  referenced from the P_epics and P_epics-build Content definitions. Neither
+  path owns the set; defining it once removes the gap where the distribution
+  path installed no build dependencies at all.
 
 ## Vacua
 
@@ -63,12 +68,12 @@ software and configuration a species is made of. A precondition (see the
 
 | Operator | Role | Order | Content |
 | --- | --- | --- | --- |
-| P_common | `common` | First on every vacuum | Packages: the canonical P_common set is defined in `configure/pcommon-packages` - a must-have group and a core-utilities group, both always installed, plus the debian-family-only `locales` package; names that differ by family (`ssl-dev`, `g++`) take the per-family spellings recorded there. On the debian family the locale is also enabled at first boot: `en_US.UTF-8` in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. EPICS development libraries are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
+| P_common | `common` | First on every vacuum | Packages: the canonical P_common set is defined in `configure/pcommon-packages` - a must-have group and a core-utilities group, both always installed, plus the debian-family-only `locales` package; names that differ by family (`ssl-dev`, `g++`) take the per-family spellings recorded there. On the debian family the locale is also enabled at first boot: `en_US.UTF-8` in `/etc/locale.gen`, `locale-gen`, `update-locale LANG=en_US.UTF-8`. The EPICS OS build dependencies (`configure/epics-packages`) are not P_common. Configuration content: chrony configured and running, the sudoers includedir kept the final active directive, and on rocky the EPEL and PowerTools (CRB on rocky10) repositories enabled and `/usr/local` prepended to the sudo `secure_path`. The cloud-init template baseline (the `packages:` block and the debian-family locale commands) is the hand-off subset of P_common applied at first boot; under proxy injection it defers to the P_common role. |
 | P_rt | `rt` | After P_common; optional | PREEMPT_RT kernel and headers, running-kernel headers, dkms, build toolchain. Stock kernel stays boot default. The resulting rtbase species is published as its own golden image. |
 | P_provenance | `provenance` | Before P_epics, P_procserv, P_conserver, P_con, P_iocrunner | `/usr/local/sbin/record-iocrunner-source`, the tool application operators call to record their source into the bake manifest. |
 | P_python | `python` | After P_common; before P_epics and P_epics-build | Python 3 and pip runtime. Both EPICS acquisition paths need it, so it is a shared prerequisite rather than part of either. |
-| P_epics | `epics` | After P_provenance and P_python | Binary EPICS-env distribution and its activation script under `/etc/profile.d`; on rocky, firewalld enabled with the EPICS CA and PVA ports open. Requires P_python. Alternative to P_epics-build; never both on one vacuum. |
-| P_epics-build | `epics_build` | After P_common and P_python | The EPICS development packages, then EPICS-env built and installed from source. Requires P_python. Alternative to P_epics. |
+| P_epics | `epics` | After P_provenance and P_python | The EPICS OS build dependencies defined in `configure/epics-packages`, then the binary EPICS-env distribution and its activation script under `/etc/profile.d`; on rocky, firewalld enabled with the EPICS CA and PVA ports open. IOCs are compiled on the image, so the distribution path needs the build dependencies as much as the source build does. Requires P_python. Alternative to P_epics-build; never both on one vacuum. |
+| P_epics-build | `epics_build` | After P_common and P_python | The EPICS OS build dependencies (`configure/epics-packages`), then EPICS-env built and installed from source. Requires P_python. Alternative to P_epics. |
 | P_epics-support | `epics_support` | After P_epics-build | AreaDetector modules built from source on the installed EPICS-env. |
 | P_procserv | `procserv` | After P_common | procServ built and installed from procServ-env. |
 | P_conserver | `conserver` | After P_common | conserver built and installed from conserver-env with OpenSSL. |
@@ -79,6 +84,8 @@ software and configuration a species is made of. A precondition (see the
 | P_ethercat | `ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. P_ethercat can apply on a non-RT bare state, but the `ethercat` species is defined on rtbase because a real EtherCAT deployment runs the RT kernel. |
 
 Package names that differ by family (`ssl-dev`, `g++`) are recorded with their debian and rocky spellings in `configure/pcommon-packages`.
+
+The EPICS OS build dependencies are recorded per OS in `configure/epics-packages`. Their names differ across vacua by family and by version, so each vacuum carries its own verbatim list; no canonical name or spelling map applies. Both EPICS acquisition paths install the same set — defining it once is what keeps the two paths from drifting.
 
 ## Order dependencies
 
@@ -236,8 +243,9 @@ between what `P_epics` clones and where that comes from.
 from source in place instead of cloning it.
 
 Producer: the `epics-dev` species is the build environment. `P_epics-build`
-makes it build-capable — it installs the EPICS development packages and builds
-EPICS-env from source; `P_epics-support` adds the AreaDetector modules. Building
+makes it build-capable — it installs the EPICS OS build dependencies
+(`configure/epics-packages`) and builds EPICS-env from source;
+`P_epics-support` adds the AreaDetector modules. Building
 `epics-dev` from source and publishing its tree is what produces the
 distribution.
 
