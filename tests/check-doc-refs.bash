@@ -23,6 +23,15 @@
 #
 # Paths outside this repository - ansible-provision roles cited by the docs,
 # for instance - are not resolvable here and are left alone.
+#
+# The live corpus may legitimately hold zero pinned citations - a register
+# reset drops the content that carried them - so an empty extraction proves
+# nothing about the pattern. Pattern drift is caught instead by running the
+# same extraction against tests/fixtures/doc-refs/citations.md, whose expected
+# citation set is known.
+#
+# Usage: check-doc-refs.bash [fixture-file]
+#   fixture-file  extraction self-test input (default: tests/fixtures/doc-refs/citations.md)
 
 set -euo pipefail
 
@@ -35,6 +44,9 @@ declare -ag FAILED_DETAILS=()
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+declare -g FIXTURE_FILE
+FIXTURE_FILE="${1:-${TOP}/tests/fixtures/doc-refs/citations.md}"
 
 # Source trees whose coordinates this repository can resolve. A citation of any
 # other path is somebody else's file and is not inspected.
@@ -60,6 +72,12 @@ function record_fail {
 function prefix_pattern {
     local IFS="|"
     printf "%s" "${LOCAL_PREFIXES[*]}"
+}
+
+# The one pinned-citation regex, shared by the live extraction and the fixture
+# self-test so the two cannot drift apart.
+function citation_pattern {
+    printf "\`(%s)/[A-Za-z0-9._/-]+:[0-9]+(-[0-9]+)?@[0-9a-f]{7,40}\`" "$(prefix_pattern)"
 }
 
 function documents {
@@ -109,21 +127,48 @@ function check_pinned_citations {
 
     mapfile -t citations < <(
         documents \
-            | xargs -r git -C "${TOP}" grep -ohE \
-                "\`($(prefix_pattern))/[A-Za-z0-9._/-]+:[0-9]+(-[0-9]+)?@[0-9a-f]{7,40}\`" -- \
+            | xargs -r git -C "${TOP}" grep -ohE "$(citation_pattern)" -- \
             | tr -d '`' \
             | sort -u
     )
 
     if [[ "${#citations[@]}" -eq "0" ]]; then
-        record_fail "documents cite at least one source coordinate" \
-            "no pinned citation found; the extraction pattern may have drifted"
+        record_pass "pinned citations resolve (none in the live corpus)"
         return
     fi
 
     for citation in "${citations[@]}"; do
         check_pinned_citation "${citation}"
     done
+}
+
+# The extraction pattern's own regression test. Runs the pattern against the
+# fixture and asserts it finds exactly the known citation set - no more (a
+# decoy leaked in), no fewer (the pattern drifted). The fixture hashes are
+# fake on purpose: extraction is what is under test here, never resolution.
+function check_extraction_pattern {
+    local -a found=()
+    local -a expected=(
+        "bin/fixture.bash:12@0123abc"
+        "configure/fixture-data:3-9@abcdef0123456789abcdef0123456789abcdef01"
+    )
+
+    if [[ ! -f "${FIXTURE_FILE}" ]]; then
+        record_fail "extraction pattern finds the fixture citations" \
+            "no fixture at ${FIXTURE_FILE}"
+        return
+    fi
+
+    mapfile -t found < <(
+        grep -ohE "$(citation_pattern)" "${FIXTURE_FILE}" | tr -d '`' | sort -u
+    )
+
+    if [[ "${found[*]-}" == "${expected[*]}" ]]; then
+        record_pass "extraction pattern finds the fixture citations"
+    else
+        record_fail "extraction pattern finds the fixture citations" \
+            "expected [${expected[*]}], found [${found[*]-}]"
+    fi
 }
 
 # Reports document:line and the offending coordinate alone. A register row runs
@@ -170,6 +215,7 @@ function print_summary {
     fi
 }
 
+check_extraction_pattern
 check_pinned_citations
 check_no_unpinned_citation
 check_no_bare_line_citation
