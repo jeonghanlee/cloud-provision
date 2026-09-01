@@ -1027,22 +1027,45 @@ function report_host_key_conflict {
         "${HOME}" "${ip_addr}"
 }
 
-# Parses cloud-init status output from the command-line tool. The printed value
-# is the operator-facing status field; the return code is success only for done.
+# Reads cloud-init readiness without privilege. The `cloud-init status` tool is
+# avoided: the 23.4-7.el8_10.11.0.2 rebuild hardens /run/cloud-init to 0700, so
+# an unprivileged call aborts reading /run/cloud-init/cloud.cfg with a
+# PermissionError and prints no status word, and the tool's exit code is not
+# portable across versions (25.1.4 exits 2 while printing "done"). Instead the
+# probe reads two files cloud-init writes world-readable on every supported
+# version, and parse_cloud_init_status derives the status word from them.
+declare -g CLOUD_INIT_READINESS_PROBE='if [ -f /var/lib/cloud/instance/boot-finished ]; then echo boot-finished:yes; else echo boot-finished:no; fi; cat /var/lib/cloud/data/status.json 2>/dev/null'
+
+# Parses the CLOUD_INIT_READINESS_PROBE output. boot-finished existence marks a
+# finished boot; status.json carries a per-stage "errors" array and a top-level
+# "stage". Non-empty errors give "error"; a finished boot with "stage": null
+# gives "done"; anything else is still "running". Returns success only for done.
 function parse_cloud_init_status {
     local output="$1"
-    local line
+    local boot_finished="no"
     local status="unknown"
+    local total_errors=0
+    local empty_errors=0
 
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-        if [[ "${line}" == status:* ]]; then
-            status="${line#status:}"
-            status="${status#"${status%%[![:space:]]*}"}"
-            status="${status%"${status##*[![:space:]]}"}"
-            [[ -n "${status}" ]] || status="unknown"
-            break
-        fi
-    done <<< "${output}"
+    if [[ "${output}" == *"boot-finished:yes"* ]]; then
+        boot_finished="yes"
+    fi
+
+    # An empty array renders as `"errors": []`; a non-empty one breaks onto
+    # further lines, so a mismatch in the two counts means an error is present.
+    # The leading quote keeps this from matching "recoverable_errors".
+    total_errors=$(grep -c '"errors":' <<< "${output}" || true)
+    empty_errors=$(grep -Ec '"errors": \[\]' <<< "${output}" || true)
+
+    if [[ "${boot_finished}" != "yes" ]]; then
+        status="running"
+    elif [[ "${total_errors}" -ne "${empty_errors}" ]]; then
+        status="error"
+    elif grep -q '"stage": null' <<< "${output}"; then
+        status="done"
+    else
+        status="running"
+    fi
 
     printf "%s\n" "${status}"
     [[ "${status}" == "done" ]]
@@ -1099,7 +1122,7 @@ function print_status_report {
         ssh_probe "${ip_addr}" "exit" >/dev/null || probe_rc=$?
         if [[ "${probe_rc}" == "0" ]]; then
             printf "SSH        : ready\n"
-            ci_output=$(ssh_probe "${ip_addr}" "cloud-init status" || true)
+            ci_output=$(ssh_probe "${ip_addr}" "${CLOUD_INIT_READINESS_PROBE}" || true)
             ci_status=$(parse_cloud_init_status "${ci_output}") || rc=1
             printf "cloud-init : %s\n" "${ci_status}"
         elif [[ "${probe_rc}" == "2" ]]; then
@@ -1234,7 +1257,7 @@ function wait_for_cloud_init {
     local ci_status
 
     while [[ ${attempt} -lt ${max_retry} ]]; do
-        status=$(ssh_probe "${ip_addr}" "cloud-init status" || true)
+        status=$(ssh_probe "${ip_addr}" "${CLOUD_INIT_READINESS_PROBE}" || true)
 
         if ci_status=$(parse_cloud_init_status "${status}"); then
             printf "cloud-init: complete [OK]\n"
@@ -1242,7 +1265,7 @@ function wait_for_cloud_init {
         fi
 
         if [[ "${mode}" == "once" ]]; then
-            printf "cloud-init: %s\n" "${status}"
+            printf "cloud-init: %s\n" "${ci_status}"
             return 1
         fi
 
