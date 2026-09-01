@@ -672,7 +672,7 @@ Superseded Plan Artifacts: none
 
 Origin: found 2026-08-31 during the ansible-provision M5 source-build verification
 Identity History: none
-GitHub Issue: none
+GitHub Issue: [#39](https://github.com/jeonghanlee/cloud-provision/issues/39)
 Status: Not started
 
 ##### Summary
