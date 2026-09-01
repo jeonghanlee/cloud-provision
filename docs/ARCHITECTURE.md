@@ -395,7 +395,7 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 | 1 | `create_vm.bash` | Boot a run-specific build VM and independent VM disk |
 | 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan`, `generate_ansible_inventory.bash` | Resolve the build VM address, refresh its `known_hosts` entry, and generate its temporary Ansible inventory entry |
 | 3 | `qemu-img`, `sha256sum` | Record the selected source-image filename and digest |
-| 4 | `ansible-playbook` | Apply the species assembly of the selected flavor in one invocation |
+| 4 | `ansible-playbook` | Apply the species assembly of the selected flavor in one invocation; its EPICS operators install the EPICS OS build dependencies defined in `configure/epics-packages` (guarded by `make check-epics-packages`) |
 | 5 | remote privileged Bash | Append `pip3 freeze` provenance |
 | 6 | `validate_iocrunner_bake.bash` | Validate the manifest before any sidecar extraction or image publication |
 | 7 | `proxy_contract.bash seal` | Preflight and remove the exact applicable proxy set, clean cloud-init state and selected logs, and verify the value-free clean state |
