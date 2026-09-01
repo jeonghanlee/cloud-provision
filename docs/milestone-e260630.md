@@ -569,7 +569,7 @@ Superseded Plan Artifacts: none
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
-| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Not started | Yes |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
+| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | In progress | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
 
 ### Backlog Details
 
@@ -673,7 +673,7 @@ Superseded Plan Artifacts: none
 Origin: found 2026-08-31 during the ansible-provision M5 source-build verification
 Identity History: none
 GitHub Issue: [#39](https://github.com/jeonghanlee/cloud-provision/issues/39)
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -712,13 +712,59 @@ path, which is unaffected.
 
 - No dependency on other milestones. Discovered during ansible-provision M5;
   does not block that work, whose acceptance runs use fresh VMs.
+- Root cause refined (Decision Date 2026-09-01): the regression is the
+  `23.4-7.el8_10.11.0.2` RHEL rebuild tightening `/run/cloud-init` to `0700`,
+  not cloud-init 23.4 in general. The base image ships `23.4-7.el8_10.0.1`,
+  whose unprivileged status still works; `dnf update` in the epics_build role
+  installs the rebuild.
+- Approach decided (Decision Date 2026-09-01): full replacement of the
+  privileged `cloud-init status` call with a non-privileged read of two
+  world-readable files, verified present on `23.4-7.el8_10.0.1`,
+  `23.4-7.el8_10.11.0.2`, and `25.1.4`.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted 2026-09-01
+Implementation Authorization: owner authorized 2026-09-01
 Superseded Plan Artifacts: none
+
+Approach: full replacement of the privileged `cloud-init status` call with a
+non-privileged read of two world-readable files cloud-init writes on every
+supported version:
+
+- `/var/lib/cloud/instance/boot-finished` - existence marks a finished boot.
+- `/var/lib/cloud/data/status.json` - per-stage `errors` and top-level `stage`.
+
+`parse_cloud_init_status` is rewritten to derive the status word from those two
+signals in pure bash (no jq): non-empty `errors` gives `error`; `boot-finished`
+present with `stage: null` gives `done`; otherwise `running`. Both call sites
+(`print_status_report`, `wait_for_cloud_init`) fetch the two signals over one
+`ssh_probe` command instead of running `cloud-init status`. The epics-dev build
+driver consumes the `-s` report unchanged.
+
+##### Test Plan
+
+- T1: on the rocky8 epics-dev VM (cloud-init `23.4-7.el8_10.11.0.2`),
+  `create_vm.bash -s` reports cloud-init `done`, not `unknown`.
+- T2: the epics-dev build driver preflight against that VM generates the
+  runtime inventory and reaches the play instead of exiting at preflight.
+- T3 (regression): `-s` against fresh rocky8 (`23.4-7.el8_10.0.1`) and fresh
+  debian13 (`25.1.4`) still reports `done`.
+
+##### Verification Results
+
+Observed 2026-09-01 on real running VMs via the shipped `create_vm.bash -s`
+path (no stubs or mocks):
+
+- T1 - rocky8 epics-dev, cloud-init `23.4-7.el8_10.11.0.2`: `-s` reports
+  `cloud-init : done`, exit 0 (was `unknown` before the change).
+- T2 - build-driver preflight reproduced (the `-s` status report piped to
+  `generate_ansible_inventory.bash --status-input --os-type rocky8-epics-dev
+  --species epics-dev`): produces a valid runtime inventory, exit 0; the driver
+  reaches the play instead of exiting at preflight.
+- T3 (regression) - fresh rocky8 (`23.4-7.el8_10.0.1`) and fresh debian13
+  (`25.1.4`): both report `done`, exit 0.
 
 ## History
 
