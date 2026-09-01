@@ -569,7 +569,7 @@ Superseded Plan Artifacts: none
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
-| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | In progress | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
+| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
 
 ### Backlog Details
 
@@ -673,7 +673,7 @@ Superseded Plan Artifacts: none
 Origin: found 2026-08-31 during the ansible-provision M5 source-build verification
 Identity History: none
 GitHub Issue: [#39](https://github.com/jeonghanlee/cloud-provision/issues/39)
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -759,12 +759,19 @@ path (no stubs or mocks):
 
 - T1 - rocky8 epics-dev, cloud-init `23.4-7.el8_10.11.0.2`: `-s` reports
   `cloud-init : done`, exit 0 (was `unknown` before the change).
-- T2 - build-driver preflight reproduced (the `-s` status report piped to
-  `generate_ansible_inventory.bash --status-input --os-type rocky8-epics-dev
-  --species epics-dev`): produces a valid runtime inventory, exit 0; the driver
-  reaches the play instead of exiting at preflight.
+- T2 - `run_epics_env_build.bash -o rocky8-epics-dev` run end-to-end against
+  that VM: passes preflight, runs `playbooks/species/epics_dev.yml` on the
+  `epics_dev` host, and the play converges - PLAY RECAP ok=15, changed=0,
+  failed=0, unreachable=0, driver exit 0.
 - T3 (regression) - fresh rocky8 (`23.4-7.el8_10.0.1`) and fresh debian13
   (`25.1.4`): both report `done`, exit 0.
+
+##### Closure Evidence
+
+Deliverable: cloud-provision `690604a` (`bin/create_vm.bash`), pushed to
+origin/master. All completion criteria met by the Verification Results above,
+observed 2026-09-01 on the real `create_vm.bash -s` and
+`run_epics_env_build.bash` paths. GitHub issue #39 closed on this evidence.
 
 ## History
 
