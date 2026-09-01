@@ -569,6 +569,7 @@ Superseded Plan Artifacts: none
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
+| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Not started | Yes |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
 
 ### Backlog Details
 
@@ -658,6 +659,59 @@ Restoration baseline: `733edf0beca51a59ca44782ec3958b00a8fc8bc3`
 | `tests/check-proxy-lifecycle.bash` | `97d5dfa83f9fd4c9ad4550656b25588608d719eb` | lines 169-170, 201-206, 221-225, and 245-247 |
 | `configure/RULES_BAKE` | `55a3cef3bbda8752b981437bc2789a8a7d508101` | lines 26-27, 33, 41-42, and 55 |
 | `docs/RUNBOOK_BAKE.md` | `b4588fedf492f57c54221c40271908dc0795dfd5` | lines 348-366 |
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+<a id="m7"></a>
+#### M7 - Restore the VM readiness preflight against cloud-init 23.4
+
+Origin: found 2026-08-31 during the ansible-provision M5 source-build verification
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+When a VM runs the epics_build role, its in-build `dnf update` upgrades
+cloud-init to 23.4 (`cloud-init-23.4-7.el8_10.11.0.2` observed on rocky8). On
+that version an unprivileged `cloud-init status` aborts with
+`PermissionError: [Errno 13] Permission denied: '/run/cloud-init/cloud.cfg'`
+instead of printing a status word. `bin/create_vm.bash -s` and the
+`bin/run_epics_env_build.bash` preflight both parse that output; the traceback
+reads as `cloud-init : unknown`, so the driver refuses the host and exits
+before running any play. Fresh-VM provisioning is unaffected because the base
+image ships an older cloud-init; the defect only appears when re-running a
+status check or the build driver against a VM that has already taken the OS
+update. Observed while verifying ansible-provision M5 on the standing rocky8
+epics-dev VM.
+
+##### Scope
+
+- Make the readiness check tolerant of a cloud-init that cannot report status
+  as the invoking user - read the status with sufficient privilege, or treat an
+  unreadable `/run/cloud-init` as "already booted" rather than "unknown".
+- Cover both `bin/create_vm.bash` (`-s`) and the driver preflight in
+  `bin/run_epics_env_build.bash`.
+
+Out of scope: changing what cloud-init writes, or the fresh-boot provisioning
+path, which is unaffected.
+
+##### Completion Criteria
+
+- `create_vm.bash -s` against a VM carrying cloud-init 23.4 reports the real
+  readiness, not `unknown`.
+- The epics-dev build driver runs its play against such a VM instead of exiting
+  at preflight.
+
+##### Dependencies And Decisions
+
+- No dependency on other milestones. Discovered during ansible-provision M5;
+  does not block that work, whose acceptance runs use fresh VMs.
 
 ##### Implementation Plan
 
