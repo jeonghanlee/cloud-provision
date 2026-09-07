@@ -2,15 +2,12 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M8 - bring the four readiness self-test fakes in line
-with the M7 probe so `make check-bake` and the readiness checks pass again; its
-plan is accepted and authorized, implementation in progress. The other open
-milestone is M2 (the `P_proxy` precondition) - its definition is landed and
-matches the ansible-provision `proxy` role (`a02298f`) one-to-one, M2 / T1
-passed, and its single remaining check is M2 / T2's live apply on a real
-proxied host (the ansible-provision side's M4/T3 live check, gated on the idev
-whitelist). M1, M3, M5, and M6 are Complete; EtherCAT (M4) stays Deferred in
-the Backlog.
+Next session entry point: the only open milestone is M2 (the `P_proxy`
+precondition) - its definition is landed and matches the ansible-provision
+`proxy` role (`a02298f`) one-to-one, M2 / T1 passed, and its single remaining
+check is M2 / T2's live apply on a real proxied host (the ansible-provision
+side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, M6, and M8
+are Complete; EtherCAT (M4) stays Deferred in the Backlog.
 
 ## Milestone
 
@@ -23,7 +20,7 @@ the Backlog.
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Complete | No | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Complete | No |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
-| Host setup | M8 | Align the readiness self-tests with the file-based cloud-init probe | Milestone | In progress | No | M7 | `make check-cloud-init-status`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-bake` pass on the control host with every fake ssh answering the M7 readiness probe; [M8 detail](#m8). |
+| Host setup | M8 | Align the readiness self-tests with the file-based cloud-init probe | Milestone | Complete | No | M7 | `make check-cloud-init-status`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-bake` pass on the control host with every fake ssh answering the M7 readiness probe; [M8 detail](#m8). |
 
 ### Decisions
 
@@ -573,7 +570,7 @@ Superseded Plan Artifacts: none
 Origin: 8 / M8
 Identity History: none
 GitHub Issue: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -710,8 +707,11 @@ boundary, as each test already defines):
 ##### Closure Evidence
 
 - Deliverable: cloud-provision `a0c1363` (the four test scripts and
-  `tests/fixtures/cloud-init-status/`), verified by T1-T4 above; landing on
-  origin/master pending.
+  `tests/fixtures/cloud-init-status/`), verified by T1-T4 above.
+- Landing: pushed with the register record `30cb62b`; observed
+  2026-09-07T20:16Z that `origin/master` is `30cb62b` and equals the local
+  HEAD after `git fetch origin`. All completion criteria met by the
+  Verification Results above; no linked issue.
 
 ## Backlog
 
