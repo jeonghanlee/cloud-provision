@@ -952,10 +952,12 @@ without a priority decision.
 
 ##### Scope
 
-- Decide whether the hint should read the two world-readable files the
-  readiness probe reads (`/var/lib/cloud/instance/boot-finished` and
-  `/var/lib/cloud/data/status.json`), run `cloud-init status --long` under
-  `sudo`, or stay as is with a note on when it fails.
+- Reword the hint to `sudo cloud-init status --long`, which keeps the
+  section's convention (its dnf log commands already run under `sudo`); fall
+  back to reading the two world-readable files the readiness probe reads
+  (`/var/lib/cloud/instance/boot-finished` and
+  `/var/lib/cloud/data/status.json`), or to keeping the command with a note
+  on when it fails, only if the privileged call is not acceptable there.
 - Apply the chosen wording to the runbook section and keep
   `make check-docs` passing.
 
@@ -982,8 +984,11 @@ Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
 
-1. Confirm on a rocky8 VM with the rebuilt cloud-init which of the three
-   options above answers, then reword the runbook section accordingly.
+1. Confirm on a rocky8 VM with the rebuilt cloud-init (a rocky8-epics-dev
+   VM after the epics_build role's `dnf update`, the VM M7 / T1 used) that
+   `sudo cloud-init status --long` prints a status, then reword the runbook
+   hint to that form; take one of the two fallbacks in Scope only if the
+   privileged call is not acceptable.
 
 ##### Test Plan
 
