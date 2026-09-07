@@ -2,12 +2,15 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: the only open milestone is M2 (the `P_proxy`
-precondition) - its definition is landed and matches the ansible-provision
-`proxy` role (`a02298f`) one-to-one, M2 / T1 passed, and its single remaining
-check is M2 / T2's live apply on a real proxied host (the ansible-provision
-side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, and M6 are
-Complete; EtherCAT (M4) stays Deferred in the Backlog.
+Next session entry point: M8 - bring the four readiness self-test fakes in line
+with the M7 probe so `make check-bake` and the readiness checks pass again; its
+plan is accepted and authorized, implementation in progress. The other open
+milestone is M2 (the `P_proxy` precondition) - its definition is landed and
+matches the ansible-provision `proxy` role (`a02298f`) one-to-one, M2 / T1
+passed, and its single remaining check is M2 / T2's live apply on a real
+proxied host (the ansible-provision side's M4/T3 live check, gated on the idev
+whitelist). M1, M3, M5, and M6 are Complete; EtherCAT (M4) stays Deferred in
+the Backlog.
 
 ## Milestone
 
@@ -20,6 +23,7 @@ Complete; EtherCAT (M4) stays Deferred in the Backlog.
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Complete | No | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Complete | No |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
+| Host setup | M8 | Align the readiness self-tests with the file-based cloud-init probe | Milestone | In progress | No | M7 | `make check-cloud-init-status`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-bake` pass on the control host with every fake ssh answering the M7 readiness probe; [M8 detail](#m8). |
 
 ### Decisions
 
@@ -561,6 +565,153 @@ Superseded Plan Artifacts: none
   the `lab` network - SSH ready, cloud-init complete, DHCP leases visible in
   `net-dhcp-leases lab`. An initial debian12 failure past this step was the
   M3 base-image variant issue, recorded under M3 / T2, not an M6 defect.
+
+<a id="m8"></a>
+
+#### M8 - Align the readiness self-tests with the file-based cloud-init probe
+
+Origin: 8 / M8
+Identity History: none
+GitHub Issue: none
+Status: In progress
+
+##### Summary
+
+M7 (`690604a`) replaced the `cloud-init status` call in `bin/create_vm.bash`
+with a probe that reads `/var/lib/cloud/instance/boot-finished` and
+`/var/lib/cloud/data/status.json`. Four self-tests replace the ssh boundary
+with a fake that still answers only the literal `cloud-init status` command:
+`tests/check-cloud-init-status.bash`,
+`tests/check-iocrunner-bake-provenance.bash`,
+`tests/check-proxy-injection.bash`, and
+`tests/check-epics-env-inventory.bash`. Each fake rejects the probe as an
+unexpected command, so every readiness wait spends its full attempt budget
+and every `-s` report reads `running`. At `35c859b` this fails
+`make check-cloud-init-status`, `make check-bake-provenance`,
+`make check-proxy-injection`, `make check-epics-env-inventory` (and so
+`make check-runtime-inventory`), and `make check-proxy-lifecycle`, which has
+no fake of its own but drives the provenance and proxy-injection tests; through
+the last two, `make check-bake` fails. The real VM path is unaffected: M7 /
+T1-T3 ran on real VMs, and the rocky8 and debian13 goldens baked on
+2026-09-02, 2026-09-03, and 2026-09-06 carry cloud-provision `35c859b`, a
+descendant of `690604a`. Observed 2026-09-06 on the control host; the
+epics-ioc-runner session reported the check-bake half.
+
+##### Scope
+
+- `tests/fixtures/cloud-init-status/`: probe-output fixtures (`done`,
+  `running`, `error`) that follow the parser contract M7 shipped in
+  `parse_cloud_init_status` (`bin/create_vm.bash`): the `boot-finished:`
+  line followed by a `status.json` body whose per-stage `"errors": [...]`
+  lines and top-level `"stage"` line carry the state, with the exact
+  `"errors": []` and `"stage": null` spellings that function greps for.
+- `tests/check-cloud-init-status.bash`: the fake ssh answers the readiness
+  probe from those fixtures; the `-s` and provision cases pin `done`,
+  `running`, and `error` (the shipped parser no longer produces `unknown`);
+  the eventual-success counter answers `running` until the ready count, then
+  `done`; the header comment describes the three states and names
+  `wait_for_vm` and its two call-site branches instead of line coordinates.
+- `tests/check-iocrunner-bake-provenance.bash`,
+  `tests/check-proxy-injection.bash`, `tests/check-epics-env-inventory.bash`:
+  each fake ssh answers the readiness probe with the `done` fixture.
+- `tests/check-proxy-lifecycle.bash` is not changed; it is expected to pass
+  once the two tests it drives pass, and M8 / T2 observes that.
+
+Out of scope: `bin/create_vm.bash` and `parse_cloud_init_status`; the
+interactive operator hint in `docs/RUNBOOK_BAKE.md` that runs
+`cloud-init status --long` by hand; the silent exit of
+`bin/run_epics_env_build.bash` when the `-s` report is not `done`.
+
+##### Completion Criteria
+
+- `make check-cloud-init-status` and `make check-runtime-inventory` pass on
+  the control host with the shipped `bin/create_vm.bash` and
+  `bin/run_epics_env_build.bash`.
+- `make check-proxy-injection` passes on the control host.
+- `make check-bake` passes on the control host, including
+  `check-bake-provenance` and `check-proxy-lifecycle`.
+- The status cases in `check-cloud-init-status.bash` observe `done`,
+  `running`, and `error` from probe-shaped input, not from `status:` lines.
+
+##### Dependencies And Decisions
+
+- M7 (behavioral constraint): the fixtures follow the probe and parser M7
+  shipped; a later probe change must update the fixtures with it.
+- The fixtures pin the parser contract, not a captured `status.json`: no
+  supported VM was running when the plan was written, and M8 / T3 proves the
+  fixtures drive the real parse path.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: owner accepted 2026-09-07
+Implementation Authorization: owner authorized 2026-09-07
+Superseded Plan Artifacts: none
+
+1. Add `tests/fixtures/cloud-init-status/done.txt`, `running.txt`, and
+   `error.txt` holding the probe output for a finished boot with no errors,
+   an unfinished boot still in `modules-final`, and a finished boot with a
+   stage error.
+2. `tests/check-cloud-init-status.bash`: match the probe (a remote command
+   naming `/var/lib/cloud/instance/boot-finished`) in the fake ssh, keep
+   `FAKE_CLOUD_INIT_STATUS_OUTPUT` as the answer, make the ready-after counter
+   answer the `running` then the `done` fixture, rewrite the status and
+   rejection cases to the three fixture states, and rewrite the header
+   comment to name `wait_for_vm` and its two call sites (the shut-off restart
+   and fresh-provision branches of the main section) rather than line
+   coordinates.
+3. `tests/check-iocrunner-bake-provenance.bash`,
+   `tests/check-proxy-injection.bash`, `tests/check-epics-env-inventory.bash`:
+   match the probe in each fake ssh and answer with the `done` fixture,
+   passing the fixture path through the environment each test already gives
+   its fakes.
+4. Run T1 through T4; run shellcheck on the four test scripts.
+
+##### Test Plan
+
+- T1: `make check-cloud-init-status` on the control host, shipped
+  `bin/create_vm.bash`, fakes at the virsh, ssh, and sleep boundary as before:
+  every case passes, including `done`, `running`, `error`, and the 61-attempt
+  eventual-success case.
+- T2: `make check-bake` on the control host: every target passes, including
+  `check-bake-provenance` and `check-proxy-lifecycle`, and no failure
+  workspace is retained.
+- T3 (fixture pin): with `done.txt` temporarily altered to `"stage":
+  "modules-final"`, T1's `status done` case fails against the shipped parser,
+  proving the fixture drives the real parse path; the fixture is restored
+  afterwards.
+- T4: `make check-proxy-injection` and `make check-runtime-inventory` on the
+  control host: every case passes with the shipped
+  `bin/run_epics_env_build.bash` preflight reading `done`.
+
+##### Verification Results
+
+Observed 2026-09-07 on the control host, working tree on top of `35c859b`,
+through the shipped make targets (fakes only at the virsh, ssh, and sleep
+boundary, as each test already defines):
+
+- T1: pass. `make check-cloud-init-status` 152 / 152, including `status done`,
+  `status running`, `status error`, `provision error`, and the 61-attempt
+  eventual-success case; shellcheck 0.10.0 reports nothing new on the four
+  test scripts (two pre-existing info items are unchanged from `35c859b`).
+- T2: pass. `make check-bake` exit 0: fresh-inputs 7 / 7, provenance
+  107 / 107, proxy-lifecycle 35 / 35, package-parity 6 / 6, epics-packages
+  6 / 6; no failure workspace retained.
+- T3: pass. With `done.txt` altered to `"stage": "modules-final"`,
+  `make check-cloud-init-status` fell to 139 / 152, and all 13 failures were
+  cases that expect the `done` fixture to be read as done (`status done`,
+  `provision done`, the IP, ssh, and cloud-init eventual-success cases, and
+  `seed exit`), so the fixture reaches the shipped parser; the fixture was
+  restored and re-verified.
+- T4: pass. `make check-proxy-injection` 145 / 145,
+  `make check-runtime-inventory` 2 / 2 (`check-generated-ansible-inventory`
+  165 / 165, `check-epics-env-inventory` 2 / 2).
+
+##### Closure Evidence
+
+- Deliverable: cloud-provision `a0c1363` (the four test scripts and
+  `tests/fixtures/cloud-init-status/`), verified by T1-T4 above; landing on
+  origin/master pending.
 
 ## Backlog
 
