@@ -1,0 +1,30 @@
+boot-finished:yes
+{
+ "v1": {
+  "datasource": "DataSourceNoCloud [seed=/dev/sr0][dsmode=net]",
+  "init": {
+   "errors": [],
+   "finished": 1756760.7,
+   "start": 1756758.9
+  },
+  "init-local": {
+   "errors": [],
+   "finished": 1756757.2,
+   "start": 1756756.8
+  },
+  "modules-config": {
+   "errors": [],
+   "finished": 1756763.4,
+   "start": 1756761.1
+  },
+  "modules-final": {
+   "errors": [
+    "('scripts-user', RuntimeError('Runparts: 1 failures (part-001) in 1 attempted commands'))"
+   ],
+   "finished": 1756801.6,
+   "start": 1756763.9
+  },
+  "recoverable_errors": {},
+  "stage": null
+ }
+}

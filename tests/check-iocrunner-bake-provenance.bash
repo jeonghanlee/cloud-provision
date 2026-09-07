@@ -687,8 +687,8 @@ case "${remote_command}" in
     exit)
         exit 0
         ;;
-    "cloud-init status")
-        printf "%s\n" "status: done"
+    *"/var/lib/cloud/instance/boot-finished"*)
+        cat "${CLOUD_INIT_DONE_FIXTURE}"
         exit 0
         ;;
     "sudo cat /etc/iocrunner-bake.manifest")
@@ -852,6 +852,7 @@ function run_promotion_case {
         "REMOTE_MANIFEST=${remote_manifest}"
         "FAKE_GUEST_ROOT=${guest_root}"
         "CONTRACT_FIXTURE=${TOP}/tests/fixtures/proxy-artifacts.tsv"
+        "CLOUD_INIT_DONE_FIXTURE=${TOP}/tests/fixtures/cloud-init-status/done.txt"
         "PROXY_SEAL_LOG=${case_dir}/proxy-seal.log"
         "FIXTURE_COMMIT=${fixture_commit}"
         "EPICS_COMMIT=${epics_commit}"

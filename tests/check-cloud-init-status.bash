@@ -9,19 +9,27 @@
 # real.
 #
 # Readiness entry point: the readiness cases enter through the shut-off restart
-# branch at bin/create_vm.bash:795, not the fresh-provision branch at :828,
-# which needs a base image, a disk, a seed, and virt-install. Both call sites
-# pass "retry" to the same wait_for_vm, so the covered code is the same.
+# branch of the main section in bin/create_vm.bash (virsh start, then
+# wait_for_vm), not the fresh-provision branch, which needs a base image, a
+# disk, a seed, and virt-install. Both branches pass "retry" to the same
+# wait_for_vm, so the covered code is the same.
+#
+# Readiness input: the fake ssh answers the CLOUD_INIT_READINESS_PROBE with a
+# fixture from tests/fixtures/cloud-init-status, each a boot-finished line
+# followed by a status.json body modeled on what cloud-init writes, so the
+# shared parser reads the shape it is written for. The three fixtures are
+# done, running, and error.
 #
 # What the rejection cases pin: in retry mode wait_for_cloud_init never prints
-# the parsed status, so "status: running" and a malformed status produce
-# identical output. The two cases pin that neither input is accepted as done.
-# The running-versus-unknown distinction stays with the -s status cases below.
+# the parsed status, so the running and error fixtures produce identical
+# output. The two cases pin that neither input is accepted as done. The
+# running-versus-error distinction stays with the -s status cases below.
 
 set -e
 
 declare -g SCRIPT_DIR
 declare -g TOP
+declare -g FIXTURE_DIR
 declare -g WORKSPACE
 declare -g FAKEBIN
 declare -g SLEEP_LOG
@@ -34,6 +42,7 @@ declare -ag FAILED_DETAILS=()
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "${SCRIPT_DIR}/.." && pwd)"
+FIXTURE_DIR="${TOP}/tests/fixtures/cloud-init-status"
 
 function cleanup {
     local rc=$?
@@ -224,7 +233,7 @@ case "${remote_cmd}" in
         fi
         exit "${FAKE_SSH_EXIT_RC:-0}"
         ;;
-    "cloud-init status")
+    *"/var/lib/cloud/instance/boot-finished"*)
         if [[ -n "${FAKE_CLOUD_INIT_READY_AFTER:-}" ]]; then
             count=0
             if [[ -n "${FAKE_CLOUD_INIT_COUNT_FILE:-}" && -f "${FAKE_CLOUD_INIT_COUNT_FILE}" ]]; then
@@ -233,9 +242,9 @@ case "${remote_cmd}" in
             count=$((count + 1))
             printf "%s\n" "${count}" > "${FAKE_CLOUD_INIT_COUNT_FILE}"
             if [[ "${count}" -ge "${FAKE_CLOUD_INIT_READY_AFTER}" ]]; then
-                printf "%s\n" "status: done"
+                cat "${FAKE_CLOUD_INIT_FIXTURE_DIR}/done.txt"
             else
-                printf "%s\n" "status: running"
+                cat "${FAKE_CLOUD_INIT_FIXTURE_DIR}/running.txt"
             fi
             exit 0
         fi
@@ -337,6 +346,14 @@ function write_baked_image_fixture {
         "source_image=source.qcow2" > "${record_path}"
 }
 
+# Prints the probe output fixture for one cloud-init state (done, running,
+# or error) so a case passes the same bytes the fake ssh would produce.
+function cloud_init_fixture {
+    local state="$1"
+
+    cat "${FIXTURE_DIR}/${state}.txt"
+}
+
 function run_create_vm {
     local status_output="$1"
     local action="$2"
@@ -366,6 +383,7 @@ function run_create_vm {
     fi
 
     FAKE_CLOUD_INIT_STATUS_OUTPUT="${status_output}" \
+    FAKE_CLOUD_INIT_FIXTURE_DIR="${FIXTURE_DIR}" \
     FAKE_DOMAIN_STATE="${domain_state}" \
     FAKE_DOMINFO_RC="${CASE_DOMINFO_RC:-${dominfo_rc}}" \
     FAKE_SSH_EXIT_RC="${FAKE_SSH_EXIT_RC:-0}" \
@@ -456,7 +474,7 @@ function run_ssh_rejection_case {
 
     reset_sleep_log
     result=$(FAKE_SSH_EXIT_RC=255 FAKE_SSH_STDERR="${stderr_text}" \
-        run_create_vm $'status: done\n' "provision")
+        run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
 
@@ -491,7 +509,7 @@ function run_ip_policy_case {
     rm -f -- "${count_file}"
     result=$(CASE_NODE_ID=dhcp FAKE_DOMIFADDR_READY_AFTER="${ready_after}" \
         FAKE_DOMIFADDR_COUNT_FILE="${count_file}" \
-        run_create_vm $'status: done\n' "provision")
+        run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
@@ -512,7 +530,7 @@ function run_ssh_eventual_case {
     reset_sleep_log
     rm -f -- "${count_file}"
     result=$(FAKE_SSH_READY_AFTER=6 FAKE_SSH_COUNT_FILE="${count_file}" \
-        run_create_vm $'status: done\n' "provision")
+        run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
@@ -534,7 +552,7 @@ function run_cloud_init_eventual_case {
     rm -f -- "${count_file}"
     result=$(FAKE_CLOUD_INIT_READY_AFTER=61 \
         FAKE_CLOUD_INIT_COUNT_FILE="${count_file}" \
-        run_create_vm $'status: running\n' "provision")
+        run_create_vm "$(cloud_init_fixture running)" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
@@ -559,7 +577,7 @@ function run_override_case {
     result=$(VM_WAIT_CLOUD_INIT_ATTEMPTS=3 \
         VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS=7 \
         VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS=3 \
-        run_create_vm $'status: running\n' "provision")
+        run_create_vm "$(cloud_init_fixture running)" "provision")
     SSH_ARG_LOG="${saved_log}"
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
@@ -584,7 +602,7 @@ function run_invalid_wait_setting_case {
     local result rc output
     local "${name}=${value}"
 
-    result=$(run_create_vm $'status: done\n' "status")
+    result=$(run_create_vm "$(cloud_init_fixture "done")" "status")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
 
@@ -630,7 +648,7 @@ function run_stop_obeys_case {
     reset_sleep_log
     result=$(FAKE_STATE_OVERRIDE="running" \
         FAKE_SHUTDOWN_MARKER="${WORKSPACE}/shutdown.marker" \
-        run_create_vm $'status: done\n' "stop")
+        run_create_vm "$(cloud_init_fixture "done")" "stop")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
@@ -652,7 +670,7 @@ function run_stop_eventual_case {
     rm -f -- "${marker}" "${count_file}"
     result=$(FAKE_STATE_OVERRIDE=running FAKE_SHUTDOWN_MARKER="${marker}" \
         FAKE_SHUTDOWN_READY_AFTER=12 FAKE_SHUTDOWN_COUNT_FILE="${count_file}" \
-        run_create_vm $'status: done\n' "stop")
+        run_create_vm "$(cloud_init_fixture "done")" "stop")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     sleeps=$(wc -l < "${SLEEP_LOG}" | tr -d '[:space:]')
@@ -677,7 +695,7 @@ function run_lifecycle_case {
 
     reset_sleep_log
     result=$(FAKE_STATE_OVERRIDE="${state}" \
-        run_create_vm $'status: done\n' "${action}")
+        run_create_vm "$(cloud_init_fixture "done")" "${action}")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
 
@@ -696,7 +714,7 @@ function run_outage_case {
     local result rc output
 
     reset_sleep_log
-    result=$(FAKE_LIBVIRT_DOWN=1 run_create_vm $'status: done\n' "${action}")
+    result=$(FAKE_LIBVIRT_DOWN=1 run_create_vm "$(cloud_init_fixture "done")" "${action}")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
 
@@ -717,7 +735,7 @@ function run_selection_case {
         write_baked_image_fixture "iocrunner" "rocky8"
     fi
     reset_sleep_log
-    result=$(CASE_OS_TYPE="${os_type}" run_create_vm $'status: done\n' "status")
+    result=$(CASE_OS_TYPE="${os_type}" run_create_vm "$(cloud_init_fixture "done")" "status")
     output="${result#*$'\n'}"
     expect_contains "select ${os_type}" "${output}" "${want_line}"
 }
@@ -733,7 +751,7 @@ function run_bake_pair_case {
     write_baked_image_fixture "iocrunner" "${bake_os}"
     derived="iocrunner-${bake_os}-20260812T000000Z-abcdef123456.qcow2"
     reset_sleep_log
-    result=$(CASE_OS_TYPE="${consumer_os}" run_create_vm $'status: done\n' "status")
+    result=$(CASE_OS_TYPE="${consumer_os}" run_create_vm "$(cloud_init_fixture "done")" "status")
     output="${result#*$'\n'}"
     expect_contains "bake pair ${bake_os}" "${output}" "Base image : ${derived}"
 }
@@ -776,7 +794,7 @@ function run_pair_rejection_case {
         sed -i 's/^image_platform=rocky8$/image_platform=debian13/' \
             "${image_path}.creation-record"
     fi
-    result=$(CASE_OS_TYPE="rocky8-iocrunner" run_create_vm $'status: done\n' "status")
+    result=$(CASE_OS_TYPE="rocky8-iocrunner" run_create_vm "$(cloud_init_fixture "done")" "status")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     expect_exit "${name} exit" "1" "${rc}"
@@ -787,7 +805,7 @@ function run_pair_rejection_case {
 function run_invalid_run_id_case {
     local result rc output
 
-    result=$(CASE_RUN_ID="manual-run" run_create_vm $'status: done\n' "status")
+    result=$(CASE_RUN_ID="manual-run" run_create_vm "$(cloud_init_fixture "done")" "status")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     expect_exit "invalid run ID exit" "1" "${rc}"
@@ -818,7 +836,7 @@ function run_no_delete_case {
     # dominfo must fail so the dispatch falls through to the fresh-provision
     # path; that is the only route that reaches verify_base_image.
     result=$(CASE_OS_TYPE="${os_type}" FAKE_QEMU_IMG_FAIL=1 CASE_DOMINFO_RC=1 \
-        FAKE_STATE_OVERRIDE="absent" run_create_vm $'status: done\n' "provision")
+        FAKE_STATE_OVERRIDE="absent" run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
 
@@ -852,7 +870,7 @@ function run_seed_case {
 
     reset_sleep_log
     result=$(CASE_DOMINFO_RC=1 FAKE_STATE_OVERRIDE="absent" \
-        run_create_vm $'status: done\n' "provision")
+        run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
 
@@ -898,7 +916,7 @@ function run_seed_failure_case {
 
     reset_sleep_log
     result=$(CASE_DOMINFO_RC=1 FAKE_STATE_OVERRIDE="absent" FAKE_GENISOIMAGE_FAIL=1 \
-        run_create_vm $'status: done\n' "provision")
+        run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
 
@@ -929,7 +947,7 @@ function run_address_case {
     esac
     reset_sleep_log
     result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
-        run_create_vm $'status: done\n' "status")
+        run_create_vm "$(cloud_init_fixture "done")" "status")
     output="${result#*$'\n'}"
     got="$(grep -oE 'mapped to 192\.168\.123\.[0-9]+|IP Address : 192\.168\.123\.[0-9]+' <<< "${output}" \
         | grep -oE '[0-9]+$' | head -1)"
@@ -956,7 +974,7 @@ function run_address_distinct_case {
         fi
         reset_sleep_log
         result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID="${node_id}" \
-            run_create_vm $'status: done\n' "status")
+            run_create_vm "$(cloud_init_fixture "done")" "status")
         output="${result#*$'\n'}"
         got="$(grep -oE 'mapped to 192\.168\.123\.[0-9]+' <<< "${output}" \
             | grep -oE '[0-9]+$' | head -1)"
@@ -988,7 +1006,7 @@ function run_reservation_case {
     reset_sleep_log
     result=$(CASE_OS_TYPE="rocky8-iocrunner" CASE_DOMINFO_RC=1 \
         FAKE_STATE_OVERRIDE="absent" FAKE_RESERVED_IP="${reserved}" \
-        run_create_vm $'status: done\n' "provision")
+        run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
 
@@ -1067,12 +1085,12 @@ mkdir -p "${FAKEBIN}"
 : > "${QEMU_IMG_LOG}"
 write_fake_commands
 
-run_case "status done" $'status: done\n' "status" 0 "cloud-init : done"
-run_case "status running" $'status: running\n' "status" 1 "cloud-init : running"
-run_case "status malformed" $'done but no status field\n' "status" 1 "cloud-init : unknown"
-run_case "provision done" $'status: done\n' "provision" 0 "cloud-init: complete [OK]"
-run_rejection_case "provision not complete" $'status: running\n'
-run_rejection_case "provision malformed" $'done but no status field\n'
+run_case "status done" "$(cloud_init_fixture "done")" "status" 0 "cloud-init : done"
+run_case "status running" "$(cloud_init_fixture running)" "status" 1 "cloud-init : running"
+run_case "status error" "$(cloud_init_fixture error)" "status" 1 "cloud-init : error"
+run_case "provision done" "$(cloud_init_fixture "done")" "provision" 0 "cloud-init: complete [OK]"
+run_rejection_case "provision not complete" "$(cloud_init_fixture running)"
+run_rejection_case "provision error" "$(cloud_init_fixture error)"
 run_ip_policy_case "IP eventual success" 6 0 "SSH: ready [OK]"
 run_ip_policy_case "IP timeout" 7 1 "Status: IP not available"
 run_ssh_eventual_case

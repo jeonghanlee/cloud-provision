@@ -67,8 +67,8 @@ remote_command="${@: -1}"
 case "${remote_command}" in
     exit)
         ;;
-    "cloud-init status")
-        printf "%s\n" "status: done"
+    *"/var/lib/cloud/instance/boot-finished"*)
+        cat "${CLOUD_INIT_DONE_FIXTURE}"
         ;;
     *)
         printf "unexpected ssh command: %s\n" "${remote_command}" >&2
@@ -118,6 +118,7 @@ env \
     "REQUIRED_GROUP=$(id -gn)" \
     "RUNTIME_INVENTORY_ARG_LOG=${WORKSPACE}/runtime-inventory-args.log" \
     "ANSIBLE_ARG_LOG=${WORKSPACE}/ansible-args.log" \
+    "CLOUD_INIT_DONE_FIXTURE=${TOP}/tests/fixtures/cloud-init-status/done.txt" \
     "VM_WAIT_SSH_ATTEMPTS=1" \
     "VM_WAIT_CLOUD_INIT_ATTEMPTS=1" \
     "${TOP}/bin/run_epics_env_build.bash" \
