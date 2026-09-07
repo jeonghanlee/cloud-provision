@@ -7,9 +7,10 @@ precondition) - its definition is landed and matches the ansible-provision
 `proxy` role (`a02298f`) one-to-one, M2 / T1 passed, and its single remaining
 check is M2 / T2's live apply on a real proxied host (the ansible-provision
 side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, M6, and M8
-are Complete; EtherCAT (M4) stays Deferred in the Backlog, where M9 (the
-runbook cloud-init status hint) and M10 (the silent build-driver preflight
-exit) wait Open for a priority decision.
+are Complete; EtherCAT (M4) stays Deferred in the Backlog, and M9 (the runbook
+cloud-init status hint) is Not started there, decided 2026-09-07, awaiting plan
+acceptance; M10 (the silent build-driver preflight exit) waits Open for a
+priority decision.
 
 ## Milestone
 
@@ -723,7 +724,7 @@ boundary, as each test already defines):
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
 | Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
-| Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Open | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
+| Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Not started | Yes | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Open | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 
 ### Backlog Details
@@ -934,8 +935,8 @@ observed 2026-09-01 on the real `create_vm.bash -s` and
 
 Origin: 9 / M9
 Identity History: none
-GitHub Issue: none
-Status: Open
+GitHub Issue: [#40](https://github.com/jeonghanlee/cloud-provision/issues/40)
+Status: Not started
 
 ##### Summary
 
@@ -971,8 +972,8 @@ what cloud-init writes.
 
 - M7 (behavioral constraint): the readiness probe M7 shipped is the reference
   for what an unprivileged read can rely on.
-- Priority and scope are unresolved; a dated decision moves this row to Not
-  started, Deferred, or a retirement.
+- Decision Date 2026-09-07: proceed; the row moves from Open to Not started
+  and a GitHub issue projects it.
 
 ##### Implementation Plan
 
@@ -1005,7 +1006,7 @@ Superseded Plan Artifacts: none
 
 Origin: 10 / M10
 Identity History: none
-GitHub Issue: none
+GitHub Issue: [#41](https://github.com/jeonghanlee/cloud-provision/issues/41)
 Status: Open
 
 ##### Summary
