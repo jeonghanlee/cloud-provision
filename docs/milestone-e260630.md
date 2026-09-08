@@ -6,9 +6,8 @@ Next session entry point: the only open milestone is M2 (the `P_proxy`
 precondition) - its definition is landed and matches the ansible-provision
 `proxy` role (`a02298f`) one-to-one, M2 / T1 passed, and its single remaining
 check is M2 / T2's live apply on a real proxied host (the ansible-provision
-side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, M6, M8, and
-M9 are Complete; EtherCAT (M4) stays Deferred in the Backlog, and M10 (the
-silent build-driver preflight exit) waits Open for a priority decision.
+side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, M6, M8, M9,
+and M10 are Complete; EtherCAT (M4) stays Deferred in the Backlog.
 
 ## Milestone
 
@@ -723,7 +722,7 @@ boundary, as each test already defines):
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
 | Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
-| Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Open | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
+| Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 
 ### Backlog Details
 
@@ -1024,27 +1023,29 @@ as `vmadmin`:
 Origin: 10 / M10
 Identity History: none
 GitHub Issue: [#41](https://github.com/jeonghanlee/cloud-provision/issues/41)
-Status: Open
+Status: Complete
 
 ##### Summary
 
-`bin/run_epics_env_build.bash` runs under `set -euo pipefail` and captures
-the readiness report with `status_report="$(create_vm.bash ... -s)"`. When
-the VM is not ready, `-s` returns 1, `set -e` aborts the driver at that
-assignment, and the `die "failed to generate runtime inventory ..."` branch
-that would name the OS type never runs: the driver exits 1 with nothing on
-stdout or stderr. Observed 2026-09-06 on the control host while the M8 fake
-answered `cloud-init : running` (the same path a real not-ready VM takes);
-the mechanism is read from the driver source. Recorded without a priority
-decision.
+`bin/run_epics_env_build.bash` runs under `set -euo pipefail` and captures the
+readiness report with `status_report="$(create_vm.bash ... -s)"`. When the VM
+is not ready, `-s` returns 1, `set -e` aborts the driver at that assignment,
+and the `die "failed to generate runtime inventory ..."` branch that would name
+the OS type never runs: the driver exits 1 with nothing on stdout or stderr.
+Observed 2026-09-06 on the control host while the M8 fake answered `cloud-init
+: running` (the same path a real not-ready VM takes); the mechanism is read
+from the driver source. Priority decided 2026-09-08: proceed.
 
 ##### Scope
 
-- Make the driver print the captured status report and name the refused OS
-  type before exiting when the `-s` preflight fails.
+- Make the driver print the captured `-s` status report and name the refused
+  OS type before exiting when the readiness preflight fails. The change is
+  confined to the runtime-inventory loop in `bin/run_epics_env_build.bash`;
+  the existing `cleanup_runtime_inventories` EXIT trap already removes the
+  temp inventory on the new exit path.
 
 Out of scope: the readiness probe and `-s` report format in
-`bin/create_vm.bash`; the inventory generator.
+`bin/create_vm.bash`; the inventory generator; the ansible play invocation.
 
 ##### Completion Criteria
 
@@ -1056,34 +1057,59 @@ Out of scope: the readiness probe and `-s` report format in
 
 - M8 (behavioral constraint): `tests/check-epics-env-inventory.bash` is the
   offline path that can pin the refusal message with a `running` fixture.
-- Priority and scope are unresolved; a dated decision moves this row to Not
-  started, Deferred, or a retirement.
+- Decision Date 2026-09-08: proceed; the row moves from Open to Not started.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted 2026-09-08
+Implementation Authorization: owner authorized 2026-09-08
 Superseded Plan Artifacts: none
 
-1. Capture the `-s` exit status separately from the report, print the report
-   and the OS type on failure, then exit through `die`.
-2. Add a refusal case to `tests/check-epics-env-inventory.bash` using the
-   `running` fixture from `tests/fixtures/cloud-init-status/`.
+1. In the runtime-inventory loop, replace the plain
+   `status_report="$(create_vm ... -s)"` assignment (which `set -e` aborts on
+   a non-zero `-s`) with a captured-status form: set `rc=0`, then
+   `status_report="$(create_vm ... -s)" || rc=$?`. `create_vm -s` prints the
+   full readiness report to stdout even when it returns non-zero, so
+   `status_report` holds the report; when `rc` is non-zero, print that report
+   to stderr and `die` naming the OS type.
+2. Add a refusal case to `tests/check-epics-env-inventory.bash`: invoke the
+   driver with its fake ssh answering the readiness probe from the `running`
+   fixture in `tests/fixtures/cloud-init-status/`, capturing both streams.
+   Assert the driver exits non-zero, its output names the refused selector
+   (`rocky8-epics-dev`, the first default OS type), and carries the report
+   line `cloud-init : running`.
 
 ##### Test Plan
 
-- T1: `make check-runtime-inventory` passes, including a case where the
-  fake ssh answers the `running` fixture and the driver's output names the
-  OS type and contains `cloud-init : running`.
+- T1: `make check-runtime-inventory` still passes on the ready path, where
+  the fake ssh answers the `done` fixture and the driver reaches the play.
+- T2: the new refusal case passes: with the fake answering the `running`
+  fixture, the driver exits non-zero, names `rocky8-epics-dev`, and its
+  captured output contains the report line `cloud-init : running`.
 
 ##### Verification Results
 
-- T1: pending.
+Observed 2026-09-08 on the control host through the shipped offline suite
+(fakes only at the virsh, ssh, and sleep boundary); shellcheck 0.10.0 clean on
+both edited scripts.
+
+- T1: pass. `make check-runtime-inventory`: check-generated-ansible-inventory
+  165 / 165 and check-epics-env-inventory's ready path both pass; the driver
+  reaches the play with the fake answering the `done` fixture.
+- T2: pass. The new refusal case: with the fake answering the `running`
+  fixture, the driver exits non-zero, its captured output names
+  `rocky8-epics-dev`, and it carries the report line `cloud-init : running`.
+  Pinning confirmed by mutation: reverting only the driver fix makes the
+  refusal assertions fail (check-epics-env-inventory exits 1); the fix was
+  restored intact.
 
 ##### Closure Evidence
 
-- none
+- Deliverable: cloud-provision `0daf2f6` (`bin/run_epics_env_build.bash` and
+  `tests/check-epics-env-inventory.bash`), T1-T2 above pass on the shipped
+  offline path. The commit carries `Closes #41`, so #41 auto-closes when it
+  lands on origin/master.
 
 ## History
 
