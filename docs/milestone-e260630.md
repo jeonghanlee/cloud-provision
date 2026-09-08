@@ -7,10 +7,8 @@ precondition) - its definition is landed and matches the ansible-provision
 `proxy` role (`a02298f`) one-to-one, M2 / T1 passed, and its single remaining
 check is M2 / T2's live apply on a real proxied host (the ansible-provision
 side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, M6, M8, and
-M9 are Complete; EtherCAT (M4) stays Deferred in the Backlog, and M9 (the
-runbook cloud-init status hint) is Complete; M11 (the tmpfiles override for
-/run/cloud-init, D2) is Not started there awaiting its plan; M10 (the silent
-build-driver preflight exit) waits Open for a priority decision.
+M9 are Complete; EtherCAT (M4) stays Deferred in the Backlog, and M10 (the
+silent build-driver preflight exit) waits Open for a priority decision.
 
 ## Milestone
 
@@ -30,7 +28,6 @@ build-driver preflight exit) waits Open for a priority decision.
 | ID | Decision | Decision Date |
 | --- | --- | --- |
 | D1 | Reading, auditing, quarantining, replacing, or deleting an existing guest, disk, image, archive, or sidecar requires a separate accepted plan and explicit authorization. | 2026-08-20 |
-| D2 | Our rocky guests override the vendor `d /run/cloud-init 0700` tmpfiles rule with 0755, because cloud-init 23.4 resets the directory to 0755 at every boot anyway and the 0700 state only appears between an in-place upgrade and the next reboot, where it breaks unprivileged readiness reads. | 2026-09-07 |
 
 ### Assignment History
 
@@ -727,7 +724,6 @@ boundary, as each test already defines):
 | Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Open | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
-| Host setup | M11 | Keep /run/cloud-init readable across in-place cloud-init upgrades | Milestone | Not started | Yes | D2 | A rocky guest keeps `/run/cloud-init` at 0755 after `systemd-tmpfiles --create` and an unprivileged `cloud-init status --long` prints a status; [M11 detail](#m11). |
 
 ### Backlog Details
 
@@ -943,16 +939,16 @@ Status: Complete
 ##### Summary
 
 `docs/RUNBOOK_BAKE.md` (section "Slow boot and package-manager diagnosis")
-tells the operator to read the live cloud-init state with an unprivileged
-`ssh ... cloud-init status --long`. That is the same unprivileged call M7
-replaced in `bin/create_vm.bash`: the `23.4-7.el8_10.11.0.2` rebuild ships a
-tmpfiles rule that sets `/run/cloud-init` to 0700 when the package is
-upgraded in place, and until the next reboot the call aborts with a
-PermissionError instead of a status word (cloud-init resets the directory to
-0755 at every boot; mechanism traced under M11). In this repository only the
-epics_dev species upgrades cloud-init in place, so the hint works during a
-bake today and fails on an epics-dev guest between its build and its next
-reboot. Found 2026-09-06 during the M8 review.
+tells the operator to read the live cloud-init state with an unprivileged `ssh
+... cloud-init status --long`. That is the same unprivileged call M7 replaced
+in `bin/create_vm.bash`: the `23.4-7.el8_10.11.0.2` rebuild ships a tmpfiles
+rule that sets `/run/cloud-init` to 0700 when the package is upgraded in place,
+and until the next reboot the call aborts with a PermissionError instead of a
+status word (cloud-init resets the directory to 0755 at every boot; mechanism
+recorded in docs/CLOSED_DOORS.md). In this repository only the epics_dev
+species upgrades cloud-init in place, so the hint works during a bake today and
+fails on an epics-dev guest between its build and its next reboot. Found
+2026-09-06 during the M8 review.
 
 ##### Scope
 
@@ -1017,8 +1013,9 @@ as `vmadmin`:
 ##### Closure Evidence
 
 - Deliverable: cloud-provision `bd3a6e2` (`docs/RUNBOOK_BAKE.md`), verified by
-  T1-T2 above; landing on origin/master pending. The tmpfiles inconsistency
-  behind the failure is tracked separately as M11 / D2.
+  T1-T2 above and landed on origin/master. The tmpfiles inconsistency
+  behind the failure is recorded as a Closed Door (2026-09-08) and routed to
+  ansible-provision.
 
 <a id="m10"></a>
 
@@ -1083,90 +1080,6 @@ Superseded Plan Artifacts: none
 ##### Verification Results
 
 - T1: pending.
-
-##### Closure Evidence
-
-- none
-
-<a id="m11"></a>
-
-#### M11 - Keep /run/cloud-init readable across in-place cloud-init upgrades
-
-Origin: 11 / M11
-Identity History: none
-GitHub Issue: none
-Status: Not started
-
-##### Summary
-
-The Rocky rebuild `cloud-init-23.4-7.el8_10.11.0.2` ships
-`/usr/lib/tmpfiles.d/cloud-init.conf` (`d /run/cloud-init 0700 root root`),
-while cloud-init 23.4 itself resets that directory to 0755 at every stage
-(`status_wrapper` in `cloudinit/cmd/main.py` calls `ensure_dirs` with the
-default mode). Traced 2026-09-07 on the rocky8 epics-dev VM: the generator
-creates the directory 0755, `systemd-tmpfiles-setup` changes it to 0700, and
-`cloud-init-local` changes it back to 0755, so a booted guest is 0755. When
-the package is upgraded in place, rpm's tmpfiles file trigger applies 0700 and
-no cloud-init stage runs again until reboot, so unprivileged readers of
-`/run/cloud-init` (the `cloud-init status` tool, an operator reading
-`cloud.cfg`) fail from that upgrade until the next reboot. In this repository
-only the epics_dev species (epics_build's `dnf update`) performs that upgrade.
-D2 records the decision to remove the inconsistency in our guests.
-
-##### Scope
-
-- Deliver `/etc/tmpfiles.d/cloud-init.conf` with
-  `d /run/cloud-init 0755 root root - -` into rocky guests so the vendor rule is
-  overridden by the same-named file and an in-place upgrade leaves the
-  directory readable.
-- Choose the delivery path: the cloud-init user-data templates cannot carry a
-  top-level `write_files` (the proxy merge in `bin/create_vm.bash` requires
-  zero `write_files:` blocks), so the candidates are a `runcmd` line in
-  `templates/user-data.rocky8` and `user-data.rocky10`, or a task in the
-  ansible-provision common operator.
-
-Out of scope: debian and ubuntu guests (a debian13 guest with cloud-init
-25.1.4 was observed 2026-09-07 without such a rule and with the directory at
-0755; ubuntu was not checked); the vendor package; the runbook hint, which M9
-handles.
-
-##### Completion Criteria
-
-- On a rocky guest provisioned by this repository, `systemd-tmpfiles --create`
-  (what the package upgrade trigger runs) leaves `/run/cloud-init` at 0755 and
-  an unprivileged `cloud-init status --long` prints a status.
-- The proxy merge and the provisioning self-tests still pass.
-
-##### Dependencies And Decisions
-
-- D2 (security decision): our guests override the vendor 0700 rule.
-- Decision Date 2026-09-07: proceed alongside M9; the delivery path is chosen
-  in the plan before acceptance.
-
-##### Implementation Plan
-
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
-
-1. Choose the delivery path (template `runcmd` or ansible common operator)
-   and record it here.
-2. Deliver the tmpfiles override and verify on a fresh rocky8 guest and on
-   the existing epics-dev guest after `systemd-tmpfiles --create`.
-
-##### Test Plan
-
-- T1: on a fresh rocky8 guest, `/etc/tmpfiles.d/cloud-init.conf` exists with
-  the 0755 line; after `sudo systemd-tmpfiles --create`, `stat -c %a
-  /run/cloud-init` prints 755 and unprivileged `cloud-init status --long`
-  prints a status.
-- T2: `make check-proxy-injection` and `make check-cloud-init-status` pass.
-
-##### Verification Results
-
-- T1: pending.
-- T2: pending.
 
 ##### Closure Evidence
 
