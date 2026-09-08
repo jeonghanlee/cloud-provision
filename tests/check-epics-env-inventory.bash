@@ -132,6 +132,30 @@ while IFS= read -r runtime_inventory; do
     [[ ! -e "${runtime_inventory}" ]]
 done < "${WORKSPACE}/runtime-inventory-args.log"
 
+# Refusal path: a not-ready VM (cloud-init still running) must make the driver
+# print the status report, name the refused OS type, and exit non-zero rather
+# than abort silently at the status assignment. The fake ssh answers the
+# readiness probe from the running fixture, so create_vm -s returns non-zero.
+refusal_rc=0
+refusal_out="$(env \
+    "PATH=${FAKEBIN}:${PATH}" \
+    "HOME=${WORKSPACE}/home" \
+    "USER=$(id -un)" \
+    "REQUIRED_GROUP=$(id -gn)" \
+    "RUNTIME_INVENTORY_ARG_LOG=${WORKSPACE}/refusal-runtime-args.log" \
+    "ANSIBLE_ARG_LOG=${WORKSPACE}/refusal-ansible-args.log" \
+    "CLOUD_INIT_DONE_FIXTURE=${TOP}/tests/fixtures/cloud-init-status/running.txt" \
+    "VM_WAIT_SSH_ATTEMPTS=1" \
+    "VM_WAIT_CLOUD_INIT_ATTEMPTS=1" \
+    "${TOP}/bin/run_epics_env_build.bash" \
+    -a "${TOP}/../ansible-provision" \
+    -d "${WORKSPACE}/images" 2>&1)" || refusal_rc=$?
+
+[[ "${refusal_rc}" -ne 0 ]]
+grep -q "rocky8-epics-dev" <<< "${refusal_out}"
+grep -q "cloud-init : running" <<< "${refusal_out}"
+
 printf "[ PASS ] EPICS-env build uses two generated core inventories\n"
 printf "[ PASS ] EPICS-env build removes generated inventories\n"
-printf "Summary: 2 passed / 2 total\n"
+printf "[ PASS ] EPICS-env build refuses a not-ready VM with a named status report\n"
+printf "Summary: 3 passed / 3 total\n"

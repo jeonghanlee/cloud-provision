@@ -114,10 +114,15 @@ ANSIBLE_LIMIT="epics_dev"
 for os_type in "${OS_TYPES[@]}"; do
     runtime_inventory="$(mktemp /tmp/cloud-provision-ansible-inventory.XXXXXX)"
     RUNTIME_INVENTORIES+=("${runtime_inventory}")
+    status_rc=0
     status_report="$(
         "${CREATE_VM}" -o "${os_type}" -n "${NODE_ID}" \
             -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s
-    )"
+    )" || status_rc=$?
+    if [[ "${status_rc}" -ne 0 ]]; then
+        printf "%s\n" "${status_report}" >&2
+        die "VM for ${os_type} is not ready; see the status report above"
+    fi
     if ! "${INVENTORY_GENERATOR}" \
         --status-input \
         --os-type "${os_type}" \
