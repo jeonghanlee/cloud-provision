@@ -269,7 +269,7 @@ over SSH but cloud-init has not reported completion. Check the live cloud-init
 state from the control host:
 
 ```bash
-ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> cloud-init status --long
+ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> sudo cloud-init status --long
 ssh -o ControlMaster=no -o ControlPath=none vmadmin@<vm-ip> systemctl --no-pager --failed
 ```
 
