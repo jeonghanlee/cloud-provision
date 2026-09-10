@@ -175,6 +175,7 @@ Selector sets are intentionally different:
 | OS Type | Variant | Base Image Source | Package Manager | Role |
 |---|---|---|---|---|
 | rocky8 | rocky8 | download.rockylinux.org | dnf | Bare vacuum VM |
+| debian12 | debian12 | cloud.debian.org/images/cloud/bookworm/latest | apt | Bare vacuum VM |
 | debian13 | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | Bare vacuum VM |
 | rocky10 | rocky10 | download.rockylinux.org | dnf | Bare vacuum VM |
 | ubuntu24 | ubuntu24 | cloud-images.ubuntu.com/noble/current | apt | Bare vacuum VM |
@@ -186,6 +187,7 @@ Selector sets are intentionally different:
 | debian13-ethercat | debian13 | latest valid `${IMAGE_DIR}/ethercat-debian13-<run-id>.qcow2` pair | apt | EtherCAT runtime VM |
 | debian13-rtbase | debian13 | pinned Debian 13 release cloud image | apt | EtherCAT bake source VM |
 | rocky8-epics-dev | rocky8 | download.rockylinux.org | dnf | EPICS source-build host |
+| debian12-epics-dev | debian12 | cloud.debian.org/images/cloud/bookworm/latest | apt | EPICS source-build host |
 | debian13-epics-dev | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | EPICS source-build host |
 | rocky10-epics-dev | rocky10 | download.rockylinux.org | dnf | EPICS source-build host |
 | ubuntu24-epics-dev | ubuntu24 | cloud-images.ubuntu.com/noble/current | apt | EPICS source-build host |
@@ -239,6 +241,7 @@ of the hashed window.
 | Vacuum    | bare | epics-dev | iocrunner | iocrunner-nfs | ethercat | rtbase |
 |-----------|------|-----------|-----------|---------------|----------|--------|
 | Debian 13 | .10  | .20       | .50       | .55           | .70      | .80    |
+| Debian 12 | .15  | .45       | —         | —             | —        | —      |
 | Ubuntu 26 | .25  | .30       | —         | —             | —        | —      |
 | Ubuntu 24 | .35  | .40       | —         | —             | —        | —      |
 | Rocky 8   | .100 | .120      | .150      | .155          | —        | —      |
@@ -260,11 +263,13 @@ holding VM. `NODE_ID=dhcp` bypasses static assignment and uses DHCP.
 Host
   └── libvirt lab network (virbr1, 192.168.123.0/24, NAT)
         ├── lab-debian13-main                   192.168.123.10
+        ├── lab-debian12-main                   192.168.123.15
         ├── lab-debian13-epics-dev-main         192.168.123.20
         ├── lab-ubuntu26-main                   192.168.123.25
         ├── lab-ubuntu26-epics-dev-main         192.168.123.30
         ├── lab-ubuntu24-main                   192.168.123.35
         ├── lab-ubuntu24-epics-dev-main         192.168.123.40
+        ├── lab-debian12-epics-dev-main         192.168.123.45
         ├── lab-debian13-iocrunner-main         192.168.123.50
         ├── lab-debian13-iocrunner-nfs-main     192.168.123.55
         ├── lab-debian13-ethercat-main          192.168.123.70
@@ -639,7 +644,7 @@ obtained again. Three classes follow from that.
 
 | Class | Meaning | Types |
 | --- | --- | --- |
-| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | The five bare vacua and the five `*-epics-dev` build hosts |
+| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | The six bare vacua and the six `*-epics-dev` build hosts |
 | upstream, pinned | A dated upstream release at a fixed URL. Re-fetchable and stable. | `debian13-rtbase` |
 | baked locally, not downloadable | Produced by `bin/bake_*_image.bash` on this host. There is no URL; losing it costs a full bake. | `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat` |
 

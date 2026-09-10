@@ -195,13 +195,13 @@ mode-invariant; only its mechanism differs by mode.
 | Live | A running server, configured in place; no image is published | ansible roles run against the live host; systemd units | apply and keep (persistent) |
 | Instant | A container image (Docker), published to a registry | Dockerfile layers; no systemd init; entrypoint instead of init | apply and keep (persistent) |
 
-The five vacua are the five flavors. Running one species across all five vacua,
+The six vacua are the six flavors. Running one species across all six vacua,
 in a given mode, is the consistency check the environment must pass: the same
 species must reach an equivalent state on every flavor.
 
 Current realizations:
 
-- Golden: the golden qcow2 images for all five vacua.
+- Golden: a golden qcow2 image per vacuum.
 - Live: production IOC servers.
 - Instant: `jeonghanlee/Dockerfiles` builds debian13, rocky8, and rocky10 images
   today. They carry the distribution (P_epics clone) with procServ and con; the
@@ -260,7 +260,7 @@ Both yield the same distribution. The container (Instant) realization is a third
 consumer: its Dockerfile clones the published distribution rather than building
 it.
 
-Consistency: building `epics-dev` across all five vacua tests that the build
+Consistency: building `epics-dev` across all six vacua tests that the build
 environment is equivalent on every flavor — the same species reaching an
 equivalent state.
 

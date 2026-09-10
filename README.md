@@ -212,7 +212,7 @@ Options:
 
 | Flag | Description                              | Default            |
 |------|------------------------------------------|--------------------|
-| `-o` | OS type — bare vacua: `rocky8`, `debian13`, `rocky10`, `ubuntu24`, `ubuntu26`; golden consumers: `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat`, `debian13-rtbase`; EPICS build hosts: `rocky8-epics-dev`, `debian13-epics-dev`, `rocky10-epics-dev`, `ubuntu24-epics-dev`, `ubuntu26-epics-dev` | `rocky8` |
+| `-o` | OS type — bare vacua: `rocky8`, `debian12`, `debian13`, `rocky10`, `ubuntu24`, `ubuntu26`; golden consumers: `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat`, `debian13-rtbase`; EPICS build hosts: `rocky8-epics-dev`, `debian12-epics-dev`, `debian13-epics-dev`, `rocky10-epics-dev`, `ubuntu24-epics-dev`, `ubuntu26-epics-dev` | `rocky8` |
 | `-n` | Instance label: `main` (static base IP), `dhcp` (DHCP), other labels hash to 160-254 | `main` |
 | `-d` | Image storage directory                  | `~/libvirt/images` |
 | `-p` | VM name prefix                           | `lab`              |
