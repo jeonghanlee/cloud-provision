@@ -99,7 +99,7 @@ host source required by that run.
 make check-runtime-inventory
 ```
 
-This check runs the real generator for all 35 vacuum-species pairs the
+This check runs the real generator for all 39 vacuum-species pairs the
 operator definition assigns plus five suffixed selectors, merges each
 output through `ansible-inventory`, verifies direct and inherited groups,
 and exercises the EPICS-env status-to-playbook path with only Libvirt,

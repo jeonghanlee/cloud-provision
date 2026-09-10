@@ -74,6 +74,7 @@ function direct_groups_for_host {
     local group_name
     local -a groups=()
     local -a known_groups=(
+        debian12
         debian13
         rocky8
         rocky10
@@ -190,6 +191,21 @@ for vacuum in "${VACUA[@]}"; do
             "${expected_groups}" "vacua" "192.168.123.${matrix_octet}"
         matrix_octet=$((matrix_octet + 1))
     done
+done
+
+# debian12 is a restricted vacuum: the operator definition assigns it only
+# the bare, epics-dev, and iocrunner-family species, not nfs-sim, rtbase, or
+# ethercat. Drive its assigned pairs explicitly.
+declare -a DEBIAN12_SPECIES=(bare iocrunner iocrunner-nfs epics-dev)
+for species in "${DEBIAN12_SPECIES[@]}"; do
+    if [[ "${species}" == "bare" ]]; then
+        expected_groups="debian12"
+    else
+        expected_groups="debian12 ${species//-/_}"
+    fi
+    run_case "debian12-${species}" "debian12" "${species}" \
+        "${expected_groups}" "vacua" "192.168.123.${matrix_octet}"
+    matrix_octet=$((matrix_octet + 1))
 done
 
 # Suffixed selectors must strip to the vacuum; -iocrunner-nfs must strip
