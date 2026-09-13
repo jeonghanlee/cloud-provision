@@ -3,15 +3,17 @@
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
 Next session entry point: M11 (middleware operator/species structure and package
-baseline) is Ready - reflect the java/tomcat/mariadb/archiver/phoebus operators
-and the archiver/phoebus/middleware species into `docs/OPERATOR_MODEL.md` (the
-`configure/` package baseline and its guard follow as M11's later plan steps).
-M11 is intended to satisfy ansible-provision G2 once G2's deliverable text is
-reconciled to this plan (see M11 Dependencies And Decisions). M2 (the `P_proxy`
-precondition) remains the other open milestone, its single remaining check
-M2 / T2's live apply on a real proxied host (the ansible-provision side's M4/T3
-live check, gated on the idev whitelist). M1, M3, M5, M6, M7, M8, M9, and M10
-are Complete; EtherCAT (M4) stays Deferred in the Backlog.
+baseline) is In progress on branch `m11-middleware-operators` - the operator and
+species definitions landed in `docs/OPERATOR_MODEL.md` (`b2a79c8`) and the
+`configure/middleware-packages` baseline with its guard landed (`b71af98`), with
+M11 / T1 passing; the remaining step is M11 / T2, the `archiver-dev` source-build
+apply on debian13 and rocky8, then a merge to master. M11 is intended to satisfy
+ansible-provision G2 once G2's deliverable text is reconciled to this plan (see
+M11 Dependencies And Decisions). M2 (the `P_proxy` precondition) remains the
+other open milestone, its single remaining check M2 / T2's live apply on a real
+proxied host (the ansible-provision side's M4/T3 live check, gated on the idev
+whitelist). M1, M3, M5, M6, M7, M8, M9, and M10 are Complete; EtherCAT (M4)
+stays Deferred in the Backlog.
 
 ## Milestone
 
@@ -25,7 +27,7 @@ are Complete; EtherCAT (M4) stays Deferred in the Backlog.
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Complete | No |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
 | Host setup | M8 | Align the readiness self-tests with the file-based cloud-init probe | Milestone | Complete | No | M7 | `make check-cloud-init-status`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-bake` pass on the control host with every fake ssh answering the M7 readiness probe; [M8 detail](#m8). |
-| Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | Not started | Yes | D2, D3 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
+| Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | In progress | No | D2, D3 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
 | Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
 
 ### Decisions
@@ -854,7 +856,7 @@ Superseded Plan Artifacts: none
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | pending | control host | Not run | |
+| T1 | 2026-09-13 | control host | Passed | `docs/OPERATOR_MODEL.md` carries the 7 operators, 5 species, and 2 produced artifacts (`b2a79c8`); `make check-middleware-packages` reports 2/2 pass with its failure branches (missing coverage, duplicate, empty list, unknown OS, unparseable line) exercised, `shellcheck` clean, and `make check-bake` green (`b71af98`). |
 | T2 | pending | debian13 and rocky8 | Not run | |
 
 ## Backlog
