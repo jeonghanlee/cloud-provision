@@ -2,12 +2,16 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: the only open milestone is M2 (the `P_proxy`
-precondition) - its definition is landed and matches the ansible-provision
-`proxy` role (`a02298f`) one-to-one, M2 / T1 passed, and its single remaining
-check is M2 / T2's live apply on a real proxied host (the ansible-provision
-side's M4/T3 live check, gated on the idev whitelist). M1, M3, M5, M6, M8, M9,
-and M10 are Complete; EtherCAT (M4) stays Deferred in the Backlog.
+Next session entry point: M11 (middleware operator/species structure and package
+baseline) is Ready - reflect the java/tomcat/mariadb/archiver/phoebus operators
+and the archiver/phoebus/middleware species into `docs/OPERATOR_MODEL.md` (the
+`configure/` package baseline and its guard follow as M11's later plan steps).
+M11 is intended to satisfy ansible-provision G2 once G2's deliverable text is
+reconciled to this plan (see M11 Dependencies And Decisions). M2 (the `P_proxy`
+precondition) remains the other open milestone, its single remaining check
+M2 / T2's live apply on a real proxied host (the ansible-provision side's M4/T3
+live check, gated on the idev whitelist). M1, M3, M5, M6, M7, M8, M9, and M10
+are Complete; EtherCAT (M4) stays Deferred in the Backlog.
 
 ## Milestone
 
@@ -21,12 +25,16 @@ and M10 are Complete; EtherCAT (M4) stays Deferred in the Backlog.
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Complete | No |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
 | Host setup | M8 | Align the readiness self-tests with the file-based cloud-init probe | Milestone | Complete | No | M7 | `make check-cloud-init-status`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-bake` pass on the control host with every fake ssh answering the M7 readiness probe; [M8 detail](#m8). |
+| Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | Not started | Yes | D2, D3 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
+| Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
 
 ### Decisions
 
 | ID | Decision | Decision Date |
 | --- | --- | --- |
 | D1 | Reading, auditing, quarantining, replacing, or deleting an existing guest, disk, image, archive, or sidecar requires a separate accepted plan and explicit authorization. | 2026-08-20 |
+| D2 | Middleware server provisioning follows the EPICS-symmetric ecosystem form: source -> env (compile) -> distribution -> install operator. AA uses aa-maven (source), aa-env (compile), and a new aa-distribution repository; Phoebus uses phoebus-env and a new phoebus-distribution repository; both distribution repositories are created and populated by their env producers. cloud-provision owns the operator/species structure, the package baseline, and the base VM; the middleware server hosts the EPICS Archiver Appliance and Phoebus, each independently selectable. | 2026-09-12 |
+| D3 | Middleware operator choices: system Java (distribution OpenJDK 21, not the java-env pin) with `JAVA_HOME` exported; P_epics (local EPICS C base) installed on the middleware host; Tomcat pinned to 9.0.121 (Apache tarball as the shared CATALINA_HOME; the four separate Archiver Appliance instances are created by aa-env, not P_tomcat); the Archiver Appliance config database is MariaDB now and SQLite later; service group `mid` and user `mid-srv` (parallel to `ioc`/`ioc-srv`). Maven is not installed as an operator: aa-maven pins Maven 3.9.9 through its Maven Wrapper, so the source-build species runs `./mvnw` and needs only `JAVA_HOME`, git (with an origin ref), openssh-client (scp), outbound HTTPS, and `-Dsphinx.skip=true`. | 2026-09-12 |
 
 ### Assignment History
 
@@ -713,6 +721,127 @@ boundary, as each test already defines):
   HEAD after `git fetch origin`. All completion criteria met by the
   Verification Results above; no linked issue.
 
+<a id="m11"></a>
+#### M11 - Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus)
+
+Origin: e260630 / M11
+Status: Not started
+
+##### Summary
+
+The middleware server (the middleware counterpart of the IOC host) hosts the
+EPICS Archiver Appliance and Phoebus, each independently selectable, on a base
+that carries the EPICS C base. cloud-provision defines the operator/species
+structure and the package baseline for it - the normative source ansible-provision
+mirrors (its G2). The three application stacks (EPICS, Archiver Appliance,
+Phoebus) share one ecosystem form: source -> env (compile) -> distribution ->
+install operator.
+
+##### Scope
+
+- Define new operators in `docs/OPERATOR_MODEL.md`: P_java (system OpenJDK 21,
+  `JAVA_HOME` set to the distribution JDK path - family-specific, e.g.
+  `/usr/lib/jvm/java-21-openjdk-amd64` on debian - aligned with aa-env's
+  declarative package list `configure/os/<os>.pkgs` to avoid a double
+  definition), P_tomcat (Tomcat 9.0.121 Apache tarball as the shared
+  CATALINA_HOME only; the four-instance skeleton stays aa-env's, created by its
+  `make install` from `site-template/skel`), P_mariadb (MariaDB server with the
+  `archappl` database and user - kept a separable, low-investment module because
+  aa-env replaces it entirely with SQLite in Phase 2), P_archiver /
+  P_archiver-build (install the aa-distribution WARs, or build aa-maven at its
+  freeze tag on the base VM and install), and P_phoebus / P_phoebus-build
+  (phoebus-distribution binary, or source build) - each install operator paired
+  with a source-build alternative as P_epics is with P_epics-build.
+- Define the species: `archiver` (distribution) and `archiver-dev` (source
+  build), `phoebus` and `phoebus-dev`, and `middleware` (the selectable
+  combination), on a base that includes P_epics.
+- Carry the middleware package baseline in `configure/` (system OpenJDK 21,
+  Tomcat 9.0.121, MariaDB) as the single source with a guard.
+- The middleware VM is provisionable through the existing `create_vm.bash` and
+  the `lab` network. The target vacuum is proposed as rocky8 (inferred from the
+  IOC dev host and production; not yet an owner decision - see the open
+  sub-decision below).
+
+##### Out of scope
+
+- Creating and populating the aa-distribution and phoebus-distribution
+  repositories (owned by aa-env and phoebus-env); the ansible-provision role
+  implementation (its M14); the live verification of the distribution-install
+  path, which needs those repositories to exist (tracked as `G1` and Backlog
+  `M12`).
+- Maven is not installed as an operator: aa-maven pins Maven 3.9.9 through its
+  Maven Wrapper (`./mvnw`).
+
+##### Completion Criteria
+
+- `docs/OPERATOR_MODEL.md` defines the operators and species above with their
+  order and the install/source-build alternative rule.
+- `configure/` carries the middleware package baseline with a passing guard.
+- The `archiver-dev` (source-build) species resolves on the base VM (structure
+  check) - the path that works before the distribution repositories exist.
+
+##### Dependencies And Decisions
+
+- `D2` (2026-09-12): the EPICS-symmetric ecosystem form and the cross-repository
+  ownership split.
+- `D3` (2026-09-12): system Java, P_epics required, Tomcat 9.0.121, MariaDB
+  now / SQLite later, group `mid` / user `mid-srv`, and Maven via the wrapper
+  with the source-build prerequisites (`JAVA_HOME`, git, scp, outbound HTTPS,
+  `-Dsphinx.skip=true`).
+- The aa-maven build structure was confirmed by the aa-maven session on
+  2026-09-12 (single-module pom, Maven Wrapper 3.9.9, JDK 21 + `JAVA_HOME`,
+  Tomcat not a build dependency; servlet-api line Tomcat 9).
+- The java/tomcat/mariadb boundary was coordinated with the aa-env session on
+  2026-09-12 and matches its decisions D10-D12 (`docs/milestone-265f580.md`):
+  the system JDK with `JAVA_HOME` at the distribution path and java-env dropped
+  (D10); Tomcat 9.0.121 runtime, the launcher a script plus a single systemd
+  service (D12); MariaDB now, fully replaced by SQLite in Phase 2 (D11). The
+  instance skeleton, `server.xml` / `context.xml`, and the schema stay aa-env's;
+  the three operators provide only the generic packages and services.
+- Reconciliation needed (cross-repository): ansible-provision `G2`, `M14`, and
+  `D15` currently describe a pinned non-system OpenJDK/Maven and Phoebus build
+  dependencies. This plan supersedes that - system Java, Maven only via the
+  aa-maven wrapper (not installed), Tomcat 9.0.121 and MariaDB added, and
+  Phoebus as a binary distribution. The ansible session owns that register
+  (single-writer), so `G2`/`M14`/`D15` must be reconciled there before `G2` is
+  marked Complete; requested by cross-session message.
+- Open sub-decisions: the target vacuum (proposed rocky8), the `mid` group GID
+  policy, and the increment scope (source-build species first, or the
+  distribution path alongside).
+- Proxy precondition: when the middleware host is behind the site proxy,
+  `P_proxy` applies first (unconditionally, before `P_common` and every fetch),
+  as it does for the other species. It is a precondition, not a product member,
+  so it is not in the operator list; the source-build's outbound HTTPS (the
+  Maven wrapper download, the svg_viewer download) and every package and
+  distribution fetch pass through it, and its fate follows the realization mode
+  (Golden seals it, Live and Instant keep it).
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Reflect the operators, species, and order into `docs/OPERATOR_MODEL.md`.
+2. Add the middleware package baseline and its guard under `configure/` and
+   `tests/`.
+3. Structure-check the middleware species; confirm the source-build path.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Structure | Enumerate the new operators and species in `OPERATOR_MODEL.md`; run the middleware package-baseline guard | control host | Operators, species, and order are defined; the guard passes. |
+| T2 | Integration | Apply the `archiver-dev` source-build species on the base VM | rocky8 (proposed target) | aa-maven builds via `./mvnw ... -Dsphinx.skip=true` and the WARs install; a re-apply is idempotent. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | pending | control host | Not run | |
+| T2 | pending | rocky8 (proposed target) | Not run | |
+
 ## Backlog
 
 ### Work
@@ -723,6 +852,7 @@ boundary, as each test already defines):
 | Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
+| Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
 
 ### Backlog Details
 
@@ -1110,6 +1240,67 @@ both edited scripts.
   `tests/check-epics-env-inventory.bash`), T1-T2 above pass on the shipped
   offline path. The commit carries `Closes #41`, so #41 auto-closes when it
   lands on origin/master.
+
+<a id="m12"></a>
+#### M12 - Verify the middleware distribution-install path (P_archiver, P_phoebus)
+
+Origin: e260630 / M12
+Status: Blocked
+
+##### Summary
+
+Once the aa-distribution and phoebus-distribution repositories exist (`G1`), the
+distribution-install operators defined in `M11` (`P_archiver`, `P_phoebus`) and
+their `archiver` / `phoebus` species can be verified live: install the built
+WARs and the Phoebus binary on the middleware host. `M11` delivers the structure
+and the source-build path; this row is the deferred distribution-path
+verification, which cannot run before the repositories exist.
+
+##### Scope
+
+- Live-apply the `archiver` (distribution) species and the `phoebus`
+  (distribution) species on the middleware VM, confirming the WARs and the
+  Phoebus binary install from their distribution repositories and a re-apply is
+  idempotent.
+
+Out of scope: defining the operators/species (that is `M11`); producing the
+distribution repositories (owned by aa-env and phoebus-env).
+
+##### Completion Criteria
+
+- The `archiver` and `phoebus` distribution species install and re-apply
+  idempotently on the middleware VM against real distribution repositories.
+
+##### Dependencies And Decisions
+
+- `G1` (Open): the two distribution repositories must exist and carry their
+  artifacts. This row is Blocked until `G1` is Complete, then resumes as Not
+  started.
+- Depends on `M11` for the operator and species definitions.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. After `G1`, live-apply the distribution species on the middleware VM.
+2. Record the per-species install and idempotency evidence.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Integration | Live-apply the `archiver` distribution species | middleware VM | The aa-distribution WARs install and deploy to the Tomcat instances; a re-apply is idempotent. |
+| T2 | Integration | Live-apply the `phoebus` distribution species | middleware VM | The phoebus-distribution binary installs and configures; a re-apply is idempotent. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | pending | middleware VM | Not run | |
+| T2 | pending | middleware VM | Not run | |
 
 ## History
 
