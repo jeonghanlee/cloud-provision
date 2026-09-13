@@ -1,0 +1,29 @@
+# Middleware OS packages - the single source for the middleware server's OS
+# package baseline: the P_java runtime, the P_mariadb server, and the ssh
+# client the source-build path needs for scp. Installed post-boot through the
+# ansible-provision middleware roles (planned as its M14), never through
+# cloud-init, so no user-data
+# template holds them and no template-subset check applies (contrast
+# tests/check-package-parity.bash). Tomcat is a vendor tarball (not a package),
+# and the Archiver Appliance and Phoebus come from their distributions or
+# source builds, so none of those appear here; their operators install them.
+#
+# Format: one "os: packages" line per middleware vacuum. Blank lines and #
+# comments ignored. The middleware vacua are debian13 and rocky8; each carries
+# its own verbatim list because the java, mariadb, and ssh-client package names
+# differ by family. The guard in tests/check-middleware-packages.bash enforces
+# this source's integrity. The ansible-provision middleware roles keep their own
+# installer lists, which this guard does not compare against.
+#
+# Rocky Java caution: installing java-21-openjdk does not move the default
+# `java` off the system 1.8 - the P_java operator selects 21 with `alternatives`
+# and resolves JAVA_HOME against the versioned path. Maven is not installed here
+# (the source builds use each repository's ./mvnw wrapper), so the site
+# document's maven-openjdk21 module path is deliberately not taken.
+#
+# Rocky MariaDB: mariadb-server is a RHEL8 AppStream module; its default stream
+# installs out of the box, but the P_mariadb operator enables a specific stream
+# when a pinned version is needed.
+
+debian13: openjdk-21-jdk-headless mariadb-server openssh-client
+rocky8: java-21-openjdk java-21-openjdk-devel mariadb-server openssh-clients

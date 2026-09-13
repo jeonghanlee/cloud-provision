@@ -37,7 +37,7 @@ VARS_EXCLUDES += ethercat_bake_targets
 
 .PHONY: bake bake.iocrunner-nfs bake.ethercat check-bake check-bake-fresh-inputs \
 	check-bake-provenance check-proxy-lifecycle check-package-parity \
-	check-epics-packages help.bake
+	check-epics-packages check-middleware-packages help.bake
 
 bake: $(addprefix bake., $(BAKE_OS_TYPES)) ## Bake golden iocrunner images for all bakeable OS types
 
@@ -45,7 +45,7 @@ bake.iocrunner-nfs: $(addprefix bake.iocrunner-nfs., $(BAKE_OS_TYPES)) ## Bake g
 
 bake.ethercat: $(addprefix bake.ethercat., $(ETHERCAT_BAKE_OS_TYPES)) ## Bake golden ethercat images for all ethercat-bakeable OS types
 
-check-bake: check-bake-fresh-inputs check-bake-provenance check-proxy-lifecycle check-package-parity check-epics-packages ## Run offline bake contract checks
+check-bake: check-bake-fresh-inputs check-bake-provenance check-proxy-lifecycle check-package-parity check-epics-packages check-middleware-packages ## Run offline bake contract checks
 
 check-bake-fresh-inputs: ## Verify fresh-only VM provisioning safeguards
 	$(QUIET) bash $(TOP)/tests/check-fresh-bake-inputs.bash
@@ -62,6 +62,9 @@ check-package-parity: ## Verify template packages stay within the P_common set
 check-epics-packages: ## Verify the EPICS build-dependency source integrity
 	$(QUIET) bash $(TOP)/tests/check-epics-packages.bash
 
+check-middleware-packages: ## Verify the middleware package baseline source integrity
+	$(QUIET) bash $(TOP)/tests/check-middleware-packages.bash
+
 help.bake: ## Show dynamically generated bake targets
 	$(QUIET) printf "\nPer-OS iocrunner bake targets (OS in: %s):\n" "$(BAKE_OS_TYPES)"
 	$(QUIET) printf "  make bake               Bake all iocrunner OS types sequentially\n"
@@ -75,6 +78,7 @@ help.bake: ## Show dynamically generated bake targets
 	$(QUIET) printf "  make check-proxy-lifecycle\n"
 	$(QUIET) printf "  make check-package-parity\n"
 	$(QUIET) printf "  make check-epics-packages\n"
+	$(QUIET) printf "  make check-middleware-packages\n"
 	$(QUIET) printf "\nPer-OS ethercat bake targets (OS in: %s):\n" "$(ETHERCAT_BAKE_OS_TYPES)"
 	$(QUIET) printf "  make bake.ethercat      Bake all ethercat OS types sequentially\n"
 	$(QUIET) printf "  make bake.ethercat.<os> Bake golden ethercat image for one OS\n"
