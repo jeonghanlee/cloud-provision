@@ -82,6 +82,13 @@ software and configuration a species is made of. A precondition (see the
 | P_iocrunner | `iocrunner` | After P_con, P_procserv, and one of P_epics or P_epics-build | epics-ioc-runner cloned at the pinned ref and its runner binary installed. |
 | P_testusers | `testusers` | After P_iocrunner | Operator, observer, and local-mode test accounts; operators joined to the ioc group. |
 | P_ethercat | `ethercat` | After P_rt | ethercat-env cloned and its root-affecting target graph run; RT kernel selected as boot default and booted. P_ethercat can apply on a non-RT bare state, but the `ethercat` species is defined on rtbase because a real EtherCAT deployment runs the RT kernel. |
+| P_java | `java` | After P_common | The pinned system OpenJDK 21 set as the default `java` through `alternatives`, with `JAVA_HOME` exported to the distribution JDK path (family-specific: `/usr/lib/jvm/java-21-openjdk-amd64` on debian; on rocky the `java-21-openjdk` selected with `alternatives --config java`, per the ALS-U OS Preparation reference). Its package set aligns with the aa-env per-OS list; Maven is not installed - the source builds use each repository's `./mvnw` wrapper. Shared prerequisite for P_tomcat, P_archiver(-build), and P_phoebus(-build). |
+| P_tomcat | `tomcat` | After P_java | Apache Tomcat 9.0.121 unpacked from the vendor tarball as the shared CATALINA_HOME (`/opt/tomcat9`), used for its libraries and skeleton only; Tomcat's own service is not run. The four Archiver Appliance instance skeletons (mgmt, engine, etl, retrieval) are not created here - aa-env's `make install` generates them. Requires P_java. Used by the archiver species, not by phoebus. |
+| P_mariadb | `mariadb` | After P_common | A MariaDB server bound to localhost with the `archappl` database and application user, the Archiver Appliance config store. The schema, the Tomcat JNDI resource, and the `make db.*` application stay aa-env's. Kept a separable module: aa-env replaces MariaDB with SQLite in its Phase 2, so this operator drops out then. Used by the archiver species only. |
+| P_archiver | `archiver` | After P_java, P_tomcat, P_mariadb | Installs the EPICS Archiver Appliance from the published aa-distribution WARs and its launcher (the `archappl.bash` script plus a single systemd service, per aa-env), deploying the four webapp instances onto the shared Tomcat. Consumes aa-distribution the way P_epics consumes EPICS-env-distribution. Alternative to P_archiver-build; never both on one vacuum. |
+| P_archiver-build | `archiver_build` | After P_java, P_tomcat, P_mariadb | Builds the Archiver Appliance WARs from the aa-maven source at its freeze tag on the base VM with the repository `./mvnw` wrapper (`-Dsphinx.skip=true`), then installs as P_archiver does. Needs git (with an origin ref), openssh-client (scp), and outbound HTTPS in addition to P_java. The source-build alternative to P_archiver; never both. |
+| P_phoebus | `phoebus` | After P_java | Installs the Phoebus middleware from the published phoebus-distribution binary and its site activation (`activate-phoebus`). Consumes phoebus-distribution. Requires P_java. Independently selectable from the archiver operators. Alternative to P_phoebus-build; never both. |
+| P_phoebus-build | `phoebus_build` | After P_java | Builds Phoebus from the phoebus-env source on the base VM (its `make build.phoebus`) and installs it under the site apps path. Requires P_java and the phoebus-env build tool (the repository wrapper is intended; confirmed against phoebus-env at implementation time). The source-build alternative to P_phoebus; never both. |
 
 Package names that differ by family (`ssl-dev`, `g++`) are recorded with their debian and rocky spellings in `configure/pcommon-packages`.
 
@@ -97,7 +104,11 @@ column: the app operators (P_con, P_conserver, P_procserv) need P_provenance
 first; P_rt needs P_common; P_python needs P_common; P_epics needs P_provenance
 and P_python; P_epics-build needs P_common and P_python; P_epics-support needs
 P_epics-build; P_iocrunner needs P_con, P_procserv, and one of P_epics or
-P_epics-build; P_testusers needs P_iocrunner; P_ethercat needs P_rt.
+P_epics-build; P_testusers needs P_iocrunner; P_ethercat needs P_rt. P_java
+needs P_common; P_tomcat needs P_java; P_mariadb needs P_common; P_archiver and
+P_archiver-build each need P_java, P_tomcat, and P_mariadb; P_phoebus and
+P_phoebus-build each need P_java. P_archiver and P_archiver-build are
+alternatives (never both on one vacuum), as are P_phoebus and P_phoebus-build.
 
 Free order (either order produces the same species) - any two operators with no
 dependency between them can be applied in either order. For example, the app
@@ -167,6 +178,11 @@ realization is proxied is a mode-and-site matter, not a difference in species.
 | nfs-sim | P_nfs-sim \|bare⟩ | all |
 | rtbase | P_rt \|bare⟩ | all |
 | ethercat | P_ethercat \|rtbase⟩ | all |
+| archiver | P_archiver P_mariadb P_tomcat P_java (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | debian13, rocky8 |
+| archiver-dev | P_archiver-build P_mariadb P_tomcat P_java (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | debian13, rocky8 |
+| phoebus | P_phoebus P_java (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | debian13, rocky8 |
+| phoebus-dev | P_phoebus-build P_java (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | debian13, rocky8 |
+| middleware | P_phoebus P_archiver P_mariadb P_tomcat P_java (P_epics or P_epics-build) P_python P_provenance \|bare⟩ | debian13, rocky8 |
 
 `iocserver` is `iocrunner` without the test accounts (`P_testusers`); the IOC
 server runs the runner and its base software but adds no operator, observer, or
@@ -269,6 +285,17 @@ distribution image (Ship), a pass/fail verdict on a release candidate (Release
 Verification), or a portability note for a non-shipping combination (Portability
 coverage) — is classified by the `epics-env-pipeline` skill's Run kinds, not
 redefined here.
+
+**aa-distribution** — the built Archiver Appliance WARs, published to a
+repository; the payload `P_archiver` installs. `P_archiver-build` is the
+alternative that rebuilds them from the aa-maven source in place. Producer:
+aa-env compiles the aa-maven source and publishes the result, mirroring
+EPICS-env producing EPICS-env-distribution.
+
+**phoebus-distribution** — the built Phoebus binary, published to a repository;
+the payload `P_phoebus` installs. `P_phoebus-build` is the alternative that
+rebuilds it from the phoebus-env source in place. Producer: phoebus-env,
+mirroring the same source -> env -> distribution -> install form.
 
 ## Cross-repository map
 

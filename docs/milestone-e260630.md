@@ -758,9 +758,9 @@ install operator.
 - Carry the middleware package baseline in `configure/` (system OpenJDK 21,
   Tomcat 9.0.121, MariaDB) as the single source with a guard.
 - The middleware VM is provisionable through the existing `create_vm.bash` and
-  the `lab` network. The target vacuum is proposed as rocky8 (inferred from the
-  IOC dev host and production; not yet an owner decision - see the open
-  sub-decision below).
+  the `lab` network. The target vacua are debian13 and rocky8 (both families),
+  with family-specific handling (the `JAVA_HOME` distribution path and the
+  package names differ by family).
 
 ##### Out of scope
 
@@ -769,8 +769,10 @@ install operator.
   implementation (its M14); the live verification of the distribution-install
   path, which needs those repositories to exist (tracked as `G1` and Backlog
   `M12`).
-- Maven is not installed as an operator: aa-maven pins Maven 3.9.9 through its
-  Maven Wrapper (`./mvnw`).
+- Maven is not installed as an operator: the aa-maven source build uses its
+  Maven Wrapper (`./mvnw`, verified present); the Phoebus source build is
+  intended to use its own wrapper too (to be verified against phoebus-env), and
+  the site document's `maven-openjdk21` package is not the chosen path.
 
 ##### Completion Criteria
 
@@ -798,16 +800,27 @@ install operator.
   service (D12); MariaDB now, fully replaced by SQLite in Phase 2 (D11). The
   instance skeleton, `server.xml` / `context.xml`, and the schema stay aa-env's;
   the three operators provide only the generic packages and services.
-- Reconciliation needed (cross-repository): ansible-provision `G2`, `M14`, and
-  `D15` currently describe a pinned non-system OpenJDK/Maven and Phoebus build
-  dependencies. This plan supersedes that - system Java, Maven only via the
-  aa-maven wrapper (not installed), Tomcat 9.0.121 and MariaDB added, and
-  Phoebus as a binary distribution. The ansible session owns that register
-  (single-writer), so `G2`/`M14`/`D15` must be reconciled there before `G2` is
-  marked Complete; requested by cross-session message.
-- Open sub-decisions: the target vacuum (proposed rocky8), the `mid` group GID
-  policy, and the increment scope (source-build species first, or the
-  distribution path alongside).
+- Reconciliation (cross-repository): the ansible-provision session reconciled
+  `G2`/`M14`/`D15` to this plan on 2026-09-13 - its `D16` supersedes the pinned
+  non-system OpenJDK/Maven and Phoebus-build substance of `D15`, and `G2`/`M14`
+  now name the system Java, wrapper Maven, Tomcat 9.0.121, and MariaDB plan with
+  M11 as the source - pending that session's commit; on its push this
+  milestone's G2-reconciliation condition is met. cloud-provision remains the
+  source (M11); the ansible session owns that register (single-writer).
+- Sub-decisions settled (2026-09-13): target vacua debian13 and rocky8 (both);
+  the `mid` group GID is site-assigned (not pinned in the operator); the
+  increment scope is the source-build species first (`archiver-dev` /
+  `phoebus-dev`), the distribution path deferred to `M12`; Maven is always the
+  repository wrapper (`./mvnw`), never a system package, on both source builds.
+- To verify at implementation (hypothesis): P_phoebus-build's build tool.
+  aa-maven's `./mvnw` wrapper is confirmed present; phoebus-env is not cloned
+  locally, so whether the Phoebus source build uses a Maven Wrapper (intended)
+  or the site document's `maven-openjdk21` is confirmed against phoebus-env (its
+  repository or session) before P_phoebus-build is defined.
+- Java setup reference: the ALS-U Linux OS Preparation document (`work/`,
+  gitignored, kept on both sides) is the implementation-time reference for the
+  rocky `alternatives` handling and the JDK package name only; it is not the
+  basis for the register (owner ruling 2026-09-13).
 - Proxy precondition: when the middleware host is behind the site proxy,
   `P_proxy` applies first (unconditionally, before `P_common` and every fetch),
   as it does for the other species. It is a precondition, not a product member,
@@ -818,29 +831,31 @@ install operator.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: owner accepted 2026-09-13 after the third-person plan review and findings F1-F4
+Implementation Authorization: owner authorized 2026-09-13 (implement on branch m11-middleware-operators)
 Superseded Plan Artifacts: none
 
 1. Reflect the operators, species, and order into `docs/OPERATOR_MODEL.md`.
-2. Add the middleware package baseline and its guard under `configure/` and
-   `tests/`.
-3. Structure-check the middleware species; confirm the source-build path.
+2. Add the middleware package baseline under `configure/` and a guard under
+   `tests/` mirroring the existing `check-epics-packages.bash` /
+   `check-package-parity.bash` pattern, wired into a `make check-*` target.
+3. Structure-check the middleware species; confirm the source-build path on both
+   debian13 and rocky8.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
 | T1 | Structure | Enumerate the new operators and species in `OPERATOR_MODEL.md`; run the middleware package-baseline guard | control host | Operators, species, and order are defined; the guard passes. |
-| T2 | Integration | Apply the `archiver-dev` source-build species on the base VM | rocky8 (proposed target) | aa-maven builds via `./mvnw ... -Dsphinx.skip=true` and the WARs install; a re-apply is idempotent. |
+| T2 | Integration | Apply the `archiver-dev` source-build species on the base VM, per family | debian13 and rocky8 | aa-maven builds via `./mvnw ... -Dsphinx.skip=true` and the WARs install on each family; a re-apply is idempotent. |
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | T1 | pending | control host | Not run | |
-| T2 | pending | rocky8 (proposed target) | Not run | |
+| T2 | pending | debian13 and rocky8 | Not run | |
 
 ## Backlog
 
