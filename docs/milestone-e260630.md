@@ -727,7 +727,7 @@ boundary, as each test already defines):
 #### M11 - Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus)
 
 Origin: e260630 / M11
-Status: Not started
+Status: In progress
 
 ##### Summary
 
