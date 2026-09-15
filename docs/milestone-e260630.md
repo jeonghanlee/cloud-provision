@@ -806,8 +806,11 @@ install operator.
   `G2`/`M14`/`D15` to this plan on 2026-09-13 - its `D16` supersedes the pinned
   non-system OpenJDK/Maven and Phoebus-build substance of `D15`, and `G2`/`M14`
   now name the system Java, wrapper Maven, Tomcat 9.0.121, and MariaDB plan with
-  M11 as the source - pending that session's commit; on its push this
-  milestone's G2-reconciliation condition is met. cloud-provision remains the
+  M11 as the source. The reconciliation (`D16`) is landed on the ansible-provision
+  branch `m14-middleware-reconcile` (commit `372c333`), pending its merge to
+  ansible master; this milestone's G2-reconciliation condition is met only when
+  that reconciliation merges to ansible master (durable evidence), not against the
+  branch commit. cloud-provision remains the
   source (M11); the ansible session owns that register (single-writer).
 - Sub-decisions settled (2026-09-13): target vacua debian13 and rocky8 (both);
   the `mid` group GID is site-assigned (not pinned in the operator); the
