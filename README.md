@@ -137,6 +137,11 @@ make clean all                              # every VM type, then the two base V
 record, and seed ISO. The follow-up provision rebuilds from the cached base
 image and re-runs cloud-init from scratch. Per-VM time is roughly one minute.
 
+`stop` is not a reset. A shutdown leaves the VM disk and its installed
+software tree intact, so a downstream provisioner that skips its install step
+when a prior install is present keeps the old tree; changing software refs
+requires `clean` before the re-provision.
+
 ### Bake IOC runner variants
 
 The `rocky8-iocrunner` / `debian13-iocrunner` OS variants boot from
