@@ -50,6 +50,38 @@ Use the selector by the image you need to produce, not by the VM you will boot l
 
 To accept a production ioc-runner golden image, run the Rocky 8 and Debian 13 ioc-runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.main` and `debian13-iocrunner.main` consumers and compare the manifests against the running systems.
 
+## Baking from origin/master with a WIP working checkout
+
+A production golden bakes from each supplier's `origin/master` (above). When the
+working `cloud-provision` and `ansible-provision` checkouts are on WIP branches,
+do not switch the shared checkouts. Clone each supplier's `master` into a scratch
+directory and run the bake from there.
+
+The bake driver runs from whichever `cloud-provision` checkout holds the script
+(`SC_TOP`), resolves `ansible-provision` from the sibling `../ansible-provision`
+or from an explicit `ANSIBLE_PROVISION_DIR`, and publishes images to `${IMAGE_DIR}`.
+Clone the two suppliers as siblings so the default resolution finds them, and pass
+the site's real image directory with `-d`, because the scratch clone carries no
+`configure/CONFIG_SITE.local` override.
+
+```bash
+git clone --branch master git@github.com:jeonghanlee/cloud-provision.git /tmp/bake-master/cloud-provision
+git clone --branch master git@github.com:jeonghanlee/ansible-provision.git /tmp/bake-master/ansible-provision
+```
+
+```bash
+/tmp/bake-master/cloud-provision/bin/bake_iocrunner_image.bash -o rocky8 -d ~/libvirt/images
+/tmp/bake-master/cloud-provision/bin/bake_iocrunner_image.bash -o debian13 -d ~/libvirt/images
+```
+
+The golden images land in the image directory as usual; the scratch clones hold
+only the driver trees, and the bake manifest records each supplier's `master`
+HEAD. Remove the scratch directory once the goldens are accepted.
+
+```bash
+rm -rf /tmp/bake-master
+```
+
 ## Where a bake writes
 
 `make bake.<os>` creates a new independent golden pair in the image directory.
