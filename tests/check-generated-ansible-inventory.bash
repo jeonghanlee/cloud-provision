@@ -81,6 +81,7 @@ function direct_groups_for_host {
         ubuntu24
         ubuntu26
         iocrunner
+        iocserver
         iocrunner_nfs
         epics_dev
         nfs_sim
@@ -180,7 +181,7 @@ fi
 # The bare selector constrains only the vacuum, so the full matrix is
 # driven with plain vacuum selectors; suffixed selectors follow below.
 declare -a VACUA=(debian13 rocky8 rocky10 ubuntu24 ubuntu26)
-declare -a ALL_SPECIES=(bare iocrunner iocrunner-nfs epics-dev nfs-sim rtbase ethercat)
+declare -a ALL_SPECIES=(bare iocrunner iocserver iocrunner-nfs epics-dev nfs-sim rtbase ethercat)
 matrix_octet=60
 for vacuum in "${VACUA[@]}"; do
     for species in "${ALL_SPECIES[@]}"; do
@@ -213,6 +214,7 @@ done
 # Suffixed selectors must strip to the vacuum; -iocrunner-nfs must strip
 # before -iocrunner.
 run_case sel-rocky8-iocrunner rocky8-iocrunner iocrunner "rocky8 iocrunner" "vacua" 192.168.123.150
+run_case sel-rocky8-iocserver rocky8-iocserver iocserver "rocky8 iocserver" "vacua" 192.168.123.204
 run_case sel-debian13-iocrunner-nfs debian13-iocrunner-nfs iocrunner-nfs "debian13 iocrunner_nfs" "vacua" 192.168.123.55
 run_case sel-rocky10-epics-dev rocky10-epics-dev epics-dev "rocky10 epics_dev" "vacua" 192.168.123.130
 run_case sel-debian13-rtbase debian13-rtbase rtbase "debian13 rtbase" "vacua" 192.168.123.80

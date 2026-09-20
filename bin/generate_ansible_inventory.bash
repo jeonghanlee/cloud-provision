@@ -30,10 +30,10 @@ function print_usage {
     printf "Required:\n"
     printf "  --os-type <selector>               cloud-provision OS selector; the\n"
     printf "                                       vacuum group is derived from it\n"
-    printf "  --species <species>                bare, iocrunner, iocrunner-nfs,\n"
-    printf "                                       epics-dev, nfs-sim, rtbase,\n"
-    printf "                                       ethercat, archiver,\n"
-    printf "                                       or archiver-dev\n"
+    printf "  --species <species>                bare, iocrunner, iocserver,\n"
+    printf "                                       iocrunner-nfs, epics-dev,\n"
+    printf "                                       nfs-sim, rtbase, ethercat,\n"
+    printf "                                       archiver, or archiver-dev\n"
     printf "\n"
     printf "Optional:\n"
     printf "  --ansible-user <name>              SSH user (default: vmadmin)\n"
@@ -134,6 +134,7 @@ case "${OS_TYPE}" in
         ;;
     *-iocrunner-nfs) VACUUM="${OS_TYPE%-iocrunner-nfs}" ;;
     *-iocrunner)     VACUUM="${OS_TYPE%-iocrunner}" ;;
+    *-iocserver)     VACUUM="${OS_TYPE%-iocserver}" ;;
     *-epics-dev)     VACUUM="${OS_TYPE%-epics-dev}" ;;
     *-ethercat)      VACUUM="${OS_TYPE%-ethercat}" ;;
     *-rtbase)        VACUUM="${OS_TYPE%-rtbase}" ;;
@@ -151,6 +152,7 @@ esac
 case "${SPECIES}" in
     bare)          INVENTORY_GROUPS=("${VACUUM}") ;;
     iocrunner)     INVENTORY_GROUPS=("${VACUUM}" iocrunner) ;;
+    iocserver)     INVENTORY_GROUPS=("${VACUUM}" iocserver) ;;
     iocrunner-nfs) INVENTORY_GROUPS=("${VACUUM}" iocrunner_nfs) ;;
     epics-dev)     INVENTORY_GROUPS=("${VACUUM}" epics_dev) ;;
     nfs-sim)       INVENTORY_GROUPS=("${VACUUM}" nfs_sim) ;;

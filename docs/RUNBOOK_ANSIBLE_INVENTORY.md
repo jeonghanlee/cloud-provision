@@ -20,19 +20,22 @@ species groups.
 ## Species
 
 The generator derives the vacuum group by stripping any species suffix
-from the OS selector, then adds the species group in underscore form.
-The operator definition in `docs/IMAGE_WORKFLOW.md` assigns every
-species to every vacuum.
+from the OS selector, then adds the species group in underscore form. It
+does not enforce which species a vacuum may take; the species-to-vacuum
+assignment is defined in `docs/OPERATOR_MODEL.md`.
 
 | `--species` | Direct groups |
 |---|---|
 | `bare` | Vacuum group only |
 | `iocrunner` | Vacuum group and `iocrunner` |
+| `iocserver` | Vacuum group and `iocserver` |
 | `iocrunner-nfs` | Vacuum group and `iocrunner_nfs` |
 | `epics-dev` | Vacuum group and `epics_dev` |
 | `nfs-sim` | Vacuum group and `nfs_sim` |
 | `rtbase` | Vacuum group and `rtbase` |
 | `ethercat` | Vacuum group and `ethercat` |
+| `archiver` | Vacuum group and `archiver` |
+| `archiver-dev` | Vacuum group and `archiver_dev` |
 
 The maintained group relationships make every generated host reachable
 through the `vacua` parent group.
@@ -99,8 +102,8 @@ host source required by that run.
 make check-runtime-inventory
 ```
 
-This check runs the real generator for all 39 vacuum-species pairs the
-operator definition assigns plus five suffixed selectors, merges each
-output through `ansible-inventory`, verifies direct and inherited groups,
-and exercises the EPICS-env status-to-playbook path with only Libvirt,
-SSH, and Ansible command boundaries controlled.
+This check runs the real generator for 44 plain-selector vacuum-species
+pairs plus ten suffixed-selector cases, merges each output through
+`ansible-inventory`, verifies direct and inherited groups, and exercises
+the EPICS-env status-to-playbook path with only Libvirt, SSH, and
+Ansible command boundaries controlled.
