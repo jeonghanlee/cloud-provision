@@ -32,7 +32,8 @@ function print_usage {
     printf "                                       vacuum group is derived from it\n"
     printf "  --species <species>                bare, iocrunner, iocrunner-nfs,\n"
     printf "                                       epics-dev, nfs-sim, rtbase,\n"
-    printf "                                       or ethercat\n"
+    printf "                                       ethercat, archiver,\n"
+    printf "                                       or archiver-dev\n"
     printf "\n"
     printf "Optional:\n"
     printf "  --ansible-user <name>              SSH user (default: vmadmin)\n"
@@ -125,7 +126,7 @@ validate_ipv4_address "${VM_ADDRESS}" \
 declare -ag INVENTORY_GROUPS=()
 
 # The vacuum is the OS selector with any species suffix removed. The
-# operator definition assigns every species to every vacuum, so the
+# generator does not restrict which species a vacuum may take, so the
 # selector constrains only the vacuum, never the species argument.
 case "${OS_TYPE}" in
     debian12|debian13|rocky8|rocky10|ubuntu24|ubuntu26)
@@ -136,6 +137,8 @@ case "${OS_TYPE}" in
     *-epics-dev)     VACUUM="${OS_TYPE%-epics-dev}" ;;
     *-ethercat)      VACUUM="${OS_TYPE%-ethercat}" ;;
     *-rtbase)        VACUUM="${OS_TYPE%-rtbase}" ;;
+    *-archiver-dev)  VACUUM="${OS_TYPE%-archiver-dev}" ;;
+    *-archiver)      VACUUM="${OS_TYPE%-archiver}" ;;
     *) die "unsupported OS selector: ${OS_TYPE}" ;;
 esac
 case "${VACUUM}" in
@@ -153,6 +156,8 @@ case "${SPECIES}" in
     nfs-sim)       INVENTORY_GROUPS=("${VACUUM}" nfs_sim) ;;
     rtbase)        INVENTORY_GROUPS=("${VACUUM}" rtbase) ;;
     ethercat)      INVENTORY_GROUPS=("${VACUUM}" ethercat) ;;
+    archiver)      INVENTORY_GROUPS=("${VACUUM}" archiver) ;;
+    archiver-dev)  INVENTORY_GROUPS=("${VACUUM}" archiver_dev) ;;
     *) die "unsupported species: ${SPECIES}" ;;
 esac
 

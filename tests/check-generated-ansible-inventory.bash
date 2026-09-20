@@ -86,6 +86,8 @@ function direct_groups_for_host {
         nfs_sim
         rtbase
         ethercat
+        archiver
+        archiver_dev
     )
 
     for group_name in "${known_groups[@]}"; do
@@ -215,6 +217,15 @@ run_case sel-debian13-iocrunner-nfs debian13-iocrunner-nfs iocrunner-nfs "debian
 run_case sel-rocky10-epics-dev rocky10-epics-dev epics-dev "rocky10 epics_dev" "vacua" 192.168.123.130
 run_case sel-debian13-rtbase debian13-rtbase rtbase "debian13 rtbase" "vacua" 192.168.123.80
 run_case sel-debian13-ethercat debian13-ethercat ethercat "debian13 ethercat" "vacua" 192.168.123.70
+
+# The archiver species pair is defined on debian13 and rocky8 only;
+# the group is the underscore form (archiver-dev -> archiver_dev). The
+# -archiver-dev / -archiver suffixes are mutually exclusive, so their
+# case order follows the -iocrunner-nfs convention, not a requirement.
+run_case sel-rocky8-archiver-dev rocky8-archiver-dev archiver-dev "rocky8 archiver_dev" "vacua" 192.168.123.200
+run_case sel-debian13-archiver-dev debian13-archiver-dev archiver-dev "debian13 archiver_dev" "vacua" 192.168.123.201
+run_case sel-rocky8-archiver rocky8-archiver archiver "rocky8 archiver" "vacua" 192.168.123.202
+run_case sel-debian13-archiver debian13-archiver archiver "debian13 archiver" "vacua" 192.168.123.203
 
 status_inventory="${WORKSPACE}/status-input.ini"
 printf "%s\n" \
