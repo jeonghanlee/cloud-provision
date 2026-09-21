@@ -76,6 +76,8 @@ declare -g ROCKY8_EPICS_DEV_IP_BASE=120
 declare -g ROCKY10_EPICS_DEV_IP_BASE=130
 declare -g ROCKY8_IOCRUNNER_IP_BASE=150
 declare -g ROCKY8_IOCRUNNER_NFS_IP_BASE=155
+declare -g DEBIAN13_ARCHIVER_DEV_IP_BASE=60
+declare -g ROCKY8_ARCHIVER_DEV_IP_BASE=140
 declare -g VM_IP=""
 declare -g VM_MAC=""
 
@@ -107,6 +109,8 @@ function print_usage {
     printf "                 Source-build hosts: rocky8-epics-dev, debian12-epics-dev,\n"
     printf "                 debian13-epics-dev, rocky10-epics-dev, ubuntu24-epics-dev,\n"
     printf "                 ubuntu26-epics-dev\n"
+    printf "                 Archiver hosts: rocky8-archiver-dev,\n"
+    printf "                 debian13-archiver-dev\n"
     printf "  -n <instance>  Instance label (default: main). main takes the static\n"
     printf "                 base address, dhcp takes a DHCP lease, any other label\n"
     printf "                 hashes into the shared 160-254 window.\n"
@@ -308,6 +312,16 @@ elif [[ "${OS_TYPE}" == "ubuntu26-epics-dev" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="resolute-server-cloudimg-amd64.img"
     BASE_URL="https://cloud-images.ubuntu.com/resolute/current/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "rocky8-archiver-dev" ]]; then
+    # Archiver Appliance source-build host on the plain Rocky 8 base image.
+    OS_VARIANT="rocky8"
+    BASE_IMAGE_NAME="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+    BASE_URL="https://download.rockylinux.org/pub/rocky/8/images/x86_64/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "debian13-archiver-dev" ]]; then
+    OS_VARIANT="debian13"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
+    BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
 else
     printf "Error: Unsupported OS type: %s\n" "${OS_TYPE}"
     exit 1
@@ -374,6 +388,8 @@ function resolve_network {
         rocky10-epics-dev)      os_base=${ROCKY10_EPICS_DEV_IP_BASE} ;;
         ubuntu24-epics-dev)     os_base=${UBUNTU24_EPICS_DEV_IP_BASE} ;;
         ubuntu26-epics-dev)     os_base=${UBUNTU26_EPICS_DEV_IP_BASE} ;;
+        rocky8-archiver-dev)    os_base=${ROCKY8_ARCHIVER_DEV_IP_BASE} ;;
+        debian13-archiver-dev)  os_base=${DEBIAN13_ARCHIVER_DEV_IP_BASE} ;;
     esac
 
     case "${NODE_ID}" in

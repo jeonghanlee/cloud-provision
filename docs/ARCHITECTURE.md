@@ -238,14 +238,14 @@ instance sits exactly on the base. The `*_IP_BASE` constants live in
 `bin/create_vm.bash` and are pairwise distinct, all below the .160 floor
 of the hashed window.
 
-| Vacuum    | bare | epics-dev | iocrunner | iocrunner-nfs | ethercat | rtbase |
-|-----------|------|-----------|-----------|---------------|----------|--------|
-| Debian 13 | .10  | .20       | .50       | .55           | .70      | .80    |
-| Debian 12 | .15  | .45       | —         | —             | —        | —      |
-| Ubuntu 26 | .25  | .30       | —         | —             | —        | —      |
-| Ubuntu 24 | .35  | .40       | —         | —             | —        | —      |
-| Rocky 8   | .100 | .120      | .150      | .155          | —        | —      |
-| Rocky 10  | .110 | .130      | —         | —             | —        | —      |
+| Vacuum    | bare | epics-dev | iocrunner | iocrunner-nfs | ethercat | rtbase | archiver-dev |
+|-----------|------|-----------|-----------|---------------|----------|--------|--------------|
+| Debian 13 | .10  | .20       | .50       | .55           | .70      | .80    | .60          |
+| Debian 12 | .15  | .45       | —         | —             | —        | —      | —            |
+| Ubuntu 26 | .25  | .30       | —         | —             | —        | —      | —            |
+| Ubuntu 24 | .35  | .40       | —         | —             | —        | —      | —            |
+| Rocky 8   | .100 | .120      | .150      | .155          | —        | —      | .140         |
+| Rocky 10  | .110 | .130      | —         | —             | —        | —      | —            |
 
 The operator definition assigns more pairs than are addressed; a pair
 gains a base address when work first builds it.

@@ -88,7 +88,7 @@ check-runtime-inventory: check-generated-ansible-inventory check-epics-env-inven
 
 .PHONY: all clean status stop
 
-all: $(DEFAULT_OS_TYPES) ## Provision the default OS types (excludes pre-baked variants)
+all: $(DEFAULT_OS_TYPES) ## Provision the default OS types (the plain base test VMs)
 
 clean: $(addsuffix .clean, $(OS_TYPES)) ## Remove all VM domains, disks, and seed ISOs (incl. baked)
 
