@@ -40,13 +40,22 @@ The production inventory is exact:
 | `ssh-environment` | Debian, Ubuntu, Rocky | `/home/vmadmin/.ssh/environment` | `vmadmin:vmadmin` | `0600` | dedicated |
 | `pip` | Debian, Ubuntu, Rocky | `/etc/pip.conf` | `root:root` | `0644` | dedicated |
 | `git` | Debian, Ubuntu, Rocky | `/etc/gitconfig` | `root:root` | preserve safe metadata; `0644` if absent | shared block |
+| `maven` | Debian, Ubuntu, Rocky | `/etc/maven-proxy-settings.xml` | `root:root` | `0644` | dedicated |
 
-This yields eight Debian rows, eight Ubuntu rows, and seven Rocky rows. The
+This yields nine Debian rows, nine Ubuntu rows, and eight Rocky rows. The
 environment artifacts contain lower- and uppercase HTTP, HTTPS, FTP, and
 no-proxy names. Dedicated files have exact content and metadata. Shared files
 preserve safe existing metadata and every byte outside one marked block. A
 non-empty shared file without a final newline fails before mutation because a
 separate marked block cannot be represented without changing existing bytes.
+
+Each artifact also carries a format. Every identity but `maven` is
+`hash-comment`, wrapping its content in the marked block; `maven` is `xml`,
+because an XML document cannot carry a `#` marker line. The whole `maven` file
+is the contract's, so its lifecycle is the dedicated one already defined: apply
+writes it, seal removes it, and the clean check requires its absence. Maven
+reads it only when a build selects it with `-gs`; it is not a Maven default
+location.
 
 `create_vm.bash` validates the proxy URL as data, substitutes the SSH key, and
 then performs a controlled merge into generated user-data. Supported templates

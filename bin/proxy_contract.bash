@@ -7,6 +7,8 @@ declare -gr PROXY_CONTRACT_BEGIN="# BEGIN CLOUD-PROVISION PROXY CONTRACT"
 declare -gr PROXY_CONTRACT_END="# END CLOUD-PROVISION PROXY CONTRACT"
 declare -gr PROXY_CONTRACT_MARKER="cloud-provision-proxy-v1"
 declare -gr PROXY_CONTRACT_NO_PROXY="localhost,127.0.0.1,192.168.0.0/16"
+# Maven nonProxyHosts is a "|"-separated wildcard list and cannot express CIDR.
+declare -gr PROXY_CONTRACT_NO_PROXY_MAVEN="localhost|127.0.0.1|192.168.*"
 declare -gr PROXY_CONTRACT_EXEC_PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 
 declare -gr PROXY_CONTRACT_PROFILE="/etc/profile.d/95cloud-provision-proxy.sh"
@@ -19,6 +21,9 @@ declare -gr PROXY_CONTRACT_SSHD_MAIN="/etc/ssh/sshd_config"
 declare -gr PROXY_CONTRACT_SSH_ENVIRONMENT="/home/vmadmin/.ssh/environment"
 declare -gr PROXY_CONTRACT_PIP="/etc/pip.conf"
 declare -gr PROXY_CONTRACT_GIT="/etc/gitconfig"
+# Selected explicitly with mvn -gs; it is not a Maven default location, so it
+# stays directly under /etc and never collides with a packaged /etc/maven.
+declare -gr PROXY_CONTRACT_MAVEN="/etc/maven-proxy-settings.xml"
 
 declare -gr PROXY_CONTRACT_RUNTIME_DIR="/run/cloud-provision"
 declare -gr PROXY_CONTRACT_SCRIPT="${PROXY_CONTRACT_RUNTIME_DIR}/proxy_contract.bash"
@@ -392,7 +397,8 @@ function proxy_contract_inventory_add {
     local -n markers_ref="$7"
     local -n cleanups_ref="$8"
     local -n remnants_ref="$9"
-    shift 9
+    local -n formats_ref="${10}"
+    shift 10
 
     identities_ref+=("$1")
     paths_ref+=("$2")
@@ -403,6 +409,7 @@ function proxy_contract_inventory_add {
     markers_ref+=("$7")
     cleanups_ref+=("$8")
     remnants_ref+=("$9")
+    formats_ref+=("${10}")
 }
 
 # The output arrays are selected by caller-provided names.
@@ -412,6 +419,7 @@ function proxy_contract_inventory {
     local identities_name="$2" paths_name="$3" owners_name="$4"
     local groups_name="$5" modes_name="$6" forms_name="$7"
     local markers_name="$8" cleanups_name="$9" remnants_name="${10}"
+    local formats_name="${11}"
     local -n identities_ref="${identities_name}"
     local -n paths_ref="${paths_name}"
     local -n owners_ref="${owners_name}"
@@ -421,6 +429,7 @@ function proxy_contract_inventory {
     local -n markers_ref="${markers_name}"
     local -n cleanups_ref="${cleanups_name}"
     local -n remnants_ref="${remnants_name}"
+    local -n formats_ref="${formats_name}"
 
     identities_ref=()
     paths_ref=()
@@ -431,51 +440,55 @@ function proxy_contract_inventory {
     markers_ref=()
     cleanups_ref=()
     remnants_ref=()
+    formats_ref=()
 
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" profile "${PROXY_CONTRACT_PROFILE}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:profile
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" environment "${PROXY_CONTRACT_ENVIRONMENT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required # inventory:environment
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" profile "${PROXY_CONTRACT_PROFILE}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:profile
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" environment "${PROXY_CONTRACT_ENVIRONMENT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:environment
     case "${os_family}" in
         debian|ubuntu)
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" apt "${PROXY_CONTRACT_APT}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:apt
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" sudo "${PROXY_CONTRACT_SUDO}" root root 0440 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:sudo
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" sshd "${PROXY_CONTRACT_SSHD_DROPIN}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:sshd
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" apt "${PROXY_CONTRACT_APT}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:apt
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" sudo "${PROXY_CONTRACT_SUDO}" root root 0440 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:sudo
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" sshd "${PROXY_CONTRACT_SSHD_DROPIN}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:sshd
             ;;
         rocky)
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" dnf "${PROXY_CONTRACT_DNF}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required # inventory:dnf
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" sshd "${PROXY_CONTRACT_SSHD_MAIN}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required # inventory:sshd
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" dnf "${PROXY_CONTRACT_DNF}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:dnf
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" sshd "${PROXY_CONTRACT_SSHD_MAIN}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:sshd
             ;;
         *)
             proxy_contract_die "contains an unsupported inventory OS family"
             return 1
             ;;
     esac
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" ssh-environment "${PROXY_CONTRACT_SSH_ENVIRONMENT}" vmadmin vmadmin 0600 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:ssh-environment
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" pip "${PROXY_CONTRACT_PIP}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:pip
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" git "${PROXY_CONTRACT_GIT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required # inventory:git
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" ssh-environment "${PROXY_CONTRACT_SSH_ENVIRONMENT}" vmadmin vmadmin 0600 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:ssh-environment
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" pip "${PROXY_CONTRACT_PIP}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:pip
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" git "${PROXY_CONTRACT_GIT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:git
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" maven "${PROXY_CONTRACT_MAVEN}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required xml # inventory:maven
 }
 
 function proxy_contract_validate_inventory_entry {
     local os_family="$1" identity="$2" path="$3" owner="$4" group="$5"
     local mode="$6" form="$7" marker="$8" cleanup="$9" remnant="${10}"
+    local format="${11}"
     local expected=""
 
     case "${os_family}:${identity}" in
-        debian:profile|ubuntu:profile|rocky:profile) expected="${PROXY_CONTRACT_PROFILE}|root|root|0644|dedicated" ;;
-        debian:environment|ubuntu:environment|rocky:environment) expected="${PROXY_CONTRACT_ENVIRONMENT}|root|root|0644|shared" ;;
-        debian:apt|ubuntu:apt) expected="${PROXY_CONTRACT_APT}|root|root|0644|dedicated" ;;
-        rocky:dnf) expected="${PROXY_CONTRACT_DNF}|root|root|0644|shared" ;;
-        debian:sudo|ubuntu:sudo) expected="${PROXY_CONTRACT_SUDO}|root|root|0440|dedicated" ;;
-        debian:sshd|ubuntu:sshd) expected="${PROXY_CONTRACT_SSHD_DROPIN}|root|root|0644|dedicated" ;;
-        rocky:sshd) expected="${PROXY_CONTRACT_SSHD_MAIN}|root|root|0644|shared" ;;
-        debian:ssh-environment|ubuntu:ssh-environment|rocky:ssh-environment) expected="${PROXY_CONTRACT_SSH_ENVIRONMENT}|vmadmin|vmadmin|0600|dedicated" ;;
-        debian:pip|ubuntu:pip|rocky:pip) expected="${PROXY_CONTRACT_PIP}|root|root|0644|dedicated" ;;
-        debian:git|ubuntu:git|rocky:git) expected="${PROXY_CONTRACT_GIT}|root|root|0644|shared" ;;
+        debian:profile|ubuntu:profile|rocky:profile) expected="${PROXY_CONTRACT_PROFILE}|root|root|0644|dedicated|hash-comment" ;;
+        debian:environment|ubuntu:environment|rocky:environment) expected="${PROXY_CONTRACT_ENVIRONMENT}|root|root|0644|shared|hash-comment" ;;
+        debian:apt|ubuntu:apt) expected="${PROXY_CONTRACT_APT}|root|root|0644|dedicated|hash-comment" ;;
+        rocky:dnf) expected="${PROXY_CONTRACT_DNF}|root|root|0644|shared|hash-comment" ;;
+        debian:sudo|ubuntu:sudo) expected="${PROXY_CONTRACT_SUDO}|root|root|0440|dedicated|hash-comment" ;;
+        debian:sshd|ubuntu:sshd) expected="${PROXY_CONTRACT_SSHD_DROPIN}|root|root|0644|dedicated|hash-comment" ;;
+        rocky:sshd) expected="${PROXY_CONTRACT_SSHD_MAIN}|root|root|0644|shared|hash-comment" ;;
+        debian:ssh-environment|ubuntu:ssh-environment|rocky:ssh-environment) expected="${PROXY_CONTRACT_SSH_ENVIRONMENT}|vmadmin|vmadmin|0600|dedicated|hash-comment" ;;
+        debian:pip|ubuntu:pip|rocky:pip) expected="${PROXY_CONTRACT_PIP}|root|root|0644|dedicated|hash-comment" ;;
+        debian:git|ubuntu:git|rocky:git) expected="${PROXY_CONTRACT_GIT}|root|root|0644|shared|hash-comment" ;;
+        debian:maven|ubuntu:maven|rocky:maven) expected="${PROXY_CONTRACT_MAVEN}|root|root|0644|dedicated|xml" ;;
         *)
             proxy_contract_die "contains an unknown inventory identity ${identity}"
             return 1
             ;;
     esac
-    if [[ "${path}|${owner}|${group}|${mode}|${form}" != "${expected}" ||
+    if [[ "${path}|${owner}|${group}|${mode}|${form}|${format}" != "${expected}" ||
           "${marker}" != "${PROXY_CONTRACT_MARKER}" ||
           "${cleanup}" != required || "${remnant}" != required ]]; then
         proxy_contract_die "contains invalid inventory metadata for ${identity}"
@@ -486,23 +499,69 @@ function proxy_contract_validate_inventory_entry {
 function proxy_contract_print_inventory {
     local os_family="$1" index
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
 
-    proxy_contract_inventory "${os_family}" identities paths owners groups modes forms markers cleanups remnants || return 1
+    proxy_contract_inventory "${os_family}" identities paths owners groups modes forms markers cleanups remnants formats || return 1
     for index in "${!identities[@]}"; do
-        proxy_contract_validate_inventory_entry "${os_family}" "${identities[index]}" "${paths[index]}" "${owners[index]}" "${groups[index]}" "${modes[index]}" "${forms[index]}" "${markers[index]}" "${cleanups[index]}" "${remnants[index]}" || return 1
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        proxy_contract_validate_inventory_entry "${os_family}" "${identities[index]}" "${paths[index]}" "${owners[index]}" "${groups[index]}" "${modes[index]}" "${forms[index]}" "${markers[index]}" "${cleanups[index]}" "${remnants[index]}" "${formats[index]}" || return 1
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "${os_family}" "${identities[index]}" "${paths[index]}" \
             "${owners[index]}" "${groups[index]}" "${modes[index]}" \
             "${forms[index]}" "${markers[index]}" "${cleanups[index]}" \
-            "${remnants[index]}"
+            "${remnants[index]}" "${formats[index]}"
     done
+}
+
+function proxy_contract_write_maven_settings {
+    local proxy_url="$1"
+    local authority host port
+
+    authority="${proxy_url#*://}"
+    authority="${authority%%/*}"
+    if [[ "${authority}" == *@* ]]; then
+        proxy_contract_die "identity maven cannot express proxy credentials"
+        return 1
+    fi
+    host="${authority%%:*}"
+    if [[ "${authority}" == *:* ]]; then
+        port="${authority##*:}"
+    elif [[ "${proxy_url}" == https://* ]]; then
+        port=443
+    else
+        port=80
+    fi
+    if [[ ! "${host}" =~ ^[A-Za-z0-9.-]+$ || ! "${port}" =~ ^[0-9]+$ ]]; then
+        proxy_contract_die "identity maven requires a plain proxy host and port"
+        return 1
+    fi
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>'
+    printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">'
+    printf '%s\n' '  <proxies>'
+    local protocol
+    for protocol in http https; do
+        printf '%s\n' '    <proxy>'
+        printf '      <id>cloud-provision-proxy-%s</id>\n' "${protocol}"
+        printf '%s\n' '      <active>true</active>'
+        printf '      <protocol>%s</protocol>\n' "${protocol}"
+        printf '      <host>%s</host>\n' "${host}"
+        printf '      <port>%s</port>\n' "${port}"
+        printf '      <nonProxyHosts>%s</nonProxyHosts>\n' "${PROXY_CONTRACT_NO_PROXY_MAVEN}"
+        printf '%s\n' '    </proxy>'
+    done
+    printf '%s\n' '  </proxies>'
+    printf '%s\n' '</settings>'
 }
 
 function proxy_contract_write_block {
     local identity="$1"
     local proxy_url="$2"
 
+    # The xml artifact is rendered whole, without the hash-comment markers the
+    # other identities carry.
+    if [[ "${identity}" == maven ]]; then
+        proxy_contract_write_maven_settings "${proxy_url}"
+        return
+    fi
     printf '%s\n' "${PROXY_CONTRACT_BEGIN}"
     case "${identity}" in
         profile)
@@ -605,7 +664,14 @@ function proxy_contract_validate_marker_shape {
     local identity="$1"
     local path="$2"
     local form="$3"
+    local format="$4"
     local begin_count end_count first_line last_line
+
+    # An xml artifact carries no hash-comment markers. Its whole file is the
+    # contract's, and validate_exact_content compares it byte for byte.
+    if [[ "${format}" == xml ]]; then
+        return 0
+    fi
 
     begin_count="$(grep -Fxc -- "${PROXY_CONTRACT_BEGIN}" "${path}" || true)"
     end_count="$(grep -Fxc -- "${PROXY_CONTRACT_END}" "${path}" || true)"
@@ -1001,6 +1067,7 @@ function proxy_contract_preflight_seal_identity {
     local mode="$6"
     local form="$7"
     local proxy_url="$8"
+    local format="$9"
     local path
 
     path="$(proxy_contract_root_path "${contract_path}")"
@@ -1012,12 +1079,14 @@ function proxy_contract_preflight_seal_identity {
     else
         proxy_contract_validate_shared_file "${identity}" "${path}" || return 1
     fi
-    proxy_contract_validate_marker_shape "${identity}" "${path}" "${form}" || return 1
+    proxy_contract_validate_marker_shape "${identity}" "${path}" "${form}" "${format}" || return 1
     if [[ "${form}" == shared ]]; then
         proxy_contract_validate_shared_placement \
             "${os_family}" "${identity}" "${path}" || return 1
     fi
-    proxy_contract_validate_unowned_keys "${identity}" "${path}" || return 1
+    if [[ "${format}" != xml ]]; then
+        proxy_contract_validate_unowned_keys "${identity}" "${path}" || return 1
+    fi
     proxy_contract_validate_exact_content \
         "${identity}" "${path}" "${form}" "${proxy_url}" || return 1
     if [[ "${identity}" == sshd && "${os_family}" != rocky ]]; then
@@ -1321,7 +1390,7 @@ function proxy_contract_apply {
     local proxy_url identity path candidate backup lock_path created_csv=""
     local index uid gid mode
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
     # These arrays are consumed through rollback namerefs.
     # shellcheck disable=SC2034
     local -a rooted_paths=() candidates=() backups=() existed=()
@@ -1332,13 +1401,13 @@ function proxy_contract_apply {
     proxy_url="${PROXY_CONTRACT_INPUT_URL}"
     proxy_contract_inventory \
         "${os_family}" identities paths owners groups modes forms \
-        markers cleanups remnants || return 1
+        markers cleanups remnants formats || return 1
     for index in "${!identities[@]}"; do
         proxy_contract_validate_inventory_entry \
             "${os_family}" "${identities[index]}" "${paths[index]}" \
             "${owners[index]}" "${groups[index]}" "${modes[index]}" \
             "${forms[index]}" "${markers[index]}" "${cleanups[index]}" \
-            "${remnants[index]}" || return 1
+            "${remnants[index]}" "${formats[index]}" || return 1
         proxy_contract_preflight_apply_identity \
             "${os_family}" "${identities[index]}" "${paths[index]}" \
             "${owners[index]}" "${groups[index]}" "${forms[index]}" || return 1
@@ -1390,7 +1459,7 @@ function proxy_contract_apply {
         install_gids[index]="${gid}"
         install_modes[index]="${mode}"
         proxy_contract_validate_marker_shape \
-            "${identity}" "${candidate}" "${forms[index]}" || return 1
+            "${identity}" "${candidate}" "${forms[index]}" "${formats[index]}" || return 1
         if [[ "${forms[index]}" == shared ]]; then
             proxy_contract_validate_shared_placement \
                 "${os_family}" "${identity}" "${candidate}" || return 1
@@ -1447,11 +1516,11 @@ function proxy_contract_any_artifact_present {
     local os_family="$1"
     local path index
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
 
     proxy_contract_inventory \
         "${os_family}" identities paths owners groups modes forms \
-        markers cleanups remnants || return 1
+        markers cleanups remnants formats || return 1
     for path in \
         "${PROXY_CONTRACT_SCRIPT}" \
         "${PROXY_CONTRACT_INPUT}" \
@@ -1478,11 +1547,11 @@ function proxy_contract_verify_clean {
     local os_family="$1"
     local identity path key_pattern index
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
 
     proxy_contract_inventory \
         "${os_family}" identities paths owners groups modes forms \
-        markers cleanups remnants || return 1
+        markers cleanups remnants formats || return 1
     for index in "${!identities[@]}"; do
         identity="${identities[index]}"
         path="$(proxy_contract_root_path "${paths[index]}")"
@@ -1551,12 +1620,12 @@ function proxy_contract_seal {
     local proxy_url identity path candidate index
     local script_path input_path lock_path
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
     local -a rooted_paths=() candidates=() candidate_modes=()
 
     proxy_contract_inventory \
         "${os_family}" identities paths owners groups modes forms \
-        markers cleanups remnants || return 1
+        markers cleanups remnants formats || return 1
     proxy_contract_preflight_cloud_init || return 1
     if proxy_contract_any_artifact_present "${os_family}"; then
         proxy_contract_parse_input || return 1
@@ -1570,11 +1639,11 @@ function proxy_contract_seal {
                 "${os_family}" "${identities[index]}" "${paths[index]}" \
                 "${owners[index]}" "${groups[index]}" "${modes[index]}" \
                 "${forms[index]}" "${markers[index]}" \
-                "${cleanups[index]}" "${remnants[index]}" || return 1
+                "${cleanups[index]}" "${remnants[index]}" "${formats[index]}" || return 1
             proxy_contract_preflight_seal_identity \
                 "${os_family}" "${identities[index]}" "${paths[index]}" \
                 "${owners[index]}" "${groups[index]}" "${modes[index]}" \
-                "${forms[index]}" "${proxy_url}" || return 1
+                "${forms[index]}" "${proxy_url}" "${formats[index]}" || return 1
             path="$(proxy_contract_root_path "${paths[index]}")"
             rooted_paths[index]="${path}"
             if [[ "${forms[index]}" == shared ]] &&

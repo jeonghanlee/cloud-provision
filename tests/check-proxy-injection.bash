@@ -155,10 +155,10 @@ function expect_exact_artifact_set {
         "${CONTRACT_FIXTURE}")"
     case "${os_family}" in
         debian|ubuntu)
-            expect_exit "${name} fixture contains eight identities" 8 "${expected_count}"
+            expect_exit "${name} fixture contains nine identities" 9 "${expected_count}"
             ;;
         rocky)
-            expect_exit "${name} fixture contains seven identities" 7 "${expected_count}"
+            expect_exit "${name} fixture contains eight identities" 8 "${expected_count}"
             ;;
     esac
 
@@ -471,10 +471,10 @@ function expect_contract_markers_absent {
     local name="$1"
     local os_family="$2"
     local guest_root="$3"
-    local fixture_os identity path owner group mode form marker cleanup remnant
+    local fixture_os identity path owner group mode form marker cleanup remnant format
     local failures=0
 
-    while IFS=$'\t' read -r fixture_os identity path owner group mode form marker cleanup remnant; do
+    while IFS=$'\t' read -r fixture_os identity path owner group mode form marker cleanup remnant format; do
         [[ "${fixture_os}" == "${os_family}" ]] || continue
         path="${guest_root}${path}"
         if [[ -f "${path}" ]] &&
@@ -584,11 +584,11 @@ function verify_applied_artifacts {
     local name="$1"
     local os_family="$2"
     local guest_root="$3"
-    local identity path owner group mode form marker cleanup remnant
+    local fixture_os identity path owner group mode form marker cleanup remnant format
     local actual_uid actual_gid actual_mode expected_uid expected_gid expected_mode
     local checked=0 failures=0
 
-    while IFS=$'\t' read -r fixture_os identity path owner group mode form marker cleanup remnant; do
+    while IFS=$'\t' read -r fixture_os identity path owner group mode form marker cleanup remnant format; do
         [[ "${fixture_os}" == "${os_family}" ]] || continue
         checked=$((checked + 1))
         path="${guest_root}${path}"
@@ -609,17 +609,19 @@ function verify_applied_artifacts {
               ( "${group}" != root && "${group}" != vmadmin ) ||
               ( "${form}" != dedicated && "${form}" != shared ) ||
               "${marker}" != cloud-provision-proxy-v1 ||
-              "${cleanup}" != required || "${remnant}" != required ]] ||
-           ! grep -Fq '# BEGIN CLOUD-PROVISION PROXY CONTRACT' "${path}" ||
-           ! grep -Fq '# END CLOUD-PROVISION PROXY CONTRACT' "${path}"; then
+              "${cleanup}" != required || "${remnant}" != required ]]; then
+            failures=$((failures + 1))
+        elif [[ "${format}" == hash-comment ]] &&
+             { ! grep -Fq '# BEGIN CLOUD-PROVISION PROXY CONTRACT' "${path}" ||
+               ! grep -Fq '# END CLOUD-PROVISION PROXY CONTRACT' "${path}"; }; then
             failures=$((failures + 1))
         fi
     done < <(awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os' \
         "${CONTRACT_FIXTURE}")
 
     if [[ "${failures}" == 0 ]] &&
-       { [[ "${os_family}" == rocky && "${checked}" == 7 ]] ||
-         [[ "${os_family}" != rocky && "${checked}" == 8 ]]; }; then
+       { [[ "${os_family}" == rocky && "${checked}" == 8 ]] ||
+         [[ "${os_family}" != rocky && "${checked}" == 9 ]]; }; then
         record_pass "${name} applies every fixture artifact with exact metadata"
     else
         record_fail "${name} applies every fixture artifact with exact metadata" \

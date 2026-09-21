@@ -130,7 +130,7 @@ what the species is.
 
 | Operator | Role | Order | Content |
 | --- | --- | --- | --- |
-| P_proxy | `proxy` | Optional. When present, unconditionally first — before P_common and before every fetch. | The complete proxy artifact set, applied through the single authority `bin/proxy_contract.bash` in apply mode. Exact inventory is defined by `docs/decisions/ADR-20260820-proxy-artifact-lifecycle.md`: proxy settings for the shell profile, `/etc/environment`, apt or dnf, sudo, sshd, the vmadmin ssh environment, pip, and system git. The ansible-provision `proxy` role is the third caller of `proxy_contract.bash`, streaming it to the target and running its apply mode rather than reimplementing the set. |
+| P_proxy | `proxy` | Optional. When present, unconditionally first — before P_common and before every fetch. | The complete proxy artifact set, applied through the single authority `bin/proxy_contract.bash` in apply mode. Exact inventory is defined by `docs/decisions/ADR-20260820-proxy-artifact-lifecycle.md`: proxy settings for the shell profile, `/etc/environment`, apt or dnf, sudo, sshd, the vmadmin ssh environment, pip, system git, and Maven. The Maven settings file applies only when a build selects it with `-gs`; unlike the others it is not read automatically. The ansible-provision `proxy` role is the third caller of `proxy_contract.bash`, streaming it to the target and running its apply mode rather than reimplementing the set. |
 
 Why first: the target reaches the network only through the site proxy, so no
 package install (P_common) and no source or distribution clone (P_epics,

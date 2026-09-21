@@ -84,7 +84,7 @@ function validate_fixture {
     local actual_inventory
     local valid=true
 
-    if [[ "$(head -n 1 "${FIXTURE}")" == $'os\tidentity\tpath\towner\tgroup\tmode\tform\tmarker\tcleanup\tremnant' ]]; then
+    if [[ "$(head -n 1 "${FIXTURE}")" == $'os\tidentity\tpath\towner\tgroup\tmode\tform\tmarker\tcleanup\tremnant\tformat' ]]; then
         record_pass "independent fixture has the fixed schema"
     else
         record_fail "independent fixture has the fixed schema" "unexpected header"
@@ -95,8 +95,8 @@ function validate_fixture {
         row_count="$(awk -F '\t' -v os="${os}" 'NR > 1 && $1 == os {count++} END {print count + 0}' \
             "${FIXTURE}")"
         case "${os}" in
-            debian|ubuntu) expected_count=8 ;;
-            rocky) expected_count=7 ;;
+            debian|ubuntu) expected_count=9 ;;
+            rocky) expected_count=8 ;;
         esac
         if [[ "${row_count}" == "${expected_count}" ]] &&
            [[ "$(awk -F '\t' -v os="${os}" '
