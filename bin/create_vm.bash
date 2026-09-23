@@ -117,6 +117,7 @@ function print_usage {
     printf "  -d <image_dir> Image storage directory (default: ~/libvirt/images)\n"
     printf "  -p <prefix>    VM name prefix (default: lab)\n"
     printf "  -m <mb>        VM memory in MB (default: 4096)\n"
+    printf "  -z <size>      VM disk size with M/G/T suffix (default: 20G)\n"
     printf "  -c             Remove VM domain, disk pair, and seed ISO\n"
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
     printf "  -S             Graceful shutdown of running VM (ACPI, polls until shut off)\n"
@@ -127,6 +128,7 @@ function print_usage {
     printf "  %s -o rocky8\n" "$(basename "$0")"
     printf "  %s -o debian13-iocrunner -n a\n" "$(basename "$0")"
     printf "  %s -o ubuntu24 -m 4096\n" "$(basename "$0")"
+    printf "  %s -o rocky8 -z 30G\n" "$(basename "$0")"
     printf "  %s -o rocky8 -s\n" "$(basename "$0")"
     printf "  %s -o rocky8 -c\n" "$(basename "$0")"
 }
@@ -139,13 +141,14 @@ if ! groups "$USER" | grep -q "\b${REQUIRED_GROUP}\b"; then
 fi
 
 # --- Argument Processing ---
-while getopts ":o:n:d:p:m:csSFh" opt; do
+while getopts ":o:n:d:p:m:z:csSFh" opt; do
     case "$opt" in
         o) OS_TYPE="$OPTARG" ;;
         n) NODE_ID="$OPTARG" ;;
         d) IMAGE_DIR="$OPTARG" ;;
         p) VM_PREFIX="$OPTARG" ;;
         m) VM_RAM="$OPTARG" ;;
+        z) VM_DISK_SIZE="$OPTARG" ;;
         c) DO_CLEANUP=true ;;
         s) DO_STATUS=true ;;
         S) DO_STOP=true ;;
@@ -168,6 +171,11 @@ fi
 
 if [[ ! "${VM_RAM}" =~ ^[1-9][0-9]*$ ]]; then
     printf "Error: -m memory must be a positive integer in MB, got: %s\n" "${VM_RAM}"
+    exit 1
+fi
+
+if [[ ! "${VM_DISK_SIZE}" =~ ^[1-9][0-9]*[MGT]$ ]]; then
+    printf "Error: -z disk size must be a positive integer with an M, G, or T suffix, got: %s\n" "${VM_DISK_SIZE}"
     exit 1
 fi
 
