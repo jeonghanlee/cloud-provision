@@ -22,7 +22,7 @@ stays Deferred in the Backlog.
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
-| Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | In progress | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
+| Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | Complete | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition; `8654990`) and the matching ansible-provision `proxy` role landed (`a02298f`), one-to-one; verified 2026-09-25; [M2 detail](#m2). |
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Complete | No | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Complete | No |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
@@ -126,15 +126,15 @@ four local checks are satisfied; the milestone has no external gate.
 
 Origin: 2 / M2
 Identity History: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
 The `iocserver` species (`iocrunner` without `P_testusers`) landed in the SOT
 with the operator-model document, matching the ansible-provision `iocserver`
-species playbook. What remains for M2 is the `P_proxy` precondition, held out
-because it lands with its `proxy` role in ansible-provision. The full draft is
-preserved in `work/operator-model-pending-B.md`.
+species playbook. The `P_proxy` precondition has now landed too: defined in
+`docs/OPERATOR_MODEL.md` (`8654990`) alongside the matching ansible-provision
+`proxy` role (`a02298f`), completing M2.
 
 ##### Scope
 
@@ -247,6 +247,12 @@ implementation land together (M2 Dependencies).
 - One-to-one map holds: the definition's Role `proxy` and the landed
   `playbooks/operators/proxy.yml` match, both precondition-first over the same
   `proxy_contract.bash` artifact set.
+- Completion re-confirmed 2026-09-25: `P_proxy` present in `docs/OPERATOR_MODEL.md`
+  (`8654990`), and LAB-ansible-provision confirmed `roles/proxy` and
+  `playbooks/operators/proxy.yml` at `a02298f`/`8b9339d`, name and shape matching
+  (applied first when proxied, not imported by any species - consistent with the
+  definition). Completion criteria 1-3 met; the live apply remains ansible-provision's
+  own M4/T3, out of M2's scope.
 
 <a id="m3"></a>
 #### M3 - Support Debian 12 as a sixth vacuum
