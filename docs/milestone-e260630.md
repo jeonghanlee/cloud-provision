@@ -29,6 +29,7 @@ stays Deferred in the Backlog.
 | Host setup | M8 | Align the readiness self-tests with the file-based cloud-init probe | Milestone | Complete | No | M7 | `make check-cloud-init-status`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-bake` pass on the control host with every fake ssh answering the M7 readiness probe; [M8 detail](#m8). |
 | Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | In progress | No | D2, D3 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
 | Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
+| Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
 
 ### Decisions
 
@@ -868,6 +869,67 @@ Superseded Plan Artifacts: none
 | T1 | 2026-09-13 | control host | Passed | `docs/OPERATOR_MODEL.md` carries the 7 operators, 5 species, and 2 produced artifacts (`b2a79c8`); `make check-middleware-packages` reports 2/2 pass with its failure branches (missing coverage, duplicate, empty list, unknown OS, unparseable line) exercised, `shellcheck` clean, and `make check-bake` green (`b71af98`). |
 | T2 | pending | debian13 and rocky8 | Not run | |
 
+<a id="m12"></a>
+#### M12 - Verify the middleware distribution-install path (P_archiver, P_phoebus)
+
+Origin: e260630 / M12
+Status: Blocked
+
+##### Summary
+
+Once the aa-distribution and phoebus-distribution repositories exist (`G1`), the
+distribution-install operators defined in `M11` (`P_archiver`, `P_phoebus`) and
+their `archiver` / `phoebus` species can be verified live: install the built
+WARs and the Phoebus binary on the middleware host. `M11` delivers the structure
+and the source-build path; this row is the deferred distribution-path
+verification, which cannot run before the repositories exist.
+
+##### Scope
+
+- Live-apply the `archiver` (distribution) species and the `phoebus`
+  (distribution) species on the middleware VM, confirming the WARs and the
+  Phoebus binary install from their distribution repositories and a re-apply is
+  idempotent.
+
+Out of scope: defining the operators/species (that is `M11`); producing the
+distribution repositories (owned by aa-env and phoebus-env).
+
+##### Completion Criteria
+
+- The `archiver` and `phoebus` distribution species install and re-apply
+  idempotently on the middleware VM against real distribution repositories.
+
+##### Dependencies And Decisions
+
+- `G1` (Open): the two distribution repositories must exist and carry their
+  artifacts. This row is Blocked until `G1` is Complete, then resumes as Not
+  started.
+- Depends on `M11` for the operator and species definitions.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. After `G1`, live-apply the distribution species on the middleware VM.
+2. Record the per-species install and idempotency evidence.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Integration | Live-apply the `archiver` distribution species | middleware VM | The aa-distribution WARs install and deploy to the Tomcat instances; a re-apply is idempotent. |
+| T2 | Integration | Live-apply the `phoebus` distribution species | middleware VM | The phoebus-distribution binary installs and configures; a re-apply is idempotent. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | pending | middleware VM | Not run | |
+| T2 | pending | middleware VM | Not run | |
+
 ## Backlog
 
 ### Work
@@ -878,7 +940,6 @@ Superseded Plan Artifacts: none
 | Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
-| Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
 
 ### Backlog Details
 
@@ -1267,66 +1328,11 @@ both edited scripts.
   offline path. The commit carries `Closes #41`, so #41 auto-closes when it
   lands on origin/master.
 
-<a id="m12"></a>
-#### M12 - Verify the middleware distribution-install path (P_archiver, P_phoebus)
+## Assignment History
 
-Origin: e260630 / M12
-Status: Blocked
-
-##### Summary
-
-Once the aa-distribution and phoebus-distribution repositories exist (`G1`), the
-distribution-install operators defined in `M11` (`P_archiver`, `P_phoebus`) and
-their `archiver` / `phoebus` species can be verified live: install the built
-WARs and the Phoebus binary on the middleware host. `M11` delivers the structure
-and the source-build path; this row is the deferred distribution-path
-verification, which cannot run before the repositories exist.
-
-##### Scope
-
-- Live-apply the `archiver` (distribution) species and the `phoebus`
-  (distribution) species on the middleware VM, confirming the WARs and the
-  Phoebus binary install from their distribution repositories and a re-apply is
-  idempotent.
-
-Out of scope: defining the operators/species (that is `M11`); producing the
-distribution repositories (owned by aa-env and phoebus-env).
-
-##### Completion Criteria
-
-- The `archiver` and `phoebus` distribution species install and re-apply
-  idempotently on the middleware VM against real distribution repositories.
-
-##### Dependencies And Decisions
-
-- `G1` (Open): the two distribution repositories must exist and carry their
-  artifacts. This row is Blocked until `G1` is Complete, then resumes as Not
-  started.
-- Depends on `M11` for the operator and species definitions.
-
-##### Implementation Plan
-
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
-
-1. After `G1`, live-apply the distribution species on the middleware VM.
-2. Record the per-species install and idempotency evidence.
-
-##### Test Plan
-
-| Label | Layer | Method | Environment | Expected Result |
-| --- | --- | --- | --- | --- |
-| T1 | Integration | Live-apply the `archiver` distribution species | middleware VM | The aa-distribution WARs install and deploy to the Tomcat instances; a re-apply is idempotent. |
-| T2 | Integration | Live-apply the `phoebus` distribution species | middleware VM | The phoebus-distribution binary installs and configures; a re-apply is idempotent. |
-
-##### Verification Results
-
-| Label | Observed At | Environment | Result | Evidence |
-| --- | --- | --- | --- | --- |
-| T1 | pending | middleware VM | Not run | |
-| T2 | pending | middleware VM | Not run | |
+| Date | Movement | Note |
+| --- | --- | --- |
+| 2026-09-25 | M12: Backlog to Milestone | Assigned to the middleware line; stays Blocked on G1 and resumes as Not started when G1 completes. |
 
 ## History
 
