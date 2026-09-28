@@ -36,6 +36,7 @@ assignment is defined in `docs/OPERATOR_MODEL.md`.
 | `ethercat` | Vacuum group and `ethercat` |
 | `archiver` | Vacuum group and `archiver` |
 | `archiver-dev` | Vacuum group and `archiver_dev` |
+| `archiver-dev-sqlite` | Vacuum group and `archiver_dev_sqlite` |
 
 The maintained group relationships make every generated host reachable
 through the `vacua` parent group.

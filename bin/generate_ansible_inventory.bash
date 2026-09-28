@@ -33,7 +33,8 @@ function print_usage {
     printf "  --species <species>                bare, iocrunner, iocserver,\n"
     printf "                                       iocrunner-nfs, epics-dev,\n"
     printf "                                       nfs-sim, rtbase, ethercat,\n"
-    printf "                                       archiver, or archiver-dev\n"
+    printf "                                       archiver, archiver-dev, or\n"
+    printf "                                       archiver-dev-sqlite\n"
     printf "\n"
     printf "Optional:\n"
     printf "  --ansible-user <name>              SSH user (default: vmadmin)\n"
@@ -160,6 +161,7 @@ case "${SPECIES}" in
     ethercat)      INVENTORY_GROUPS=("${VACUUM}" ethercat) ;;
     archiver)      INVENTORY_GROUPS=("${VACUUM}" archiver) ;;
     archiver-dev)  INVENTORY_GROUPS=("${VACUUM}" archiver_dev) ;;
+    archiver-dev-sqlite) INVENTORY_GROUPS=("${VACUUM}" archiver_dev_sqlite) ;;
     *) die "unsupported species: ${SPECIES}" ;;
 esac
 

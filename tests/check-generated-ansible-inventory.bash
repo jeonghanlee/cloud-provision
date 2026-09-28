@@ -89,6 +89,7 @@ function direct_groups_for_host {
         ethercat
         archiver
         archiver_dev
+        archiver_dev_sqlite
     )
 
     for group_name in "${known_groups[@]}"; do
@@ -228,6 +229,11 @@ run_case sel-rocky8-archiver-dev rocky8-archiver-dev archiver-dev "rocky8 archiv
 run_case sel-debian13-archiver-dev debian13-archiver-dev archiver-dev "debian13 archiver_dev" "vacua" 192.168.123.201
 run_case sel-rocky8-archiver rocky8-archiver archiver "rocky8 archiver" "vacua" 192.168.123.202
 run_case sel-debian13-archiver debian13-archiver archiver "debian13 archiver" "vacua" 192.168.123.203
+
+# archiver-dev-sqlite is an archiver-dev host with its own species group;
+# it takes the archiver-dev selector, so the vacuum group derives as above.
+run_case sel-rocky8-archiver-dev-sqlite rocky8-archiver-dev archiver-dev-sqlite "rocky8 archiver_dev_sqlite" "vacua" 192.168.123.205
+run_case sel-debian13-archiver-dev-sqlite debian13-archiver-dev archiver-dev-sqlite "debian13 archiver_dev_sqlite" "vacua" 192.168.123.206
 
 status_inventory="${WORKSPACE}/status-input.ini"
 printf "%s\n" \
