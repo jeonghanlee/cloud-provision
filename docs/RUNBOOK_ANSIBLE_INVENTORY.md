@@ -43,7 +43,7 @@ through the `vacua` parent group.
 
 ## Generate from a running VM
 
-Run this section from the cloud-provision checkout root.
+Run this section in Bash from the cloud-provision checkout root.
 
 Create the temporary file first:
 
@@ -51,24 +51,37 @@ Create the temporary file first:
 runtime_inventory=$(mktemp /tmp/cloud-provision-ansible-inventory.XXXXXX)
 ```
 
-Run the VM status path and generate the host inventory. Choose the species
+Define the VM status command and inventory command. Choose the species
 from the table above:
 
 ```bash
-bin/create_vm.bash -o rocky8 -n main -s | bin/generate_ansible_inventory.bash --status-input --os-type rocky8 --species nfs-sim > "$runtime_inventory"
+status_command=(bin/create_vm.bash -o rocky8 -n main -s)
+inventory_command=(bin/generate_ansible_inventory.bash --status-input --os-type rocky8 --species nfs-sim)
 ```
 
 For an arbitrary prefix or instance label, pass the same `-p` and `-n` values
-used to create the VM. The generator reads the reported identity; it does not
+used to create the VM in `status_command`. The generator reads the reported identity; it does not
 rebuild a host name from a fixed naming rule.
+
+Generate the inventory only after the status command succeeds:
+
+```bash
+vm_status=$("${status_command[@]}") && "${inventory_command[@]}" <<< "$vm_status" > "$runtime_inventory"
+```
+
+Continue only if this command exits successfully. The status command requires
+`Domain running`, `SSH ready`, and `cloud-init done`. On failure, stop before
+running Ansible, inspect the report with `printf "%s\n" "$vm_status"`, and
+resolve the reported VM state before retrying.
 
 ## Run Ansible
 
-From the ansible-provision checkout, pass both inventory sources:
+In the same shell, change to the ansible-provision checkout, pass both inventory sources, and select
+the playbook for the intended species. For the `nfs-sim` example:
 
 ```bash
 ansible-inventory -i inventory/lab.ini -i "$runtime_inventory" --graph
-ansible-playbook -i inventory/lab.ini -i "$runtime_inventory" playbooks/species/iocrunner.yml
+ansible-playbook -i inventory/lab.ini -i "$runtime_inventory" playbooks/species/nfs_sim.yml
 ```
 
 The Make workflow accepts the generated path and the actual VM name; targets
@@ -104,7 +117,7 @@ make check-runtime-inventory
 ```
 
 This check runs the real generator for 44 plain-selector vacuum-species
-pairs plus ten suffixed-selector cases, merges each output through
+pairs plus twelve suffixed-selector cases, merges each output through
 `ansible-inventory`, verifies direct and inherited groups, and exercises
 the EPICS-env status-to-playbook path with only Libvirt, SSH, and
 Ansible command boundaries controlled.

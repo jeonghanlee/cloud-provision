@@ -16,11 +16,11 @@ manual OS installation.
      | 1. Acquire base image (download + integrity check)
      |
      | 2. Copy the selected image to an independent qcow2 VM disk
-     |    and set its virtual capacity to 20 GiB
+     |    and set its virtual capacity from -z (default: 20 GiB)
      |
      | 3. Generate seed ISO
      |    - meta-data: instance-id, hostname (from VM_NAME)
-     |    - user-data: OS-specific template (templates/user-data.${OS_TYPE})
+     |    - user-data: OS-specific template (templates/user-data.${OS_VARIANT})
      |    - SSH public key injection via perl substitution
      |
      | 4. Provision VM (virt-install, virtio, noautoconsole)
@@ -62,7 +62,7 @@ indicators in a single pass (domain state, IP, SSH reachability,
 cloud-init completion) so partial-progress diagnostics survive any
 failed stage.
 
-**Reset to baseline.** A successive `clean` then provision returns a node to fresh OS state in roughly one minute per VM. The selected image is copied to an independent VM disk and its virtual capacity is set to 20 GiB before first boot; that VM disk, its creation record, and seed ISO are discarded, then rebuilt from scratch with a fresh cloud-init run. Downstream provisioners can rely on this guarantee - software-side residue is not the responsibility of this layer.
+**Reset to baseline.** A successive `clean` then provision returns a node to fresh OS state in roughly one minute per VM. Cleanup discards the VM disk, its creation record, and seed ISO. Provisioning copies the selected image to an independent VM disk, sets its virtual capacity from `-z` (default: 20 GiB), and runs cloud-init from scratch. Downstream provisioners can rely on this guarantee - software-side residue is not the responsibility of this layer.
 
 ---
 
@@ -85,7 +85,7 @@ ${IMAGE_DIR}/
 
 ```
 
-Base images are downloaded once and remain read-only inputs. Every VM disk and baked image is an independent qcow2 copy with a creation record beside it. `create_vm.bash` sets each copied VM disk's virtual capacity to 20 GiB before first boot, and the baked image retains that capacity when it is published. No produced image is used as another image's backing file.
+Base images are downloaded once and remain read-only inputs. Every VM disk and baked image is an independent qcow2 copy with a creation record beside it. `create_vm.bash` sets each copied VM disk's virtual capacity from `-z` (default: 20 GiB) before first boot. A baked image retains its build VM disk's capacity when published. No produced image is used as another image's backing file.
 
 ---
 
@@ -136,9 +136,9 @@ not inside the repository. It is removed once the seed ISO is written, and
 deliberately left in place when `genisoimage` fails, because it holds the
 exact inputs that produced the failure.
 
-`OS_VARIANT` collapses pre-baked variants onto their base OS template,
-so `rocky8-iocrunner` reuses `templates/user-data.rocky8` and
-`debian13-iocrunner` reuses `templates/user-data.debian13`.
+`OS_VARIANT` selects the base OS template for each selector. For example,
+`rocky8-iocrunner` reuses `templates/user-data.rocky8`, and
+`debian13-archiver-dev` reuses `templates/user-data.debian13`.
 
 **Current proxy artifact contract.** When `create_vm.bash` discovers exactly
 one host `*proxy.sh` file and validates its single quoted `PROXY_URL`, it calls
@@ -192,11 +192,14 @@ Selector sets are intentionally different:
 | rocky10-epics-dev | rocky10 | download.rockylinux.org | dnf | EPICS source-build host |
 | ubuntu24-epics-dev | ubuntu24 | cloud-images.ubuntu.com/noble/current | apt | EPICS source-build host |
 | ubuntu26-epics-dev | ubuntu26 | cloud-images.ubuntu.com/resolute/current | apt | EPICS source-build host |
+| rocky8-archiver-dev | rocky8 | download.rockylinux.org | dnf | Archiver source-build host |
+| debian13-archiver-dev | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | Archiver source-build host |
 
 The `*-iocrunner` and `*-iocrunner-nfs` variants boot from images
-produced by section 12 and are gated out of `make all` via
-`DEFAULT_OS_TYPES` until their golden image is present. They share the
-base OS variant's cloud-init template and boot firmware.
+produced by section 12. The default `DEFAULT_OS_TYPES` excludes them
+from `make all`, regardless of whether their golden images exist.
+Provision them through their individual targets after baking.
+They share the base OS variant's cloud-init template and boot firmware.
 
 The `debian13-ethercat` variant boots from the EtherCAT golden image.
 The `debian13-rtbase` selector is a bake input, not the final EtherCAT
@@ -205,6 +208,10 @@ runtime host.
 The `*-epics-dev` variants boot plain cloud images (no golden bake) and
 exist to give EPICS from-source builds dedicated hosts. They are
 excluded from `make all`.
+
+The `*-archiver-dev` variants also boot plain cloud images and are excluded
+from `make all`. They provide the OS and SSH baseline for Archiver source
+builds; application installation is a separate step.
 
 OS-specific differences are isolated to `templates/user-data.*` and `bin/create_vm.bash`:
 
@@ -227,7 +234,7 @@ do not add locale setup.
 
 ## 8. Network
 
-All VMs use the libvirt `default` network with static IP assignment via
+All VMs use the libvirt `lab` network with static IP assignment via
 DHCP reservation. MAC addresses and IPs are derived deterministically
 from the OS type and the instance label.
 
@@ -261,7 +268,7 @@ holding VM. `NODE_ID=dhcp` bypasses static assignment and uses DHCP.
 
 ```
 Host
-  └── libvirt lab network (virbr1, 192.168.123.0/24, NAT)
+  └── libvirt lab network (virbr-lab, 192.168.123.0/24, NAT)
         ├── lab-debian13-main                   192.168.123.10
         ├── lab-debian12-main                   192.168.123.15
         ├── lab-debian13-epics-dev-main         192.168.123.20
@@ -272,12 +279,14 @@ Host
         ├── lab-debian12-epics-dev-main         192.168.123.45
         ├── lab-debian13-iocrunner-main         192.168.123.50
         ├── lab-debian13-iocrunner-nfs-main     192.168.123.55
+        ├── lab-debian13-archiver-dev-main      192.168.123.60
         ├── lab-debian13-ethercat-main          192.168.123.70
         ├── lab-debian13-rtbase-main            192.168.123.80
         ├── lab-rocky8-main                     192.168.123.100
         ├── lab-rocky10-main                    192.168.123.110
         ├── lab-rocky8-epics-dev-main           192.168.123.120
         ├── lab-rocky10-epics-dev-main          192.168.123.130
+        ├── lab-rocky8-archiver-dev-main        192.168.123.140
         ├── lab-rocky8-iocrunner-main           192.168.123.150
         └── lab-rocky8-iocrunner-nfs-main       192.168.123.155
 ```
@@ -316,7 +325,7 @@ Pre-baked IOC runner variants (require section 12 bake first):
 |----------|-----------------|
 | RAM      | 4096 MB (`-m`)  |
 | vCPUs    | 2               |
-| Disk     | 20 GB (qcow2)   |
+| Disk     | 20 GiB by default (qcow2, `-z`) |
 | Graphics | none (headless)  |
 | Network  | virtio           |
 
@@ -644,7 +653,7 @@ obtained again. Three classes follow from that.
 
 | Class | Meaning | Types |
 | --- | --- | --- |
-| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | The six bare vacua and the six `*-epics-dev` build hosts |
+| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | The six bare vacua, six `*-epics-dev` build hosts, and two `*-archiver-dev` build hosts |
 | upstream, pinned | A dated upstream release at a fixed URL. Re-fetchable and stable. | `debian13-rtbase` |
 | baked locally, not downloadable | Produced by `bin/bake_*_image.bash` on this host. There is no URL; losing it costs a full bake. | `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat` |
 
@@ -677,8 +686,8 @@ provenance and `.creation-record` for image identity.
 
 Ordinary runtime VM disks are also independent qcow2 copies, but retain the
 stable `${VM_PREFIX}-${OS_TYPE}-${NODE_ID}.qcow2` name required by lifecycle
-selectors. `create_vm.bash` sets every copied VM disk's virtual capacity to
-20 GiB before first boot. Their creation record carries the generated run ID
+selectors. `create_vm.bash` sets each copied VM disk's virtual capacity from
+`-z` (default: 20 GiB) before first boot. Their creation record carries the generated run ID
 for provenance; they are not selected by the golden image pair resolver.
 
 `bin/image_workflow.bash` is the single implementation of naming, copying,

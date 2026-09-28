@@ -165,9 +165,10 @@ make rocky8-iocrunner.main
 make debian13-iocrunner
 ```
 
-`make all` excludes the pre-baked variants until their golden image
-exists; `make clean` covers them. See [docs/ARCHITECTURE.md section
-12](docs/ARCHITECTURE.md) for the full pipeline.
+With the default configuration, `make all` provisions only `rocky8` and
+`debian13`. Provision pre-baked variants through their individual targets
+after baking their golden images; `make clean` covers all variants.
+See [docs/ARCHITECTURE.md section 12](docs/ARCHITECTURE.md) for the full pipeline.
 
 Bake script options:
 
@@ -217,11 +218,12 @@ Options:
 
 | Flag | Description                              | Default            |
 |------|------------------------------------------|--------------------|
-| `-o` | OS type — bare vacua: `rocky8`, `debian12`, `debian13`, `rocky10`, `ubuntu24`, `ubuntu26`; golden consumers: `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat`, `debian13-rtbase`; EPICS build hosts: `rocky8-epics-dev`, `debian12-epics-dev`, `debian13-epics-dev`, `rocky10-epics-dev`, `ubuntu24-epics-dev`, `ubuntu26-epics-dev` | `rocky8` |
+| `-o` | OS type: bare vacua: `rocky8`, `debian12`, `debian13`, `rocky10`, `ubuntu24`, `ubuntu26`; golden consumers: `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat`; pinned upstream bake input: `debian13-rtbase`; EPICS build hosts: `rocky8-epics-dev`, `debian12-epics-dev`, `debian13-epics-dev`, `rocky10-epics-dev`, `ubuntu24-epics-dev`, `ubuntu26-epics-dev`; Archiver build hosts: `rocky8-archiver-dev`, `debian13-archiver-dev` | `rocky8` |
 | `-n` | Instance label: `main` (static base IP), `dhcp` (DHCP), other labels hash to 160-254 | `main` |
 | `-d` | Image storage directory                  | `~/libvirt/images` |
 | `-p` | VM name prefix                           | `lab`              |
 | `-m` | VM memory in MB                          | `4096`             |
+| `-z` | VM disk size with an M, G, or T suffix    | `20G`              |
 | `-F` | Refuse if domain or disk exists (provisioning only) |         |
 | `-s` | Check domain, IP, SSH, and cloud-init readiness |             |
 | `-S` | Graceful shutdown (ACPI, polls until shut off) |              |
