@@ -14,7 +14,7 @@ on the Rocky test VM; see its recorded configuration. M11 remains In progress on
 reconciliation merge to their respective master branches (see M11 Dependencies
 And Decisions). M2 is
 Complete; the proxied-host live check belongs to ansible-provision. G1 is Open
-and M12 is Blocked on G1; EtherCAT (M4) stays Deferred in the Backlog.
+and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Deferred.
 
 ## Milestone
 
@@ -32,6 +32,7 @@ and M12 is Blocked on G1; EtherCAT (M4) stays Deferred in the Backlog.
 | Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
 | Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Not started | Yes | D2, D3, D5 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
+| EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
 
 ### Decisions
 
@@ -1058,19 +1059,6 @@ Superseded Plan Artifacts: none
 
 - None.
 
-## Backlog
-
-### Work
-
-| Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
-| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
-| Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
-| Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
-
-### Backlog Details
-
 <a id="m4"></a>
 #### M4 - Validate EtherCAT use of the shared image workflow and proxy seal
 
@@ -1164,6 +1152,18 @@ Plan Status: draft
 Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
+
+## Backlog
+
+### Work
+
+| Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
+| Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
+| Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
+
+### Backlog Details
 
 <a id="m7"></a>
 #### M7 - Restore the VM readiness preflight against cloud-init 23.4
@@ -1461,6 +1461,7 @@ both edited scripts.
 | Date | Movement | Note |
 | --- | --- | --- |
 | 2026-09-25 | M12: Backlog to Milestone | Assigned to the middleware line; stays Blocked on G1 and resumes as Not started when G1 completes. |
+| 2026-09-29 | M4: Backlog to Milestone | Assigned with its complete row and detail in this synchronization commit; Origin, ID, Deferred status, plan and verification evidence are preserved. |
 
 ## History
 
