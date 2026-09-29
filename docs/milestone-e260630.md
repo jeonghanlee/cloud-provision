@@ -2,18 +2,16 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M11 (middleware operator/species structure and package
-baseline) is In progress on branch `m11-middleware-operators` - the operator and
-species definitions landed in `docs/OPERATOR_MODEL.md` (`b2a79c8`) and the
-`configure/middleware-packages` baseline with its guard landed (`b71af98`), with
-M11 / T1 passing; the remaining step is M11 / T2, the `archiver-dev` source-build
-apply on debian13 and rocky8, then a merge to master. M11 is intended to satisfy
-ansible-provision G2 once G2's deliverable text is reconciled to this plan (see
-M11 Dependencies And Decisions). M2 (the `P_proxy` precondition) remains the
-other open milestone, its single remaining check M2 / T2's live apply on a real
-proxied host (the ansible-provision side's M4/T3 live check, gated on the idev
-whitelist). M1, M3, M5, M6, M7, M8, M9, and M10 are Complete; EtherCAT (M4)
-stays Deferred in the Backlog.
+Next session entry point: prepare the M11 verification record for commit and
+resolve the remaining merge conditions. T2 and T3 passed on fresh debian13 and
+rocky8 VMs at the D4 refs: full-species re-apply, installation-state comparison,
+live PV storage/retrieval and historical retrieval after appliance restart,
+on 2026-09-29 UTC (2026-09-28 Pacific). T3 required an explicit host CA address
+on the Rocky test VM; see its recorded configuration. M11 remains In progress on
+`m11-middleware-operators` until its record lands and the ansible-provision
+reconciliation merges to master (see M11 Dependencies And Decisions). M2 is
+Complete; the proxied-host live check belongs to ansible-provision. G1 is Open
+and M12 is Blocked on G1; EtherCAT (M4) stays Deferred in the Backlog.
 
 ## Milestone
 
@@ -27,7 +25,7 @@ stays Deferred in the Backlog.
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Complete | No |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
 | Host setup | M8 | Align the readiness self-tests with the file-based cloud-init probe | Milestone | Complete | No | M7 | `make check-cloud-init-status`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-bake` pass on the control host with every fake ssh answering the M7 readiness probe; [M8 detail](#m8). |
-| Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | In progress | No | D2, D3 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
+| Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | In progress | No | D2, D3, D4 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
 | Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
 | Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
 
@@ -38,6 +36,7 @@ stays Deferred in the Backlog.
 | D1 | Reading, auditing, quarantining, replacing, or deleting an existing guest, disk, image, archive, or sidecar requires a separate accepted plan and explicit authorization. | 2026-08-20 |
 | D2 | Middleware server provisioning follows the EPICS-symmetric ecosystem form: source -> env (compile) -> distribution -> install operator. AA uses aa-maven (source), aa-env (compile), and a new aa-distribution repository; Phoebus uses phoebus-env and a new phoebus-distribution repository; both distribution repositories are created and populated by their env producers. cloud-provision owns the operator/species structure, the package baseline, and the base VM; the middleware server hosts the EPICS Archiver Appliance and Phoebus, each independently selectable. | 2026-09-12 |
 | D3 | Middleware operator choices: system Java (distribution OpenJDK 21, not the java-env pin) with `JAVA_HOME` exported; P_epics (local EPICS C base) installed on the middleware host; Tomcat pinned to 9.0.121 (Apache tarball as the shared CATALINA_HOME; the four separate Archiver Appliance instances are created by aa-env, not P_tomcat); the Archiver Appliance config database is MariaDB now and SQLite later; service group `mid` and user `mid-srv` (parallel to `ioc`/`ioc-srv`). Maven is not installed as an operator: aa-maven pins Maven 3.9.9 through its Maven Wrapper, so the source-build species runs `./mvnw` and needs only `JAVA_HOME`, git (with an origin ref), openssh-client (scp), outbound HTTPS, and `-Dsphinx.skip=true`. | 2026-09-12 |
+| D4 | M11 / T2 uses ansible-provision `b8823c1`, epicsarchiverap-env `d09dca7`, and epicsarchiverap-maven `2fc12f01` on separate fresh Debian 13 and Rocky 8 VMs. These refs select Maven Wrapper 3.9.16 and `clean package -DskipTests`; the Maven build has no Sphinx step. This replaces D3's Maven version and Sphinx-skip requirement for this verification. The full MariaDB `archiver-dev` species and a re-apply with identical inputs are required; existing application-verification VMs remain outside this test. | 2026-09-28 |
 
 ### Assignment History
 
@@ -802,6 +801,14 @@ install operator.
 - The aa-maven build structure was confirmed by the aa-maven session on
   2026-09-12 (single-module pom, Maven Wrapper 3.9.9, JDK 21 + `JAVA_HOME`,
   Tomcat not a build dependency; servlet-api line Tomcat 9).
+- `D4` (2026-09-28) supplies the accepted T2 verification inputs. At
+  epicsarchiverap-maven `2fc12f01`, `.mvn/wrapper/maven-wrapper.properties`
+  selects Maven 3.9.16 and `pom.xml` has no Sphinx step. At
+  epicsarchiverap-env `d09dca7`, `configure/CONFIG_SRC` selects the source
+  checkout's `mvnw`; `configure/RULES_SRC` runs `clean package -DskipTests`
+  for `build.mvn`.
+  This verifies installation and re-apply behavior; it does not run the
+  application's skipped unit tests.
 - The java/tomcat/mariadb boundary was coordinated with the aa-env session on
   2026-09-12 and matches its decisions D10-D12 (`docs/milestone-265f580.md`):
   the system JDK with `JAVA_HOME` at the distribution path and java-env dropped
@@ -837,15 +844,16 @@ install operator.
   `P_proxy` applies first (unconditionally, before `P_common` and every fetch),
   as it does for the other species. It is a precondition, not a product member,
   so it is not in the operator list; the source-build's outbound HTTPS (the
-  Maven wrapper download, the svg_viewer download) and every package and
+  Maven wrapper and dependency downloads) and every package and
   distribution fetch pass through it, and its fate follows the realization mode
-  (Golden seals it, Live and Instant keep it).
+  (Golden seals it, Live and Instant keep it). The svg_viewer asset is vendored
+  at the D4 source ref.
 
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: owner accepted 2026-09-13 after the third-person plan review and findings F1-F4
-Implementation Authorization: owner authorized 2026-09-13 (implement on branch m11-middleware-operators)
+Plan Acceptance: owner accepted 2026-09-13 after the third-person plan review and findings F1-F4; accepted the D4 verification baseline and separate fresh VMs on 2026-09-28; requested live PV storage and retrieval verification on 2026-09-28
+Implementation Authorization: owner authorized 2026-09-13 (implement on branch m11-middleware-operators); authorized the checkout fast-forward, D4 update, installation and re-apply on 2026-09-28; authorized live PV storage and retrieval verification on those VMs on 2026-09-28
 Superseded Plan Artifacts: none
 
 1. Reflect the operators, species, and order into `docs/OPERATOR_MODEL.md`.
@@ -854,20 +862,53 @@ Superseded Plan Artifacts: none
    `check-package-parity.bash` pattern, wired into a `make check-*` target.
 3. Structure-check the middleware species; confirm the source-build path on both
    debian13 and rocky8.
+4. Verify real host IOC signals through CA, archive storage and retrieval on
+   both test VMs, including retrieval of the same historical interval after
+   restarting their appliances. Record any required CA address configuration.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
 | T1 | Structure | Enumerate the new operators and species in `OPERATOR_MODEL.md`; run the middleware package-baseline guard | control host | Operators, species, and order are defined; the guard passes. |
-| T2 | Integration | Apply the `archiver-dev` source-build species on the base VM, per family | debian13 and rocky8 | aa-maven builds via `./mvnw ... -Dsphinx.skip=true` and the WARs install on each family; a re-apply is idempotent. |
+| T2 | Integration | Apply the full `archiver-dev` species at D4 refs on a fresh VM per family; inspect the deployed source refs, build result, WARs, schema and service; capture installation state before and after the same apply | debian13 and rocky8 | The repository `./mvnw` uses Maven 3.9.16 and builds the four WARs with `clean package -DskipTests`; all four instances run and MariaDB holds the four application tables over its socket. Re-apply reports `ARCHIVER_BUILD_SKIPPED`, with no drift or repair, unchanged build sentinel, config stamp, deployed artifact hashes and service start time, and healthy instances afterwards. `changed=0` alone is insufficient. |
+| T3 | Integration | Register two changing host softIoc PVs through `archivePV`; capture live CA events with `camonitor`; query the same UTC interval through `getData.json`; inspect MariaDB PVTypeInfo and nonempty PB files; restart each appliance and repeat the historical query | T2 Debian 13 and Rocky 8.10 VMs at D4 refs, with the host CA address configured where broadcast discovery is insufficient | Both PVs reach connected `Being archived` status. At least 20 events per PV and VM match the live CA values within 1e-12 and timestamps within 1 microsecond. MariaDB retains both PV configurations; archive files exist. The historical event values and full timestamps remain identical after an observed service restart. This is a bounded persistence check, not a long-term retention test. |
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | T1 | 2026-09-13 | control host | Passed | `docs/OPERATOR_MODEL.md` carries the 7 operators, 5 species, and 2 produced artifacts (`b2a79c8`); `make check-middleware-packages` reports 2/2 pass with its failure branches (missing coverage, duplicate, empty list, unknown OS, unparseable line) exercised, `shellcheck` clean, and `make check-bake` green (`b71af98`). |
-| T2 | pending | debian13 and rocky8 | Not run | |
+| T2 | 2026-09-29T02:29:22Z | Fresh Debian 13 and Rocky 8.10 VMs, 2 vCPU, 4 GiB RAM and 20 GiB disk each; cloud-provision `83ca6bb`, ansible-provision `b8823c1`, application refs D4 | Passed | The shipped `create_vm.bash -F` and readiness check produced each fresh host; the shipped inventory generator supplied its address, and `make archiver_dev.<vacuum>` applied all eight operators with an exact host limit. Initial apply: Debian `ok=31 changed=11 failed=0 unreachable=0`, Rocky `ok=33 changed=14 failed=0 unreachable=0`. The build journal records Maven 3.9.16, `mvnw ... clean package -DskipTests` and `BUILD SUCCESS`. Deployed refs match D4; four WARs pass archive integrity checks and a class from each matches its deployed webapp. OpenJDK 21, Tomcat 9.0.121, four JVMs under `mid-srv`, an active appliance unit and a valid management API response are present on both. MariaDB has ArchivePVRequests, ExternalDataServers, PVAliases and PVTypeInfo over the family socket, with skip_networking=1 and no TCP 3306 listener. Same-input re-apply: Debian `ok=29 changed=0 failed=0 unreachable=0`, Rocky `ok=31 changed=0 failed=0 unreachable=0`; both report `ARCHIVER_BUILD_SKIPPED` without drift or repair. Before/after checks retain identical four WAR hashes, all 3,555 deployed webapp/config file hashes per host, sentinel/stamp metadata and content, four JVM PIDs, unit MainPID, invocation ID and start timestamps; the management API and schema checks pass again. |
+| T3 | 2026-09-29T03:39:51Z | T2 VMs and D4 application refs; existing host softIoc supplies M33:CNT and M33:SIN over CA | Passed | Both PVs reached connected `Being archived` status with MONITOR and a 1-second sampling period. For the UTC query interval 03:37:14.357494-03:37:43.857445 on 2026-09-29, `getData.json` returned HTTP 200 and matched 29 real `camonitor` events per PV on each VM, within 1e-12 for values and 1 microsecond for CA timestamp formatting. Both PV names were present in MariaDB PVTypeInfo and had nonempty STS PB files. Both appliance services were restarted successfully; their MainPID and invocation ID changed. Queries of the same interval returned all 58 matched events per VM with identical full-event SHA-256 digests before and after restart. MariaDB PV registrations persisted, nonempty PB files remained, and connected PV status reported new events after restart. |
+
+T3 configuration: Debian used the installed `EPICS_CA_ADDR_LIST=localhost`
+and `EPICS_CA_AUTO_ADDR_LIST=YES`. On Rocky, that discovery configuration did
+not connect to the host PVs, while a direct CA query to the host gateway did.
+The Rocky test VM's installed `archappl.conf` now explicitly sets
+`EPICS_CA_ADDR_LIST=192.168.123.1`; its previous file is retained alongside it
+as `archappl.conf.m11-pv-before`. This is a test VM configuration change;
+the provisioning inputs were not changed. The firewall configuration was
+not changed. The host IOC was read only.
+
+T3 raw CA output, API responses, DB/file observations, restart records and
+the executed `verify_archive.py` are retained under the ignored
+`work/m11-t2-20260928.axZaVF/` directory. The result covers a bounded interval
+and graceful appliance restart; it does not establish long-term retention
+or recovery from a power failure.
+
+The control-host recheck on 2026-09-29 UTC passed
+`make check-middleware-packages` (2/2) and `make check-docs` (12/12).
+The application build uses its shipped `-DskipTests` path; this result is
+installation and re-apply evidence, not an application unit-test result.
+
+##### Closure Evidence
+
+T1, T2 and T3 verification passed. The D4 and PV verification records are pending commit;
+the cloud-provision branch and the ansible-provision reconciliation have not
+merged to their respective master branches. M11 remains In progress until
+those landing conditions are met. The two verification VMs remain available;
+their removal is a separate action.
 
 <a id="m12"></a>
 #### M12 - Verify the middleware distribution-install path (P_archiver, P_phoebus)
