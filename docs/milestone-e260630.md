@@ -2,9 +2,10 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: inspect the phoebus-env source-build tool for M13
-and record its source ref and prerequisite evidence in
-`docs/milestone-e260630.md` under M13. The M11 D4 and PV verification records
+Next session entry point: review the M14 and M15 guest-only plans in
+`docs/milestone-e260630.md`, file their prepared issues under the existing
+GitHub milestone, and record plan acceptance and implementation authorization
+before applying the sudo configuration changes. The M11 D4 and PV verification records
 were committed in `794eb6b`. T2 and T3 passed on fresh debian13 and
 rocky8 VMs at the D4 refs: full-species re-apply, installation-state comparison,
 live PV storage/retrieval and historical retrieval after appliance restart,
@@ -33,6 +34,8 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Not started | Yes | D2, D3, D5 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
+| VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Not started | Yes | D1, D6 | Both guests pass uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; [M14 detail](#m14). |
+| VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Not started | Yes | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; [M15 detail](#m15). |
 
 ### Decisions
 
@@ -43,6 +46,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | D3 | Middleware operator choices: system Java (distribution OpenJDK 21, not the java-env pin) with `JAVA_HOME` exported; P_epics (local EPICS C base) installed on the middleware host; Tomcat pinned to 9.0.121 (Apache tarball as the shared CATALINA_HOME; the four separate Archiver Appliance instances are created by aa-env, not P_tomcat); the Archiver Appliance config database is MariaDB now and SQLite later; service group `mid` and user `mid-srv` (parallel to `ioc`/`ioc-srv`). Maven is not installed as an operator: aa-maven pins Maven 3.9.9 through its Maven Wrapper, so the source-build species runs `./mvnw` and needs only `JAVA_HOME`, git (with an origin ref), openssh-client (scp), outbound HTTPS, and `-Dsphinx.skip=true`. | 2026-09-12 |
 | D4 | M11 / T2 uses ansible-provision `b8823c1`, epicsarchiverap-env `d09dca7`, and epicsarchiverap-maven `2fc12f01` on separate fresh Debian 13 and Rocky 8 VMs. These refs select Maven Wrapper 3.9.16 and `clean package -DskipTests`; the Maven build has no Sphinx step. This replaces D3's Maven version and Sphinx-skip requirement for this verification. The full MariaDB `archiver-dev` species and a re-apply with identical inputs are required; existing application-verification VMs remain outside this test. | 2026-09-28 |
 | D5 | Separate Phoebus source-build tool confirmation and prerequisite reconciliation from M11 into independent M13. M11 retains the operator/species structure and Archiver Appliance baseline and verification. M13 does not gate M11 closure or M12 distribution-install verification. | 2026-09-29 |
+| D6 | Assign two independent milestones to the dedicated Debian 13 and Rocky 8.10 IOC-runner documentation-verification guests: add per-user `verifypw=any` for `vmadmin` on both, and move the Rocky sudoers includedir after the existing active rules while preserving the `rocky` grant. Templates, golden images, other guests, and application setup are outside this scope. | 2026-09-29 |
 
 ### Assignment History
 
@@ -1152,6 +1156,187 @@ Plan Status: draft
 Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
+
+<a id="m14"></a>
+#### M14 - Allow password-free sudo validation on the two dedicated verification VMs
+
+Origin: e260630 / M14
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+The dedicated Debian 13 and Rocky 8.10 verification guests allow
+`sudo -n true` and `sudo -n id -u`, but reject `sudo -n -v` with a password
+requirement. Their `vmadmin` accounts have both password-required group
+grants and a cloud-init `NOPASSWD` grant. The default `verifypw=all` requires
+all matching grants to be password-free for validation.
+
+##### Scope
+
+- Add `Defaults:vmadmin verifypw=any` in a root-owned, mode-0440 sudoers
+  drop-in on the two dedicated guests.
+- Verify validation without an existing sudo timestamp, ordinary sudo,
+  effective grants, and the full sudoers configuration.
+- Update the private guest handoff with the observed SSH and sudo behavior.
+
+Out of scope: changing templates or golden images, other guests, SSH keys,
+passwords, other users' privileges, application setup, and the Rocky include
+ordering change owned by M15.
+
+##### Completion Criteria
+
+- Both guests pass `sudo -k` followed by `sudo -n -v` without a password.
+- `sudo -n true` succeeds and `sudo -n id -u` returns 0 on both guests.
+- `sudo -n visudo -c` succeeds and `sudo -n -l` retains the existing grants.
+- The private handoff records dated results and the guest configuration;
+  the linked issue is closed or a dated closure exception is recorded.
+
+##### Dependencies And Decisions
+
+- D1 requires an accepted and explicitly authorized plan for existing guests.
+- D6 sets the target pair and per-user policy. M15 is independent: changing
+  include ordering is not required for the drop-in to be read.
+- The observation on 2026-09-30 at 02:03 UTC established ordinary sudo success,
+  validation failure, and valid sudoers syntax on both guests. Exact private
+  coordinates are retained in the local handoff, outside the public repository.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Confirm the dedicated guest identities and current sudo configuration;
+   retain a private baseline and check for concurrent sudoers changes.
+2. Stage a single per-user directive in
+   `/etc/sudoers.d/91-cloud-provision-validation`, validate the candidate,
+   and install it as root with mode 0440. Do not overwrite unrelated files.
+3. Validate the full configuration; restore the prior state if validation
+   fails. Invalidate the sudo timestamp, run the real sudo checks, and
+   record the results and refreshed handoff.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Integration | Execute `sudo -k` and then `sudo -n -v` as `vmadmin` over SSH | Dedicated Debian 13 and Rocky 8.10 verification guests | Validation succeeds without a password or cached timestamp. |
+| T2 | Integration | Execute `sudo -n true`, `sudo -n id -u`, `sudo -n -l`, and `sudo -n visudo -c`; inspect drop-in ownership and mode | Same two guests | Ordinary sudo succeeds, UID is 0, existing grants remain, syntax is valid, and the drop-in is root-owned with mode 0440. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | Not run | Dedicated Debian 13 and Rocky 8.10 verification guests | Pending | none |
+| T2 | Not run | Same two guests | Pending | none |
+
+##### Closure Evidence
+
+- None.
+
+##### GitHub Projection
+
+Title: Allow password-free sudo validation on verification VMs
+Labels: bug
+GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
+Observed State: none
+Observed Labels: none
+Observed Milestone: none
+Last Compared: never
+
+<a id="m15"></a>
+#### M15 - Put the Rocky sudoers includedir after all active rules
+
+Origin: e260630 / M15
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+The dedicated Rocky 8.10 verification guest has a valid sudoers configuration,
+but its `#includedir /etc/sudoers.d` directive is followed by an active
+`rocky` NOPASSWD grant. IOC-runner's shipped
+`verify_sudoers_includedir_order` requires that no active rule follow the
+drop-in include. Moving the directive preserves the existing grant while
+making the file satisfy that prerequisite.
+
+##### Scope
+
+- Move the existing `/etc/sudoers.d` include to the final active position in
+  the dedicated Rocky guest's `/etc/sudoers`.
+- Preserve every existing grant, including the `rocky` NOPASSWD grant, and
+  existing drop-ins.
+- Verify syntax, file integrity outside the directive movement, ordering,
+  and ordinary sudo; update the private guest handoff.
+
+Out of scope: changing templates or golden images, the Debian guest, other
+guests, application setup, and the per-user validation policy owned by M14.
+
+##### Completion Criteria
+
+- The include appears once and no active sudoers rule follows it.
+- The existing `rocky` grant and all other rules are unchanged.
+- Full `visudo -c` validation succeeds, ordinary sudo succeeds, and effective
+  grants remain available.
+- The private handoff records the dated configuration result; the linked
+  issue is closed or a dated closure exception is recorded.
+
+##### Dependencies And Decisions
+
+- D1 requires an accepted and explicitly authorized plan for the existing guest.
+- D6 fixes the target and preserves the existing grant. M14 is independent.
+- The 2026-09-30 02:03 UTC observation found the trailing active `rocky` grant
+  and passing syntax validation. The ordering requirement is in the shipped
+  `epics-ioc-runner/bin/setup-system-infra.bash` function
+  `verify_sudoers_includedir_order`; syntax validity alone does not establish
+  that prerequisite.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Confirm the dedicated Rocky guest and retain a root-owned sudoers backup
+   outside the drop-in directory; check for concurrent file changes.
+2. Stage the original file with only the include directive moved after all
+   active rules. Compare all remaining bytes and validate the candidate.
+3. Install the validated file, preserving permissions and the SELinux context;
+   validate the full configuration and restore the backup on failure.
+4. Inspect the actual file ordering, verify ordinary sudo and retained grants,
+   and record the result and refreshed handoff. Do not run application setup.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Configuration | Compare the original and installed `/etc/sudoers` after excluding the moved include directive; inspect its final active position | Dedicated Rocky 8.10 verification guest | All other bytes are preserved, the include appears once, and no active rule follows it. |
+| T2 | Integration | Execute `sudo -n visudo -c`, `sudo -n true`, `sudo -n id -u`, and `sudo -n -l`; inspect ownership, mode, and SELinux context | Same Rocky guest | Syntax is valid, ordinary sudo succeeds, UID is 0, grants remain, and file metadata is preserved. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | Not run | Dedicated Rocky 8.10 verification guest | Pending | none |
+| T2 | Not run | Same Rocky guest | Pending | none |
+
+##### Closure Evidence
+
+- None.
+
+##### GitHub Projection
+
+Title: Move the Rocky sudoers includedir after active rules
+Labels: bug
+GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
+Observed State: none
+Observed Labels: none
+Observed Milestone: none
+Last Compared: never
 
 ## Backlog
 
