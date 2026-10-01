@@ -2,10 +2,12 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: review the M14 and M15 guest-only plans in
-`docs/milestone-e260630.md`, file their prepared issues under the existing
-GitHub milestone, and record plan acceptance and implementation authorization
-before applying the sudo configuration changes. The M11 D4 and PV verification records
+Next session entry point: inspect the M14 Verification Results in
+`docs/milestone-e260630.md` and prepare the verification-record commit.
+The live sudo validation checks passed on both dedicated guests; record
+landing and GitHub issue #45 closure remain. M15 is still Not started and
+its current plan has no acceptance or implementation authorization.
+The M11 D4 and PV verification records
 were committed in `794eb6b`. T2 and T3 passed on fresh debian13 and
 rocky8 VMs at the D4 refs: full-species re-apply, installation-state comparison,
 live PV storage/retrieval and historical retrieval after appliance restart,
@@ -34,7 +36,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Not started | Yes | D2, D3, D5 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
-| VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Not started | Yes | D1, D6 | Both guests pass uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; [M14 detail](#m14). |
+| VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | In progress | No | D1, D6 | Both guests pass uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; [M14 detail](#m14). |
 | VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Not started | Yes | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; [M15 detail](#m15). |
 
 ### Decisions
@@ -1162,8 +1164,8 @@ Superseded Plan Artifacts: none
 
 Origin: e260630 / M14
 Identity History: none
-GitHub Issue: none
-Status: Not started
+GitHub Issue: [#45](https://github.com/jeonghanlee/cloud-provision/issues/45)
+Status: In progress
 
 ##### Summary
 
@@ -1204,9 +1206,9 @@ ordering change owned by M15.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
+Plan Status: accepted
+Plan Acceptance: 2026-09-30; the owner accepted the current guest-only M14 plan by directing its execution after the plan and issue were prepared.
+Implementation Authorization: 2026-09-30; explicit owner direction to execute M14 on the two dedicated verification guests.
 Superseded Plan Artifacts: none
 
 1. Confirm the dedicated guest identities and current sudo configuration;
@@ -1229,29 +1231,36 @@ Superseded Plan Artifacts: none
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | Not run | Dedicated Debian 13 and Rocky 8.10 verification guests | Pending | none |
-| T2 | Not run | Same two guests | Pending | none |
+| T1 | 2026-10-01T05:22:30Z | Dedicated Debian 13 and Rocky 8.10 verification guests | Passed | Real SSH sessions ran `sudo -k` followed by `sudo -n -v` successfully on both guests. A second `sudo -k` followed by plain `sudo -v` with closed stdin also succeeded. Before the change, the actual `sudo -n -v` returned 1 with a password requirement on both guests. |
+| T2 | 2026-10-01T05:22:30Z | Same two guests | Passed | `sudo -n true` succeeded, `sudo -n id -u` returned 0, and full `sudo -n visudo -c` parsed every included file. The effective grant lines are identical before and after. The new drop-in is a root-owned regular file with mode 0440 and contains exactly `Defaults:vmadmin verifypw=any`. All pre-existing sudoers files retain their SHA-256 hashes, including each main file and application drop-ins. Rocky's new file received its restored SELinux context; temporary stage files are absent. |
 
 ##### Closure Evidence
 
-- None.
+- Guest configuration and T1/T2 verification passed on 2026-10-01 at
+  05:22:30 UTC. The private access handoff records the current policy and
+  observations. Only the new per-user drop-in was installed; main sudoers
+  and all earlier drop-ins were preserved.
+- Verification-record commit and landing evidence remain outstanding.
+  GitHub issue #45 was observed open; its updated body and closure comment
+  are prepared locally. No issue-close exception is recorded, so M14
+  remains In progress until these closure conditions are satisfied.
 
 ##### GitHub Projection
 
 Title: Allow password-free sudo validation on verification VMs
 Labels: bug
 GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
-Observed State: none
-Observed Labels: none
-Observed Milestone: none
-Last Compared: never
+Observed State: open
+Observed Labels: bug
+Observed Milestone: 1 / Nimbus - Cloud Provisioning Reliability
+Last Compared: 2026-10-01T05:22:30Z; remote updated 2026-09-30T06:03:04Z
 
 <a id="m15"></a>
 #### M15 - Put the Rocky sudoers includedir after all active rules
 
 Origin: e260630 / M15
 Identity History: none
-GitHub Issue: none
+GitHub Issue: [#46](https://github.com/jeonghanlee/cloud-provision/issues/46)
 Status: Not started
 
 ##### Summary
@@ -1333,10 +1342,10 @@ Superseded Plan Artifacts: none
 Title: Move the Rocky sudoers includedir after active rules
 Labels: bug
 GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
-Observed State: none
-Observed Labels: none
-Observed Milestone: none
-Last Compared: never
+Observed State: open
+Observed Labels: bug
+Observed Milestone: 1 / Nimbus - Cloud Provisioning Reliability
+Last Compared: 2026-09-30T06:03:39Z; remote updated 2026-09-30T06:03:23Z
 
 ## Backlog
 
