@@ -2,12 +2,12 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: review the M15 guest-only plan against the existing
-ansible-provision common-role includedir task before accepting and authorizing
-execution. M14 is Complete: both guests passed the live sudo checks, the
+Next session entry point: prepare the M15 verification-record commit and
+reconcile GitHub issue #46 for closure. The real Ansible includedir task
+passed twice without changes on the already ordered Rocky guest; T1-T3 passed.
+M14 is Complete: both guests passed the live sudo checks, the
 verification record was pushed in `3517a23`, and GitHub issue #45 is closed.
-M15 is still Not started and its current plan has no acceptance or
-implementation authorization.
+M15 remains In progress until its verification record lands and #46 closes.
 The M11 D4 and PV verification records
 were committed in `794eb6b`. T2 and T3 passed on fresh debian13 and
 rocky8 VMs at the D4 refs: full-species re-apply, installation-state comparison,
@@ -38,7 +38,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Not started | Yes | D2, D3, D5 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
 | VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Complete | No | D1, D6 | Both guests passed uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; verification recorded in `3517a23` and #45 closed; [M14 detail](#m14). |
-| VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Not started | Yes | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; [M15 detail](#m15). |
+| VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | In progress | No | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; [M15 detail](#m15). |
 
 ### Decisions
 
@@ -1266,21 +1266,24 @@ Last Compared: 2026-10-01T05:44:05Z; remote updated 2026-10-01T05:42:20Z
 Origin: e260630 / M15
 Identity History: none
 GitHub Issue: [#46](https://github.com/jeonghanlee/cloud-provision/issues/46)
-Status: Not started
+Status: In progress
 
 ##### Summary
 
-The dedicated Rocky 8.10 verification guest has a valid sudoers configuration,
-but its `#includedir /etc/sudoers.d` directive is followed by an active
-`rocky` NOPASSWD grant. IOC-runner's shipped
+The dedicated Rocky 8.10 verification guest must retain a valid sudoers
+configuration with `#includedir /etc/sudoers.d` after every active grant.
+IOC-runner's shipped
 `verify_sudoers_includedir_order` requires that no active rule follow the
 drop-in include. Moving the directive preserves the existing grant while
-making the file satisfy that prerequisite.
+making the file satisfy that prerequisite. The current live baseline already
+places the include last; verify the existing Ansible task on that state without
+claiming a directive movement in this run.
 
 ##### Scope
 
-- Move the existing `/etc/sudoers.d` include to the final active position in
-  the dedicated Rocky guest's `/etc/sudoers`.
+- Execute only the existing ansible-provision common-role task that places
+  `/etc/sudoers.d` last, through its shipped playbook with `--step` and
+  `--start-at-task`; decline every other task.
 - Preserve every existing grant, including the `rocky` NOPASSWD grant, and
   existing drop-ins.
 - Verify syntax, file integrity outside the directive movement, ordering,
@@ -1302,45 +1305,60 @@ guests, application setup, and the per-user validation policy owned by M14.
 
 - D1 requires an accepted and explicitly authorized plan for the existing guest.
 - D6 fixes the target and preserves the existing grant. M14 is independent.
-- The 2026-09-30 02:03 UTC observation found the trailing active `rocky` grant
-  and passing syntax validation. The ordering requirement is in the shipped
+- The current live baseline already has the `rocky` grant before the final
+  include, with valid syntax. The ordering requirement is in the shipped
   `epics-ioc-runner/bin/setup-system-infra.bash` function
   `verify_sudoers_includedir_order`; syntax validity alone does not establish
   that prerequisite.
+- The existing ansible-provision task is `roles/common/tasks/main.yml` at
+  commit `f7aba721463461ca8ea61a15819cd99041edbe5b`; that task and its
+  `playbooks/operators/common.yml` entry point had no local changes.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
+Plan Status: accepted
+Plan Acceptance: 2026-09-30; the owner selected execution of only the existing Ansible sudoers task through `--step`.
+Implementation Authorization: 2026-09-30; explicit owner direction to proceed, followed by selection of the sudoers-only execution scope.
+Superseded Plan Artifacts: direct-edit plan preserved in commit `7391f51`.
 
-1. Confirm the dedicated Rocky guest and retain a root-owned sudoers backup
-   outside the drop-in directory; check for concurrent file changes.
-2. Stage the original file with only the include directive moved after all
-   active rules. Compare all remaining bytes and validate the candidate.
-3. Install the validated file, preserving permissions and the SELinux context;
-   validate the full configuration and restore the backup on failure.
-4. Inspect the actual file ordering, verify ordinary sudo and retained grants,
-   and record the result and refreshed handoff. Do not run application setup.
+1. Confirm the dedicated Rocky guest and capture the actual sudoers content,
+   hashes, effective grants, ownership, mode, and SELinux context. Retain a
+   root-owned backup outside the drop-in directory.
+2. Execute `playbooks/operators/common.yml` at the shipped
+   `Ensure includedir is the final active directive in /etc/sudoers` task.
+   Select only that task through `--step`; decline all later tasks. Keep SSH
+   host-key validation enabled and retain the guest-specific alias.
+3. Compare the full configuration against the baseline and backup, inspect
+   final include ordering, and validate ordinary sudo and full syntax. A
+   pre-corrected file must remain byte-identical with preserved metadata.
+4. Repeat the same selected task to verify it reports no change, and record
+   real CLI results and the refreshed handoff. Do not run application setup.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
-| T1 | Configuration | Compare the original and installed `/etc/sudoers` after excluding the moved include directive; inspect its final active position | Dedicated Rocky 8.10 verification guest | All other bytes are preserved, the include appears once, and no active rule follows it. |
+| T1 | Configuration | Compare the complete `/etc/sudoers` against the backup on the already ordered baseline; compare all sudoers hashes and inspect the include count and final line | Dedicated Rocky 8.10 verification guest | Every byte is preserved, the include appears once, and no active rule follows it. |
 | T2 | Integration | Execute `sudo -n visudo -c`, `sudo -n true`, `sudo -n id -u`, and `sudo -n -l`; inspect ownership, mode, and SELinux context | Same Rocky guest | Syntax is valid, ordinary sudo succeeds, UID is 0, grants remain, and file metadata is preserved. |
+| T3 | Integration | Run the shipped Ansible common playbook through `--start-at-task` and `--step`, select only the includedir task, and repeat | Same Rocky guest | The actual task succeeds; both executions report no change on the pre-corrected baseline and no other configuration task or handler runs. |
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | Not run | Dedicated Rocky 8.10 verification guest | Pending | none |
-| T2 | Not run | Same Rocky guest | Pending | none |
+| T1 | 2026-10-01T06:11:18Z | Dedicated Rocky 8.10 verification guest | Passed | Actual `/etc/sudoers` matched the root-owned backup byte for byte. Its SHA-256 and every existing drop-in hash matched the baseline. The include appears exactly once as the final line, after the retained `rocky` grant. The baseline was already ordered correctly; this run made no directive movement. |
+| T2 | 2026-10-01T06:11:18Z | Same Rocky guest | Passed | Full `sudo -n visudo -c` parsed all included files. Ordinary sudo succeeded, root UID was 0, effective `sudo -n -l` output matched the baseline exactly, and uncached `sudo -n -v` and plain `sudo -v` succeeded. Main-file ownership, mode 0440, and SELinux context matched the baseline. |
+| T3 | 2026-10-01T06:11:18Z | Same Rocky guest | Passed | Two real Ansible core 2.19.11 executions selected the unchanged common-role includedir task through the shipped playbook. Both reported `rc=0`, `stdout=unchanged`, `ok=1`, `changed=0`, `unreachable=0`, and `failed=0`. All later configuration tasks were declined; `meta: flush_handlers` ran with no pending handlers. |
 
 ##### Closure Evidence
 
-- None.
+- The guest satisfied the required ordering before execution. The real
+  Ansible task preserved that configuration on both runs, and T1-T3 passed
+  at 2026-10-01T06:11:18Z. The private handoff records the current state.
+- The task's modification and rollback paths were not exercised; no claim
+  is made that this run repaired an incorrectly ordered file.
+- Verification-record commit and landing evidence, plus authorized #46
+  body reconciliation and closure, remain outstanding.
 
 ##### GitHub Projection
 
@@ -1350,7 +1368,7 @@ GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
 Observed State: open
 Observed Labels: bug
 Observed Milestone: 1 / Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-09-30T06:03:39Z; remote updated 2026-09-30T06:03:23Z
+Last Compared: 2026-10-01T06:13:22Z; remote updated 2026-09-30T06:03:23Z
 
 ## Backlog
 
