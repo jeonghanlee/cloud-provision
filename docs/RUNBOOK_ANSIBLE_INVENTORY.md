@@ -116,7 +116,7 @@ host source required by that run.
 make check-runtime-inventory
 ```
 
-This check runs the real generator for 44 plain-selector vacuum-species
+This check runs the real generator for 45 plain-selector vacuum-species
 pairs plus twelve suffixed-selector cases, merges each output through
 `ansible-inventory`, verifies direct and inherited groups, and exercises
 the EPICS-env status-to-playbook path with only Libvirt, SSH, and

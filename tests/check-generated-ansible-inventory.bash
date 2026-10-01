@@ -197,10 +197,9 @@ for vacuum in "${VACUA[@]}"; do
     done
 done
 
-# debian12 is a restricted vacuum: the operator definition assigns it only
-# the bare, epics-dev, and iocrunner-family species, not nfs-sim, rtbase, or
-# ethercat. Drive its assigned pairs explicitly.
-declare -a DEBIAN12_SPECIES=(bare iocrunner iocrunner-nfs epics-dev)
+# Debian 12 coverage includes bare, epics-dev, and the iocrunner-family
+# species, including iocserver. Drive these pairs explicitly.
+declare -a DEBIAN12_SPECIES=(bare iocrunner iocserver iocrunner-nfs epics-dev)
 for species in "${DEBIAN12_SPECIES[@]}"; do
     if [[ "${species}" == "bare" ]]; then
         expected_groups="debian12"
