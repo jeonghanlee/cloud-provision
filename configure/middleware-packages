@@ -18,8 +18,10 @@
 # Rocky Java caution: installing java-21-openjdk does not move the default
 # `java` off the system 1.8 - the P_java operator selects 21 with `alternatives`
 # and resolves JAVA_HOME against the versioned path. Maven is not installed here
-# (the source builds use each repository's ./mvnw wrapper), so the site
-# document's maven-openjdk21 module path is deliberately not taken.
+# (the Archiver source build uses its repository ./mvnw wrapper). Phoebus
+# build-tool confirmation and prerequisite reconciliation are tracked in
+# docs/milestone-e260630.md under the M13 Backlog detail; its tool acquisition
+# remains unverified.
 #
 # Rocky MariaDB: mariadb-server is a RHEL8 AppStream module; its default stream
 # installs out of the box, but the P_mariadb operator enables a specific stream

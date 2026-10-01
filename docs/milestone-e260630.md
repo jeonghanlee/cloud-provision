@@ -2,7 +2,7 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: prepare the M15 closure-record commit.
+Next session entry point: verify the M11 cloud-provision and ansible-provision master landing conditions.
 M15 is Complete: the real Ansible includedir task passed twice without changes
 on the already ordered Rocky guest, T1-T3 passed, the verification record was
 pushed in `68d047c`, and GitHub issue #46 is closed.
@@ -35,7 +35,6 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | In progress | No | D2, D3, D4, D5 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
 | Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
 | Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
-| Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Not started | Yes | D2, D3, D5 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
 | VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Complete | No | D1, D6 | Both guests passed uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; verification recorded in `3517a23` and #45 closed; [M14 detail](#m14). |
 | VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Complete | No | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; T1-T3 recorded in `68d047c` and #46 closed; [M15 detail](#m15). |
@@ -50,6 +49,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | D4 | M11 / T2 uses ansible-provision `b8823c1`, epicsarchiverap-env `d09dca7`, and epicsarchiverap-maven `2fc12f01` on separate fresh Debian 13 and Rocky 8 VMs. These refs select Maven Wrapper 3.9.16 and `clean package -DskipTests`; the Maven build has no Sphinx step. This replaces D3's Maven version and Sphinx-skip requirement for this verification. The full MariaDB `archiver-dev` species and a re-apply with identical inputs are required; existing application-verification VMs remain outside this test. | 2026-09-28 |
 | D5 | Separate Phoebus source-build tool confirmation and prerequisite reconciliation from M11 into independent M13. M11 retains the operator/species structure and Archiver Appliance baseline and verification. M13 does not gate M11 closure or M12 distribution-install verification. | 2026-09-29 |
 | D6 | Assign two independent milestones to the dedicated Debian 13 and Rocky 8.10 IOC-runner documentation-verification guests: add per-user `verifypw=any` for `vmadmin` on both, and move the Rocky sudoers includedir after the existing active rules while preserving the `rocky` grant. Templates, golden images, other guests, and application setup are outside this scope. | 2026-09-29 |
+| D7 | Consolidate pending Phoebus build-tool and documentation reconciliation in M13 under Backlog. Defer execution until the Archiver work, including M11 master landing, is complete; resume as Not started upon assignment. | 2026-10-01 |
 
 ### Assignment History
 
@@ -982,90 +982,6 @@ Superseded Plan Artifacts: none
 | T1 | pending | middleware VM | Not run | |
 | T2 | pending | middleware VM | Not run | |
 
-<a id="m13"></a>
-#### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
-
-Origin: e260630 / M13
-Identity History: none
-GitHub Issue: none
-Status: Not started
-
-##### Summary
-
-Confirm the actual build tool used by phoebus-env and its source checkout,
-then align the Phoebus source-build prerequisites in `docs/OPERATOR_MODEL.md`
-and the middleware package baseline with that evidence. The current model
-intends a repository Maven Wrapper, but that assumption is unverified.
-This work is separated from M11 under D5.
-
-##### Scope
-
-- Inspect phoebus-env at a recorded source ref, its `make build.phoebus`
-  entry point, and the delegated Phoebus source build invocation.
-- Confirm the tool, wrapper or system-package acquisition, JDK requirement,
-  `JAVA_HOME` handling, and other required build prerequisites against the
-  actual source and configuration.
-- Reconcile the `P_phoebus-build` and `P_java` descriptions in
-  `docs/OPERATOR_MODEL.md` and the relevant comments or package requirements
-  in `configure/middleware-packages` with the confirmed source-build path.
-
-Out of scope: creating or populating phoebus-distribution (`G1`), verifying
-distribution installation (`M12`), implementing ansible-provision roles,
-building or running the full Phoebus application, and repeating the M11
-Archiver Appliance verification.
-
-##### Completion Criteria
-
-- An immutable phoebus-env source ref and its delegated source ref identify
-  the actual build invocation and prerequisite evidence.
-- The repository-wrapper assumption is confirmed or corrected; the operator
-  model and middleware package baseline agree with the observed build path.
-- The shipped middleware package and documentation checks pass against the
-  resulting definitions.
-
-##### Dependencies And Decisions
-
-- `D2` and `D3` supply the ecosystem structure and system-Java baseline.
-- `D5` (2026-09-29) assigns Phoebus source-build tool confirmation and
-  prerequisite reconciliation to this independent milestone.
-- The unresolved M11 hypothesis is retained here: aa-maven's `./mvnw` is
-  confirmed present, but phoebus-env was not cloned locally when the model
-  was defined. Whether Phoebus uses its intended repository wrapper or the
-  site document's `maven-openjdk21` remains to be confirmed from its source.
-- Source inspection does not require the M11 master merges or the G1
-  distribution repositories. M11 and M12 do not depend on M13.
-
-##### Implementation Plan
-
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
-
-1. Record the source refs and inspect the real build entry point and tool
-   configuration through the delegated source build.
-2. Confirm the prerequisites and reconcile the operator model and middleware
-   package baseline where the source evidence requires a change.
-3. Run the shipped checks and record the source evidence and check results.
-
-##### Test Plan
-
-| Label | Layer | Method | Environment | Expected Result |
-| --- | --- | --- | --- | --- |
-| T1 | Structure | Inspect `make build.phoebus`, its delegated build invocation and tool configuration at recorded immutable refs | phoebus-env and its source checkout | The actual tool, acquisition path, JDK and other prerequisites are identified from shipped source files. |
-| T2 | Structure | Compare `P_phoebus-build`, `P_java` and `configure/middleware-packages` with T1 evidence; run `make check-middleware-packages` and `make check-docs` | control host | The definitions agree with the source evidence and both shipped checks pass. |
-
-##### Verification Results
-
-| Label | Observed At | Environment | Result | Evidence |
-| --- | --- | --- | --- | --- |
-| T1 | Not run | phoebus-env and its source checkout | Pending | none |
-| T2 | Not run | control host | Pending | none |
-
-##### Closure Evidence
-
-- None.
-
 <a id="m4"></a>
 #### M4 - Validate EtherCAT use of the shared image workflow and proxy seal
 
@@ -1384,8 +1300,110 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
+| Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 
 ### Backlog Details
+
+<a id="m13"></a>
+#### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
+
+Origin: e260630 / M13
+Identity History: none
+GitHub Issue: none
+Status: Deferred
+
+##### Summary
+
+Confirm the actual build tool used by phoebus-env and its source checkout,
+then align the Phoebus source-build prerequisites in `docs/OPERATOR_MODEL.md`
+and the middleware package baseline with that evidence. The current model
+intends a repository Maven Wrapper, but that assumption is unverified.
+This work is separated from M11 under D5. D7 moves it to Backlog for
+execution after the Archiver work completes. This detail is the single
+source for the pending Phoebus build-tool and documentation reconciliation.
+
+##### Source Documents
+
+| Source | Content To Reconcile |
+| --- | --- |
+| `docs/OPERATOR_MODEL.md`, P_java | Shared OpenJDK baseline; the confirmed Archiver wrapper must not imply that the Phoebus tool is verified. |
+| `docs/OPERATOR_MODEL.md`, P_phoebus-build | Source-build entry point and the unverified wrapper assumption. |
+| `docs/OPERATOR_MODEL.md`, Phoebus species and produced artifacts | Source/distribution alternatives and producer-consumer ownership. |
+| `configure/middleware-packages` | Current system Java package baseline; Phoebus tool acquisition remains pending source inspection. |
+| This document, M11 / D5 | Archiver verification is complete at its recorded refs; Phoebus build-tool confirmation is separate. |
+| This document, M12 / G1 | Distribution-install verification and repository availability are separate dependencies, outside this build-tool task. |
+
+##### Scope
+
+- Inspect phoebus-env at a recorded source ref, its `make build.phoebus`
+  entry point, and the delegated Phoebus source build invocation.
+- Confirm the tool, wrapper or system-package acquisition, JDK requirement,
+  `JAVA_HOME` handling, and other required build prerequisites against the
+  actual source and configuration.
+- Reconcile the `P_phoebus-build` and `P_java` descriptions in
+  `docs/OPERATOR_MODEL.md` and the relevant comments or package requirements
+  in `configure/middleware-packages` with the confirmed source-build path.
+
+Out of scope: creating or populating phoebus-distribution (`G1`), verifying
+distribution installation (`M12`), implementing ansible-provision roles,
+building or running the full Phoebus application, and repeating the M11
+Archiver Appliance verification.
+
+##### Completion Criteria
+
+- An immutable phoebus-env source ref and its delegated source ref identify
+  the actual build invocation and prerequisite evidence.
+- The repository-wrapper assumption is confirmed or corrected; the operator
+  model and middleware package baseline agree with the observed build path.
+- The shipped middleware package and documentation checks pass against the
+  resulting definitions.
+
+##### Dependencies And Decisions
+
+- `D2` and `D3` supply the ecosystem structure and system-Java baseline.
+- `D5` (2026-09-29) assigns Phoebus source-build tool confirmation and
+  prerequisite reconciliation to this independent milestone.
+- The unresolved M11 hypothesis is retained here: aa-maven's `./mvnw` is
+  confirmed present, but phoebus-env was not cloned locally when the model
+  was defined. Whether Phoebus uses its intended repository wrapper or the
+  site document's `maven-openjdk21` remains to be confirmed from its source.
+- `D7` (2026-10-01): defer this Backlog item until the Archiver work
+  completes, including the M11 master landing conditions. Resume as
+  Not started when M11 is Complete and this item is assigned for execution.
+- Source inspection does not technically require the G1 distribution
+  repositories. M11 and M12 do not depend on M13; M11 is an execution-order
+  dependency for this item.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Record the source refs and inspect the real build entry point and tool
+   configuration through the delegated source build.
+2. Confirm the prerequisites and reconcile the operator model and middleware
+   package baseline where the source evidence requires a change.
+3. Run the shipped checks and record the source evidence and check results.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Structure | Inspect `make build.phoebus`, its delegated build invocation and tool configuration at recorded immutable refs | phoebus-env and its source checkout | The actual tool, acquisition path, JDK and other prerequisites are identified from shipped source files. |
+| T2 | Structure | Compare `P_phoebus-build`, `P_java` and `configure/middleware-packages` with T1 evidence; run `make check-middleware-packages` and `make check-docs` | control host | The definitions agree with the source evidence and both shipped checks pass. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | Not run | phoebus-env and its source checkout | Pending | none |
+| T2 | Not run | control host | Pending | none |
+
+##### Closure Evidence
+
+- None.
 
 <a id="m7"></a>
 #### M7 - Restore the VM readiness preflight against cloud-init 23.4
@@ -1684,6 +1702,7 @@ both edited scripts.
 | --- | --- | --- |
 | 2026-09-25 | M12: Backlog to Milestone | Assigned to the middleware line; stays Blocked on G1 and resumes as Not started when G1 completes. |
 | 2026-09-29 | M4: Backlog to Milestone | Assigned with its complete row and detail in this synchronization commit; Origin, ID, Deferred status, plan and verification evidence are preserved. |
+| 2026-10-01 | M13: Milestone to Backlog | Moved with its complete row and detail in this synchronization commit; Origin, ID, draft plan and pending checks are preserved. D7 defers execution until Archiver completion. |
 
 ## History
 
