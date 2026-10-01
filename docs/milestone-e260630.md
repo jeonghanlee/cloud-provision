@@ -2,11 +2,12 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: inspect the M14 Verification Results in
-`docs/milestone-e260630.md` and prepare the verification-record commit.
-The live sudo validation checks passed on both dedicated guests; record
-landing and GitHub issue #45 closure remain. M15 is still Not started and
-its current plan has no acceptance or implementation authorization.
+Next session entry point: review the M15 guest-only plan against the existing
+ansible-provision common-role includedir task before accepting and authorizing
+execution. M14 is Complete: both guests passed the live sudo checks, the
+verification record was pushed in `3517a23`, and GitHub issue #45 is closed.
+M15 is still Not started and its current plan has no acceptance or
+implementation authorization.
 The M11 D4 and PV verification records
 were committed in `794eb6b`. T2 and T3 passed on fresh debian13 and
 rocky8 VMs at the D4 refs: full-species re-apply, installation-state comparison,
@@ -36,7 +37,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Not started | Yes | D2, D3, D5 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
-| VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | In progress | No | D1, D6 | Both guests pass uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; [M14 detail](#m14). |
+| VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Complete | No | D1, D6 | Both guests passed uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; verification recorded in `3517a23` and #45 closed; [M14 detail](#m14). |
 | VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Not started | Yes | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; [M15 detail](#m15). |
 
 ### Decisions
@@ -1165,7 +1166,7 @@ Superseded Plan Artifacts: none
 Origin: e260630 / M14
 Identity History: none
 GitHub Issue: [#45](https://github.com/jeonghanlee/cloud-provision/issues/45)
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -1240,20 +1241,24 @@ Superseded Plan Artifacts: none
   05:22:30 UTC. The private access handoff records the current policy and
   observations. Only the new per-user drop-in was installed; main sudoers
   and all earlier drop-ins were preserved.
-- Verification-record commit and landing evidence remain outstanding.
-  GitHub issue #45 was observed open; its updated body and closure comment
-  are prepared locally. No issue-close exception is recorded, so M14
-  remains In progress until these closure conditions are satisfied.
+- The verification record was committed as
+  `3517a236a5e809ed41f103fc1c64b9d6409437b5` and pushed to
+  `origin/m11-middleware-operators`; the remote branch SHA was verified.
+- GitHub issue #45 received the verified results and all four completed
+  acceptance criteria, then closed as completed at 2026-10-01T05:42:20Z.
+  Its closed state was rechecked with `gh issue view 45` at
+  2026-10-01T05:44:05Z. All M14 completion criteria are satisfied;
+  the independent M15 include-order change remains outside this scope.
 
 ##### GitHub Projection
 
 Title: Allow password-free sudo validation on verification VMs
 Labels: bug
 GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: bug
 Observed Milestone: 1 / Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-10-01T05:22:30Z; remote updated 2026-09-30T06:03:04Z
+Last Compared: 2026-10-01T05:44:05Z; remote updated 2026-10-01T05:42:20Z
 
 <a id="m15"></a>
 #### M15 - Put the Rocky sudoers includedir after all active rules
