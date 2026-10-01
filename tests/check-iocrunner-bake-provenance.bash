@@ -498,12 +498,13 @@ set -e
 command_name=""
 for argument in "$@"; do
     case "${argument}" in
-        list|dominfo|domblklist|domstate|net-update|shutdown|uri)
+        list|dominfo|domiflist|domblklist|domstate|net-dumpxml|net-update|shutdown|destroy|undefine|uri)
             command_name="${argument}"
             break
             ;;
     esac
 done
+printf '%s\n' "${command_name}" >> "${CASE_DIR}/lifecycle.log"
 case "${command_name}" in
     uri)
         # create_vm.bash asks the connection separately so it can tell an
@@ -516,6 +517,23 @@ case "${command_name}" in
     dominfo)
         [[ -f "${DOMAIN_STATE_FILE}" ]]
         ;;
+    domiflist)
+        printf 'Interface Type Source Model MAC\n'
+        printf 'vnet0 network lab virtio %s\n' "$(cat "${CASE_DIR}/domain.mac")"
+        ;;
+    net-dumpxml)
+        if [[ "${PROMOTION_MODE}" == cleanup-read-fail && -f "${DOMAIN_STATE_FILE}" ]] && \
+           [[ "$(cat "${DOMAIN_STATE_FILE}")" == 'shut off' ]]; then
+            printf 'error: cleanup network lookup failed\n' >&2
+            exit 1
+        fi
+        scope=live
+        [[ "$*" != *--inactive* ]] || scope=config
+        host=""
+        [[ ! -f "${CASE_DIR}/reservation-${scope}.xml" ]] || \
+            host="$(cat "${CASE_DIR}/reservation-${scope}.xml")"
+        printf '<network><ip><dhcp>%s</dhcp></ip></network>\n' "${host}"
+        ;;
     domblklist)
         printf "%s\n" " Type   Device   Target   Source"
         ;;
@@ -527,6 +545,29 @@ case "${command_name}" in
         fi
         ;;
     net-update)
+        xml=""
+        for argument in "$@"; do
+            [[ "${argument}" != '<'* ]] || xml="${argument}"
+        done
+        if [[ "$*" == *' add ip-dhcp-host '* ]]; then
+            printf '%s\n' "${xml}" > "${CASE_DIR}/reservation-live.xml"
+            printf '%s\n' "${xml}" > "${CASE_DIR}/reservation-config.xml"
+        elif [[ "$*" == *' delete ip-dhcp-host '* ]]; then
+            if [[ "${PROMOTION_MODE}" == cleanup-delete-fail ]]; then
+                printf 'error: cleanup reservation deletion failed\n' >&2
+                exit 1
+            fi
+            scope=live
+            [[ "$*" != *--config* ]] || scope=config
+            [[ "$(cat "${CASE_DIR}/reservation-${scope}.xml")" == "${xml}" ]] || exit 7
+            rm -f "${CASE_DIR}/reservation-${scope}.xml"
+        fi
+        ;;
+    destroy)
+        printf '%s\n' 'shut off' > "${DOMAIN_STATE_FILE}"
+        ;;
+    undefine)
+        rm -f "${DOMAIN_STATE_FILE}"
         ;;
     shutdown)
         [[ -e "${FAKE_GUEST_ROOT}/.proxy-sealed" ]] || {
@@ -577,6 +618,13 @@ EOF
 #!/usr/bin/env bash
 set -e
 printf "%s\n" "running" > "${DOMAIN_STATE_FILE}"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --name) printf '%s\n' "$2" > "${CASE_DIR}/domain.name"; shift ;;
+        --network) printf '%s\n' "${2##*,mac=}" > "${CASE_DIR}/domain.mac"; shift ;;
+    esac
+    shift
+done
 EOF
 
     cat > "${fakebin}/genisoimage" <<'EOF'
@@ -776,11 +824,9 @@ EOF
     chmod +x "${fakebin}"/*
 }
 
-# The promotion cases exercise the public bake through image publication. The
-# final VM teardown is intentionally not treated as a failure boundary because
-# create_vm.bash makes cleanup idempotent and reports teardown failures without
-# changing the bake result. The success cases still verify that the bake's
-# failure guidance is silent after a successful publication.
+# The public bake publishes an image pair before optional build VM cleanup.
+# Cleanup cases omit -k and verify removal or preservation on DHCP failure.
+# Other cases retain the build VM to isolate publication and sealing behavior.
 function run_promotion_case {
     local mode="$1"
     local os_type="$2"
@@ -869,8 +915,9 @@ function run_promotion_case {
     )
     local -a bake_command=(
         "${BAKE}" -o "${os_type}" -d "${image_dir}" \
-        -a "${TOP}/../ansible-provision" -k
+        -a "${TOP}/../ansible-provision"
     )
+    [[ "${mode}" == cleanup-* ]] || bake_command+=(-k)
     if [[ -n "${CASE_RUNNER_REF:-}" ]]; then
         bake_command+=(-r "${CASE_RUNNER_REF}")
     fi
@@ -881,6 +928,61 @@ function run_promotion_case {
         "${case_dir}/runtime-inventory-args.log" \
         "${case_dir}/runtime-inventory.ini" "${os_type}"
     assert_ssh_multiplexing_off "${label}" "${case_dir}/ssh-args.log"
+
+    if [[ "${mode}" == cleanup-* ]]; then
+        local vm_name disk seed cleanup_command want_rc=1
+        vm_name="$(cat "${case_dir}/domain.name")"
+        disk="${image_dir}/${vm_name}.qcow2"
+        seed="${image_dir}/${vm_name}-seed.iso"
+        cleanup_command="IMAGE_WORKFLOW_RUN_ID=${vm_name#lab-${os_type}-build-} ${TOP}/bin/create_vm.bash"
+        cleanup_command+=" -o ${os_type} -n build -d ${image_dir} -p lab -c"
+        [[ "${mode}" != cleanup-success ]] || want_rc=0
+        expect_equal "${label} bake exit" "${want_rc}" "${rc}"
+        shopt -s nullglob
+        images=("${image_dir}"/iocrunner-"${os_type}"-*.qcow2)
+        shopt -u nullglob
+        if (( ${#images[@]} == 1 )) && \
+           [[ -f "${images[0]}.manifest" && -f "${images[0]}.creation-record" ]]; then
+            record_pass "${label} preserves the published image pair"
+        else
+            record_fail "${label} preserves the published image pair" 'publication did not complete'
+        fi
+        if [[ "${mode}" == cleanup-success ]]; then
+            if [[ ! -e "${case_dir}/domain.state" && ! -e "${disk}" && \
+                  ! -e "${disk}.creation-record" && ! -e "${seed}" && \
+                  ! -e "${case_dir}/reservation-live.xml" && \
+                  ! -e "${case_dir}/reservation-config.xml" ]]; then
+                record_pass "${label} removes build resources and both reservations"
+            else
+                record_fail "${label} removes build resources and both reservations" 'resources remain'
+            fi
+            if grep -q '^Bake complete:' "${case_dir}/output.txt" && \
+               ! grep -q 'was left for inspection' "${case_dir}/output.txt"; then
+                record_pass "${label} reports success without failure guidance"
+            else
+                record_fail "${label} reports success without failure guidance" 'incorrect completion output'
+            fi
+        else
+            if [[ -f "${case_dir}/domain.state" && -f "${disk}" && \
+                  -f "${disk}.creation-record" && -f "${seed}" && \
+                  -f "${case_dir}/reservation-live.xml" && \
+                  -f "${case_dir}/reservation-config.xml" ]] && \
+               ! grep -Eq '^(destroy|undefine)$' "${case_dir}/lifecycle.log"; then
+                record_pass "${label} preserves build resources and both reservations"
+            else
+                record_fail "${label} preserves build resources and both reservations" 'resources were removed'
+            fi
+            if grep -q 'DHCP cleanup failed' "${case_dir}/output.txt" && \
+               grep -Fq "Build VM ${vm_name} was left for inspection" "${case_dir}/output.txt" && \
+               grep -Fq "${cleanup_command}" "${case_dir}/output.txt" && \
+               ! grep -q '^Bake complete:' "${case_dir}/output.txt"; then
+                record_pass "${label} reports failure with the exact cleanup identity"
+            else
+                record_fail "${label} reports failure with the exact cleanup identity" 'incorrect failure output'
+            fi
+        fi
+        return 0
+    fi
 
     if [[ "${mode}" == seal-case ]]; then
         shopt -s nullglob
@@ -1228,6 +1330,11 @@ case "${1:-all}" in
         run_promotion_case publish-clean rocky8
         run_promotion_case publish-repeat rocky8
         CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned rocky8
+        for cleanup_os in debian13 rocky8; do
+            run_promotion_case cleanup-success "${cleanup_os}"
+            run_promotion_case cleanup-read-fail "${cleanup_os}"
+            run_promotion_case cleanup-delete-fail "${cleanup_os}"
+        done
         ;;
     *)
         printf "Usage: %s [validator|promotion|seed-omission|seal-case|all]\n" \

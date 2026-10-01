@@ -14,10 +14,13 @@ SC_TOP="${SC_RPATH%/*}/.."
 SC_TOP="$(realpath "${SC_TOP}")"
 source "${SC_TOP}/bin/image_workflow.bash"
 source "${SC_TOP}/bin/proxy_contract.bash"
+source "${SC_TOP}/bin/vm_network.bash"
 
 # --- Global Configuration ---
 declare -g VM_PREFIX="lab"
 declare -g VM_NAME
+declare -gr VM_HOSTNAME_MAX_LENGTH=63
+declare -gr VM_HOSTNAME_HASH_LENGTH=12
 declare -g VM_RAM=4096
 declare -g VM_VCPUS=2
 declare -g VM_DISK_SIZE="20G"
@@ -51,7 +54,7 @@ declare -g VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS="${VM_WAIT_CLOUD_INIT_INTERVAL_SE
 declare -g VM_WAIT_SHUTDOWN_ATTEMPTS="${VM_WAIT_SHUTDOWN_ATTEMPTS:-12}"
 declare -g VM_WAIT_SHUTDOWN_INTERVAL_SECONDS="${VM_WAIT_SHUTDOWN_INTERVAL_SECONDS:-5}"
 
-# Network configuration: static IP via libvirt DHCP reservation
+# Static address configuration and the legacy MAC scheme for existing VMs.
 declare -g NETWORK_SUBNET="192.168.123"
 declare -g MAC_PREFIX="52:54:00:01"
 # Vacuum-by-species address table. Each pair listed here owns one base
@@ -80,6 +83,7 @@ declare -g DEBIAN13_ARCHIVER_DEV_IP_BASE=60
 declare -g ROCKY8_ARCHIVER_DEV_IP_BASE=140
 declare -g VM_IP=""
 declare -g VM_MAC=""
+declare -g VM_LEGACY_MAC=""
 
 # Base image details
 declare -g BASE_URL
@@ -370,9 +374,9 @@ fi
 CLOUD_INIT_ISO="${IMAGE_DIR}/${VM_NAME}-seed.iso"
 
 # --- Network Resolution ---
-# Derives static IP and MAC from OS type and node identifier.
+# Derives static IP from OS type and node identifier, and MAC from VM identity.
 # IP:  ${NETWORK_SUBNET}.${OS_BASE + NODE_OFFSET}
-# MAC: ${MAC_PREFIX}:${OS_HEX}:${NODE_HEX}
+# Existing domains retain their actual MAC; new names use a separate digest.
 function resolve_network {
     local os_base=0
     local node_offset=0
@@ -411,7 +415,7 @@ function resolve_network {
             # 160-199 sits between the highest static base (155) and the
             # old 200-254 window, and nothing else uses it, so widening
             # costs nothing and roughly halves the collision rate. A
-            # fixed range still collides; register_dhcp names it when it does.
+            # fixed range still collides; register_dhcp reports it when it does.
             # Both go into the hash: an address identifies a VM, not a node
             # name. Hashing NODE_ID alone gave every OS type the same address
             # and the same MAC for a given node ID, so the second VM could not
@@ -425,7 +429,8 @@ function resolve_network {
             done
             local ip_last=$(( 160 + hash ))
             VM_IP="${NETWORK_SUBNET}.${ip_last}"
-            VM_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "160" "${hash}")
+            VM_LEGACY_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "160" "${hash}")
+            VM_MAC="$(vm_network_mac "${VM_NAME}")" || return 1
             printf "Note: NODE_ID=%s mapped to %s\n" "${NODE_ID}" "${VM_IP}"
             return 0
             ;;
@@ -433,71 +438,14 @@ function resolve_network {
 
     local ip_last=$(( os_base + node_offset ))
     VM_IP="${NETWORK_SUBNET}.${ip_last}"
-    VM_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "${os_base}" "${node_offset}")
-}
-
-# Register DHCP reservation in libvirt network
-function register_dhcp {
-    if [[ -z "${VM_IP}" || -z "${VM_MAC}" ]]; then
-        return 0
-    fi
-
-    # Remove existing reservation if present. This matches only this VM's own
-    # exact triple, so another VM holding the same address is left alone and
-    # the add below is what meets it.
-    virsh --connect "${LIBVIRT_URI}" net-update "${LIBVIRT_NETWORK}" delete ip-dhcp-host \
-        "<host mac='${VM_MAC}' name='${VM_NAME}' ip='${VM_IP}'/>" \
-        --live --config 2>/dev/null || true
-
-    # Name the collision before libvirt does. The address computed for this VM
-    # can be held by another one — the fallback node-ID mapping has 95 slots,
-    # so unrelated pairs can land together. libvirt refuses the duplicate, but
-    # its message says only that an entry exists; it cannot say which VM holds
-    # the address or that a node-ID choice produced it.
-    # Match the address as a whole quoted field. A substring or regex match
-    # would report 192.168.123.10 as held by the entry for 192.168.123.101,
-    # refusing a VM whose address is free.
-    local holder
-    holder="$(virsh --connect "${LIBVIRT_URI}" net-dumpxml "${LIBVIRT_NETWORK}" 2>/dev/null \
-        | awk -F"'" -v want="${VM_IP}" '
-            {
-                name = ""; addr = ""
-                for (i = 2; i <= NF; i += 2) {
-                    if ($(i-1) ~ /name=$/) name = $i
-                    if ($(i-1) ~ /ip=$/)   addr = $i
-                }
-                if (addr == want && name != "") { print name; exit }
-            }')"
-    if [[ -n "${holder}" && "${holder}" != "${VM_NAME}" ]]; then
-        printf "Error: %s is already reserved for %s.\n" "${VM_IP}" "${holder}" >&2
-        printf "Cause: OS type %s with node ID %s maps to that address.\n" \
-            "${OS_TYPE}" "${NODE_ID}" >&2
-        printf "Hint: choose a different node ID, or remove the other VM.\n" >&2
-        exit 1
-    fi
-
-    printf "Network: registering %s → %s (%s)... " "${VM_NAME}" "${VM_IP}" "${VM_MAC}"
-    virsh --connect "${LIBVIRT_URI}" net-update "${LIBVIRT_NETWORK}" add ip-dhcp-host \
-        "<host mac='${VM_MAC}' name='${VM_NAME}' ip='${VM_IP}'/>" \
-        --live --config
-    printf "[OK]\n"
-}
-
-# Remove DHCP reservation from libvirt network
-function unregister_dhcp {
-    if [[ -z "${VM_IP}" || -z "${VM_MAC}" ]]; then
-        return 0
-    fi
-
-    printf "  Removing DHCP reservation... "
-    virsh --connect "${LIBVIRT_URI}" net-update "${LIBVIRT_NETWORK}" delete ip-dhcp-host \
-        "<host mac='${VM_MAC}' name='${VM_NAME}' ip='${VM_IP}'/>" \
-        --live --config 2>/dev/null \
-        && printf "[OK]\n" || printf "[not found]\n"
+    VM_LEGACY_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "${os_base}" "${node_offset}")
+    VM_MAC="$(vm_network_mac "${VM_NAME}")" || return 1
 }
 
 # Resolve network (non-fatal if NODE_ID is unknown)
-resolve_network || true
+if ! resolve_network; then
+    [[ "${NODE_ID}" == "dhcp" ]] || exit 1
+fi
 
 # --- Cleanup ---
 function do_cleanup {
@@ -505,6 +453,12 @@ function do_cleanup {
 
     target_record="$(image_workflow_record_path "${TARGET_DISK}")"
     printf "Cleanup: %s\n" "${VM_NAME}"
+
+    # Preserve the domain's actual MAC and disk pair until DHCP removal succeeds.
+    if ! unregister_dhcp; then
+        printf 'Error: DHCP cleanup failed; domain and disk files were preserved.\n' >&2
+        return 1
+    fi
 
     printf "  Stopping VM... "
     virsh --connect "${LIBVIRT_URI}" destroy "${VM_NAME}" 2>/dev/null \
@@ -521,7 +475,6 @@ function do_cleanup {
     printf "  Removing seed ISO... "
     rm -f "${CLOUD_INIT_ISO}" && printf "[OK]\n" || printf "[not found]\n"
 
-    unregister_dhcp
 }
 
 # --- Graceful Shutdown ---
@@ -861,9 +814,26 @@ function merge_proxy_user_data {
     mv -f -- "${merged_path}" "${user_data_path}"
 }
 
+function guest_hostname {
+    local LC_ALL=C
+    local digest
+    local prefix_length
+
+    if [[ ${#VM_NAME} -le ${VM_HOSTNAME_MAX_LENGTH} ]]; then
+        printf '%s\n' "${VM_NAME}"
+        return 0
+    fi
+    digest="$(printf '%s' "${VM_NAME}" | sha256sum)" || return 1
+    digest="${digest%% *}"
+    [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || return 1
+    prefix_length=$((VM_HOSTNAME_MAX_LENGTH - VM_HOSTNAME_HASH_LENGTH - 1))
+    printf '%s-%s\n' "${VM_NAME:0:prefix_length}" "${digest:0:VM_HOSTNAME_HASH_LENGTH}"
+}
+
 function generate_seed {
     local pub_key_path=""
     local pub_key_data=""
+    local hostname
     local seed_dir="${IMAGE_DIR}/${VM_NAME}.seed_staging"
     # Variants share the base OS cloud-init template (e.g. rocky8-iocrunner uses user-data.rocky8).
     local user_data_template="${SC_TOP}/templates/user-data.${OS_VARIANT}"
@@ -892,9 +862,13 @@ function generate_seed {
     rm -rf "${seed_dir}"
     mkdir -p "${seed_dir}"
 
-    # meta-data: dynamic hostname from VM_NAME
+    # Keep guest hostnames within one DNS label while retaining VM identity.
+    hostname="$(guest_hostname)" || {
+        printf 'Error: failed to derive guest hostname.\n' >&2
+        exit 1
+    }
     printf "instance-id: %s\n" "$(uuidgen)" > "${seed_dir}/meta-data"
-    printf "local-hostname: %s\n" "${VM_NAME}" >> "${seed_dir}/meta-data"
+    printf "local-hostname: %s\n" "${hostname}" >> "${seed_dir}/meta-data"
 
     # user-data: inject SSH key into OS-specific template
     export PUB_KEY_DATA="${pub_key_data}"
@@ -1310,6 +1284,11 @@ function wait_for_cloud_init {
 }
 
 # --- Main ---
+if [[ "${DO_FRESH}" == true ]]; then
+    require_fresh_input || exit 1
+fi
+vm_network_existing_mac || exit 1
+
 if [[ "${DO_CLEANUP}" == true ]]; then
     do_cleanup
     exit 0
@@ -1329,10 +1308,6 @@ if [[ "${DO_STOP}" == true ]]; then
     else
         exit 1
     fi
-fi
-
-if [[ "${DO_FRESH}" == true ]]; then
-    require_fresh_input || exit 1
 fi
 
 printf "%s\n" "------------------------------------------------------------"
@@ -1400,7 +1375,7 @@ discover_proxy_configuration
 verify_base_image
 prepare_disk
 generate_seed
-register_dhcp
+register_dhcp || exit 1
 provision_vm
 wait_for_vm "retry" || exit 1
 

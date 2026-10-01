@@ -19,7 +19,7 @@ manual OS installation.
      |    and set its virtual capacity from -z (default: 20 GiB)
      |
      | 3. Generate seed ISO
-     |    - meta-data: instance-id, hostname (from VM_NAME)
+     |    - meta-data: instance-id, bounded hostname (from VM_NAME)
      |    - user-data: OS-specific template (templates/user-data.${OS_VARIANT})
      |    - SSH public key injection via perl substitution
      |
@@ -106,6 +106,11 @@ Ordinary VMs keep the stable name. Bake entry points set `NODE_ID=build` and app
 ---
 
 ## 6. Cloud-Init Data Flow
+
+Guest hostnames of up to 63 bytes retain the VM name. Longer VM names use
+the first 50 bytes, a hyphen, and the first 12 hexadecimal characters of
+the full VM name's SHA-256 digest. Domain names, disk names, and DHCP
+ownership continue to use the full VM identity.
 
 ```
 templates/user-data.${OS_VARIANT}
@@ -235,8 +240,20 @@ do not add locale setup.
 ## 8. Network
 
 All VMs use the libvirt `lab` network with static IP assignment via
-DHCP reservation. MAC addresses and IPs are derived deterministically
-from the OS type and the instance label.
+DHCP reservation. IPs are derived deterministically from the OS type and
+the instance label. New addressed VMs receive a locally administered
+unicast MAC derived from their complete VM name, including the prefix and
+any run ID. The `02` first byte is followed by the first five bytes of the
+name's SHA-256 digest. Existing domains retain the MAC read from their
+interface on the configured network.
+
+`bin/vm_network.bash` owns MAC generation and DHCP reservation operations.
+New reservations contain MAC and IP only; no DHCP name is configured.
+Registration checks both live and persistent reservations before changing
+either, rejecting an IP held by another MAC or a MAC held at another IP.
+Existing named reservations are eligible for migration or removal only
+when their MAC, IP and name identify the selected VM. An unnamed entry
+requires the selected VM's MAC and IP to agree.
 
 **IP Base Addresses:**
 
@@ -264,7 +281,9 @@ the same label on two OS types yields two different addresses
 and two different MACs. The range holds 95 slots, so distinct pairs can
 still collide; the address is checked against the network's existing
 reservations before registration and a collision is reported with the
-holding VM. `NODE_ID=dhcp` bypasses static assignment and uses DHCP.
+holding MAC. The MAC digest is independent of this 95-slot address hash;
+different VM identities sharing an address are rejected rather than sharing
+its MAC. `NODE_ID=dhcp` bypasses static assignment and uses DHCP.
 
 ```
 Host
@@ -291,13 +310,11 @@ Host
         └── lab-rocky8-iocrunner-nfs-main       192.168.123.155
 ```
 
-MAC addresses are generated deterministically from a fixed prefix
-(`52:54:00:01`) combined with the OS base and the instance offset
-(`main` is offset 0). A hashed NODE_ID uses the same prefix with the
-range base 160 and the hash value in place of those two bytes. In both
-cases the MAC carries the two numbers as separate bytes while the
-address carries their sum, so the MAC is derived from the same inputs
-as the address rather than containing it.
+The legacy MAC scheme uses the fixed prefix `52:54:00:01` with the
+OS base and instance offset, or with 160 and the address hash. This
+scheme remains recognizable for named orphan reservations. Existing
+domains are managed using their actual interface MAC instead of
+recomputing it with the new name-based scheme.
 
 ---
 
@@ -615,11 +632,11 @@ matches.
 
 | Domain state | `-s` status | provision (default) | `-S` stop | `-c` cleanup |
 | --- | --- | --- | --- | --- |
-| `running` | reports IP, SSH, `cloud-init` | prints the summary and exits 0, idempotent | ACPI shutdown, polls until off | destroys, undefines, removes disk and seed |
+| `running` | reports IP, SSH, `cloud-init` | prints the summary and exits 0, idempotent | ACPI shutdown, polls until off | removes DHCP first, then destroys, undefines, removes disk and seed |
 | `shut off` | reports the state, hints `virsh start`, exits 1 | starts and waits for readiness | reports already off, exits 0 | same as above; destroy reports not running |
 | `not defined` | reports the state, hints provision, exits 1 | provisions from scratch | reports not defined, exits 0 | same as above; both virsh steps report absent |
-| unexpected (`paused`, `crashed`, `pmsuspended`) | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | proceeds and returns 0 |
-| `unavailable` (libvirt did not answer) | reports it and says the domain was not checked, exits 1 | refuses before creating anything, exits 1 | reports it and exits 1 | proceeds; each step reports its own failure |
+| unexpected (`paused`, `crashed`, `pmsuspended`) | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | attempts removal regardless of state |
+| `unavailable` (libvirt did not answer) | reports it and says the domain was not checked, exits 1 | refuses before creating anything, exits 1 | reports it and exits 1 | stops if DHCP cleanup fails, preserving resources; otherwise attempts removal |
 
 Three rules explain the table.
 
@@ -638,9 +655,11 @@ separately.
 **Cleanup never checks state, deliberately.** Its contract is idempotent
 removal, and the end state is the same from every starting state. A pre-check
 would race — the domain can change between the check and the command — and would
-buy nothing. Every step reports its own outcome as information and cleanup
-always returns 0, so teardown scripts can run it unconditionally. Do not add
-state checks here for symmetry with the other three actions.
+buy nothing. DHCP reservations are removed before the domain or its files.
+If DHCP lookup or deletion fails, cleanup returns 1 and preserves the domain,
+disk pair and seed so a retry can still read the actual interface MAC.
+After DHCP cleanup succeeds, each remaining teardown step reports its outcome.
+Do not add state checks here for symmetry with the other three actions.
 
 ## 15. Image Selection
 
