@@ -5,7 +5,6 @@ ssh_pwauth: false
 users:
   - name: vmadmin
     gecos: System Administrator
-    groups: [sudo]
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     lock_passwd: false

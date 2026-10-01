@@ -59,10 +59,12 @@ location.
 
 `create_vm.bash` validates the proxy URL as data, substitutes the SSH key, and
 then performs a controlled merge into generated user-data. Supported templates
-must contain no top-level `write_files` and at most one top-level `runcmd`.
-The result contains exactly one of each, preserves existing locale commands,
-and places privileged apply first in `runcmd`. The five source templates remain
-unchanged.
+may contain at most one top-level `write_files` and at most one top-level
+`runcmd`, and must contain exactly one top-level `final_message`. The result
+contains exactly one `write_files` and one `runcmd`, preserves existing
+template-owned file entries and locale commands, and places privileged apply
+first in `runcmd`. Proxy merging modifies generated user-data; it does not
+modify the source templates.
 
 Cloud-init stages only these transient files:
 

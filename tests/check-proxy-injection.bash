@@ -162,17 +162,21 @@ function expect_exact_artifact_set {
             ;;
     esac
 
-    printf '%s\n' \
-        "/run/cloud-provision/proxy-contract.input" \
-        "/run/cloud-provision/proxy_contract.bash" \
-        | sort > "${expected_file}"
+    {
+        if [[ "${os_type}" != ubuntu26 ]]; then
+            printf '%s\n' "/etc/sudoers.d/91-cloud-provision-validation"
+        fi
+        printf '%s\n' \
+            "/run/cloud-provision/proxy-contract.input" \
+            "/run/cloud-provision/proxy_contract.bash"
+    } | sort > "${expected_file}"
     awk '$1 == "-" && $2 == "path:" {print $3}' "${capture_file}" \
         | sort > "${actual_file}"
     if diff -u "${expected_file}" "${actual_file}" >/dev/null; then
-        record_pass "${name} stages only the exact transient artifact set"
+        record_pass "${name} preserves sudo settings and stages the exact transient artifact set"
     else
-        record_fail "${name} stages only the exact transient artifact set" \
-            "generated write_files paths differ from the contract staging set"
+        record_fail "${name} preserves sudo settings and stages the exact transient artifact set" \
+            "generated write_files paths differ from the sudo and proxy staging set"
     fi
 
     write_files_count="$(grep -Ec '^write_files:' "${capture_file}" || true)"
@@ -990,6 +994,8 @@ function run_case {
     local capture_file="${case_dir}/user-data"
     local curl_log="${case_dir}/curl.log"
     local virt_install_log="${case_dir}/virt-install.log"
+    local expected_sudo_policy="${case_dir}/expected-sudoers"
+    local actual_sudo_policy="${case_dir}/actual-sudoers"
     local active_character=""
     local rc=0
 
@@ -1057,9 +1063,41 @@ function run_case {
         return 0
     fi
 
+    if [[ "${os_type}" == ubuntu26 ]]; then
+        expect_not_contains "${label} omits supplemental group configuration" \
+            "${capture_file}" '    groups:'
+        expect_contains "${label} preserves password-free root commands" \
+            "${capture_file}" '    sudo: ALL=(ALL) NOPASSWD:ALL'
+        expect_not_contains "${label} omits the ignored sudo validation policy" \
+            "${capture_file}" '/etc/sudoers.d/91-cloud-provision-validation'
+        expect_not_contains "${label} omits the ignored verifypw setting" \
+            "${capture_file}" 'verifypw'
+    else
+        printf '%s\n' 'Defaults:vmadmin verifypw=any' > "${expected_sudo_policy}"
+        if extract_yaml_literal "${capture_file}" \
+            "/etc/sudoers.d/91-cloud-provision-validation" "${actual_sudo_policy}" &&
+           cmp -s -- "${expected_sudo_policy}" "${actual_sudo_policy}" &&
+           awk '
+            /^  - path:/ {
+                active = ($3 == "/etc/sudoers.d/91-cloud-provision-validation")
+                if (active) count++
+            }
+            active && /^    owner: root:root$/ { owner++ }
+            active && /^    permissions:/ && $2 == "\0470440\047" { mode++ }
+            active && /^    content: \|$/ { literal++ }
+            active && /^      Defaults:vmadmin verifypw=any$/ { policy++ }
+            END { exit !(count == 1 && owner == 1 && mode == 1 && literal == 1 && policy == 1) }
+        ' "${capture_file}"; then
+            record_pass "${label} preserves the complete sudo validation file"
+        else
+            record_fail "${label} preserves the complete sudo validation file" \
+                "the generated cloud-init sudo policy or metadata differs"
+        fi
+    fi
+
     if [[ "${proxy_count}" == "none" ]]; then
         expect_not_contains "${label} has no proxy write_files block" \
-            "${capture_file}" "write_files:"
+            "${capture_file}" "/run/cloud-provision/proxy_contract.bash"
         expect_contains "${label} installs locale support" \
             "${capture_file}" "  - locales"
         expect_contains "${label} enables en_US.UTF-8 generation" \
@@ -1178,6 +1216,9 @@ function run_template_locale_contract {
 
 run_case ubuntu-proxy ubuntu24 one
 run_case rocky-proxy rocky8 one
+run_case rocky10-proxy rocky10 one
+run_case debian12-proxy debian12 one
+run_case ubuntu26-proxy ubuntu26 one
 run_case multiple-proxy debian13 multiple
 run_case shell-active-proxy debian13 shell-active
 

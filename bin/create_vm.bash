@@ -767,7 +767,7 @@ function prepare_disk {
 # --- Cloud-Init Seed Generation ---
 function merge_proxy_user_data {
     local user_data_path="$1"
-    local merged_path line
+    local merged_path line proxy_write_files
     local write_files_count runcmd_count final_message_count
     local merged_write_files_count merged_runcmd_count apply_count
     local merged_packages_count
@@ -781,7 +781,7 @@ function merge_proxy_user_data {
     write_files_count="$(grep -Ec '^write_files:' "${user_data_path}" || true)"
     runcmd_count="$(grep -Ec '^runcmd:' "${user_data_path}" || true)"
     final_message_count="$(grep -Ec '^final_message:' "${user_data_path}" || true)"
-    if [[ "${write_files_count}" != 0 ||
+    if [[ ( "${write_files_count}" != 0 && "${write_files_count}" != 1 ) ||
           ( "${runcmd_count}" != 0 && "${runcmd_count}" != 1 ) ||
           "${final_message_count}" != 1 ]]; then
         printf "Error: unsupported cloud-init structure for proxy merge.\n" >&2
@@ -789,6 +789,10 @@ function merge_proxy_user_data {
     fi
 
     merged_path="$(mktemp "${user_data_path}.proxy-merge.XXXXXX")" || return 1
+    if ! proxy_write_files="$(proxy_contract_render_write_files "${OS_VARIANT}" "${PROXY_URL}")"; then
+        rm -f -- "${merged_path}"
+        return 1
+    fi
     # The cloud-init packages module installs in the config stage, before the
     # runcmd proxy apply in the final stage. In a no-direct-route topology the
     # package manager has no proxy yet and cannot fetch, so drop the packages
@@ -809,16 +813,17 @@ function merge_proxy_user_data {
             fi
             skipping_packages=false
         fi
-        if [[ "${inserted_write_files}" == false ]] &&
-           { [[ "${runcmd_count}" == 1 && "${line}" =~ ^runcmd: ]] ||
-             [[ "${runcmd_count}" == 0 && "${line}" =~ ^final_message: ]]; }; then
-            proxy_contract_render_write_files "${OS_VARIANT}" "${PROXY_URL}" \
-                >> "${merged_path}" || {
-                rm -f -- "${merged_path}"
-                return 1
-            }
-            printf '\n' >> "${merged_path}"
+        if [[ "${write_files_count}" == 1 && "${line}" =~ ^write_files: ]]; then
+            printf '%s\n' "${line}" "${proxy_write_files#*$'\n'}" >> "${merged_path}"
             inserted_write_files=true
+            continue
+        fi
+        if [[ "${runcmd_count}" == 1 && "${line}" =~ ^runcmd: ]] ||
+           [[ "${runcmd_count}" == 0 && "${line}" =~ ^final_message: ]]; then
+            if [[ "${inserted_write_files}" == false ]]; then
+                printf '%s\n\n' "${proxy_write_files}" >> "${merged_path}"
+                inserted_write_files=true
+            fi
             if [[ "${runcmd_count}" == 0 ]]; then
                 printf 'runcmd:\n' >> "${merged_path}"
                 printf '%s\n\n' \

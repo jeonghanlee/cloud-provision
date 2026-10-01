@@ -12,6 +12,13 @@ users:
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
 
+write_files:
+  - path: /etc/sudoers.d/91-cloud-provision-validation
+    owner: root:root
+    permissions: '0440'
+    content: |
+      Defaults:vmadmin verifypw=any
+
 packages:
   - git
   - vim
