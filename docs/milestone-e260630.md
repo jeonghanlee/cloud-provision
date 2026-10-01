@@ -2,12 +2,12 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: prepare the M15 verification-record commit and
-reconcile GitHub issue #46 for closure. The real Ansible includedir task
-passed twice without changes on the already ordered Rocky guest; T1-T3 passed.
+Next session entry point: prepare the M15 closure-record commit.
+M15 is Complete: the real Ansible includedir task passed twice without changes
+on the already ordered Rocky guest, T1-T3 passed, the verification record was
+pushed in `68d047c`, and GitHub issue #46 is closed.
 M14 is Complete: both guests passed the live sudo checks, the
 verification record was pushed in `3517a23`, and GitHub issue #45 is closed.
-M15 remains In progress until its verification record lands and #46 closes.
 The M11 D4 and PV verification records
 were committed in `794eb6b`. T2 and T3 passed on fresh debian13 and
 rocky8 VMs at the D4 refs: full-species re-apply, installation-state comparison,
@@ -38,7 +38,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Not started | Yes | D2, D3, D5 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
 | VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Complete | No | D1, D6 | Both guests passed uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; verification recorded in `3517a23` and #45 closed; [M14 detail](#m14). |
-| VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | In progress | No | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; [M15 detail](#m15). |
+| VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Complete | No | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; T1-T3 recorded in `68d047c` and #46 closed; [M15 detail](#m15). |
 
 ### Decisions
 
@@ -1266,7 +1266,7 @@ Last Compared: 2026-10-01T05:44:05Z; remote updated 2026-10-01T05:42:20Z
 Origin: e260630 / M15
 Identity History: none
 GitHub Issue: [#46](https://github.com/jeonghanlee/cloud-provision/issues/46)
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -1357,18 +1357,23 @@ Superseded Plan Artifacts: direct-edit plan preserved in commit `7391f51`.
   at 2026-10-01T06:11:18Z. The private handoff records the current state.
 - The task's modification and rollback paths were not exercised; no claim
   is made that this run repaired an incorrectly ordered file.
-- Verification-record commit and landing evidence, plus authorized #46
-  body reconciliation and closure, remain outstanding.
+- The verification record was committed as
+  `68d047c267d4ca01dc9cb5c6cc33214fcff04ce8` and pushed to
+  `origin/m11-middleware-operators`; the actual remote branch SHA matched.
+- GitHub issue #46 received the verified results and all four completed
+  acceptance criteria, then closed as completed at 2026-10-01T06:34:02Z.
+  Its closed state was rechecked with `gh issue view 46` at
+  2026-10-01T06:36:17Z. All M15 completion criteria are satisfied.
 
 ##### GitHub Projection
 
 Title: Move the Rocky sudoers includedir after active rules
 Labels: bug
 GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
-Observed State: open
+Observed State: closed
 Observed Labels: bug
 Observed Milestone: 1 / Nimbus - Cloud Provisioning Reliability
-Last Compared: 2026-10-01T06:13:22Z; remote updated 2026-09-30T06:03:23Z
+Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 
 ## Backlog
 
