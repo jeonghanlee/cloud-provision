@@ -126,7 +126,7 @@ set -e
 cmd=""
 for arg in "$@"; do
     case "$arg" in
-        domstate|dominfo|domiflist|domifaddr|net-update|net-dumpxml|start|shutdown|destroy|undefine|uri)
+        domstate|dominfo|domiflist|domifaddr|net-update|net-dumpxml|start|shutdown|destroy|undefine|list|uri)
             cmd="$arg"
             break
             ;;
@@ -225,11 +225,21 @@ case "$cmd" in
         exit "${FAKE_NET_UPDATE_RC:-0}"
         ;;
     undefine)
+        [[ "${FAKE_UNDEFINE_RC:-0}" == 0 ]] || exit "${FAKE_UNDEFINE_RC}"
         if [[ -n "${FAKE_UNDEFINED_MARKER:-}" ]]; then
             : > "${FAKE_UNDEFINED_MARKER}"
         fi
         ;;
-    start|destroy)
+    destroy)
+        exit "${FAKE_DESTROY_RC:-0}"
+        ;;
+    list)
+        [[ "${FAKE_LIST_RC:-0}" == 0 ]] || exit "${FAKE_LIST_RC}"
+        if [[ "${FAKE_DOMAIN_STATE:-running}" != absent ]]; then
+            printf '%s\n' "${FAKE_LIST_DOMAIN:-lab-rocky8-main}"
+        fi
+        ;;
+    start)
         ;;
     *)
         printf "unexpected virsh command: %s\n" "$*" >&2
@@ -441,6 +451,10 @@ function run_create_vm {
     FAKE_NET_DUMP_FAIL="${FAKE_NET_DUMP_FAIL:-}" \
     FAKE_NET_UPDATE_LOG="${FAKE_NET_UPDATE_LOG:-}" \
     FAKE_NET_UPDATE_RC="${FAKE_NET_UPDATE_RC:-0}" \
+    FAKE_DESTROY_RC="${FAKE_DESTROY_RC:-0}" \
+    FAKE_UNDEFINE_RC="${FAKE_UNDEFINE_RC:-0}" \
+    FAKE_LIST_RC="${FAKE_LIST_RC:-0}" \
+    FAKE_LIST_DOMAIN="${FAKE_LIST_DOMAIN:-lab-rocky8-main}" \
     FAKE_GENISOIMAGE_FAIL="${FAKE_GENISOIMAGE_FAIL:-}" \
     FAKE_SEED_PATH_LOG="${WORKSPACE}/seed-path.txt" \
     FAKE_SEED_META_COPY="${WORKSPACE}/seed-meta.txt" \
@@ -819,6 +833,60 @@ function run_cleanup_pair_case {
     else
         record_fail "cleanup removes disk, creation record, and seed" \
             "one or more VM artifacts remained"
+    fi
+}
+
+function run_cleanup_teardown_case {
+    local name="$1"
+    local state="$2"
+    local destroy_rc="$3"
+    local undefine_rc="$4"
+    local list_rc="$5"
+    local expected_rc="$6"
+    local disk="${WORKSPACE}/images/lab-rocky8-main.qcow2"
+    local record="${disk}.creation-record"
+    local seed="${WORKSPACE}/images/lab-rocky8-main-seed.iso"
+    local log="${WORKSPACE}/teardown-${name}.log"
+    local result commands
+
+    printf '%s\n' disk > "${disk}"
+    printf '%s\n' record > "${record}"
+    printf '%s\n' seed > "${seed}"
+    : > "${log}"
+    result=$(FAKE_STATE_OVERRIDE="${state}" FAKE_DESTROY_RC="${destroy_rc}" \
+        FAKE_UNDEFINE_RC="${undefine_rc}" FAKE_LIST_RC="${list_rc}" \
+        FAKE_VIRSH_LOG="${log}" \
+        FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/empty.xml" \
+        run_create_vm "" cleanup)
+    expect_exit "cleanup ${name} exit" "${expected_rc}" "${result%%$'\n'*}"
+    commands="$(< "${log}")"
+    if [[ "${expected_rc}" == 0 ]]; then
+        if [[ ! -e "${disk}" && ! -e "${record}" && ! -e "${seed}" ]]; then
+            record_pass "cleanup ${name} removes files"
+        else
+            record_fail "cleanup ${name} removes files" 'resources remain'
+        fi
+        if [[ "${name}" == already-absent ]]; then
+            result=$(FAKE_STATE_OVERRIDE=absent FAKE_DESTROY_RC=1 FAKE_UNDEFINE_RC=1 \
+                FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/empty.xml" \
+                run_create_vm "" cleanup)
+            expect_exit 'cleanup absent repeat exit' 0 "${result%%$'\n'*}"
+            if [[ ! -e "${disk}" && ! -e "${record}" && ! -e "${seed}" ]]; then
+                record_pass 'cleanup absent repeat leaves files absent'
+            else
+                record_fail 'cleanup absent repeat leaves files absent' 'resources remain'
+            fi
+        fi
+    else
+        expect_contains "cleanup ${name} reports preservation" "${result}" 'were preserved'
+        if [[ -f "${disk}" && -f "${record}" && -f "${seed}" ]]; then
+            record_pass "cleanup ${name} preserves all files"
+        else
+            record_fail "cleanup ${name} preserves all files" 'resources were removed'
+        fi
+        if [[ "${destroy_rc}" != 0 && "${state}" != 'shut off' ]]; then
+            expect_not_contains "cleanup ${name} stops before undefine" "${commands}" undefine
+        fi
     fi
 }
 
@@ -1305,6 +1373,13 @@ run_lifecycle_case "status paused hints cleanup" "status" "paused" 1 ".clean' th
 run_lifecycle_case "cleanup running" "cleanup" "running" 0 "Undefining VM"
 run_lifecycle_case "cleanup absent" "cleanup" "absent" 0 "Removing disk pair"
 run_cleanup_pair_case
+run_cleanup_teardown_case destroy-failure running 1 0 0 1
+run_cleanup_teardown_case paused-failure paused 1 0 0 1
+run_cleanup_teardown_case undefine-failure 'shut off' 0 1 0 1
+run_cleanup_teardown_case list-failure absent 1 1 1 1
+run_cleanup_teardown_case undefine-list-failure 'shut off' 0 1 1 1
+run_cleanup_teardown_case already-stopped 'shut off' 1 0 0 0
+run_cleanup_teardown_case already-absent absent 1 1 0 0
 run_outage_case "status outage" "status" 1 "libvirt did not answer"
 run_outage_case "stop outage" "stop" 1 "was not checked"
 run_outage_case "provision outage" "provision" 1 "nothing was created"

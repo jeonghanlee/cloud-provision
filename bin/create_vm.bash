@@ -448,8 +448,23 @@ if ! resolve_network; then
 fi
 
 # --- Cleanup ---
+function cleanup_domain_is_absent {
+    local domains
+    local domain
+
+    # A successful full listing distinguishes absence from a failed lookup.
+    if ! domains=$(virsh --connect "${LIBVIRT_URI}" list --all --name); then
+        return 1
+    fi
+    while IFS= read -r domain; do
+        [[ "${domain}" != "${VM_NAME}" ]] || return 1
+    done <<< "${domains}"
+    return 0
+}
+
 function do_cleanup {
     local target_record
+    local state
 
     target_record="$(image_workflow_record_path "${TARGET_DISK}")"
     printf "Cleanup: %s\n" "${VM_NAME}"
@@ -461,12 +476,27 @@ function do_cleanup {
     fi
 
     printf "  Stopping VM... "
-    virsh --connect "${LIBVIRT_URI}" destroy "${VM_NAME}" 2>/dev/null \
-        && printf "[OK]\n" || printf "[not running]\n"
+    if virsh --connect "${LIBVIRT_URI}" destroy "${VM_NAME}"; then
+        printf "[OK]\n"
+    elif state=$(LC_ALL=C virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" 2>/dev/null) && \
+         [[ "${state}" == "shut off" ]]; then
+        printf "[already stopped]\n"
+    elif cleanup_domain_is_absent; then
+        printf "[already absent]\n"
+    else
+        printf 'Error: VM stop failed; disk pair and seed were preserved.\n' >&2
+        return 1
+    fi
 
     printf "  Undefining VM... "
-    virsh --connect "${LIBVIRT_URI}" undefine "${VM_NAME}" --nvram 2>/dev/null \
-        && printf "[OK]\n" || printf "[not defined]\n"
+    if virsh --connect "${LIBVIRT_URI}" undefine "${VM_NAME}" --nvram; then
+        printf "[OK]\n"
+    elif cleanup_domain_is_absent; then
+        printf "[already absent]\n"
+    else
+        printf 'Error: VM undefine failed; disk pair and seed were preserved.\n' >&2
+        return 1
+    fi
 
     printf "  Removing disk pair... "
     rm -f -- "${TARGET_DISK}" "${target_record}" \

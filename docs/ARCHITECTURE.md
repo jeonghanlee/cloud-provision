@@ -633,8 +633,8 @@ matches.
 | Domain state | `-s` status | provision (default) | `-S` stop | `-c` cleanup |
 | --- | --- | --- | --- | --- |
 | `running` | reports IP, SSH, `cloud-init` | prints the summary and exits 0, idempotent | ACPI shutdown, polls until off | removes DHCP first, then destroys, undefines, removes disk and seed |
-| `shut off` | reports the state, hints `virsh start`, exits 1 | starts and waits for readiness | reports already off, exits 0 | same as above; destroy reports not running |
-| `not defined` | reports the state, hints provision, exits 1 | provisions from scratch | reports not defined, exits 0 | same as above; both virsh steps report absent |
+| `shut off` | reports the state, hints `virsh start`, exits 1 | starts and waits for readiness | reports already off, exits 0 | same as above; failed destroy is accepted after confirming already stopped |
+| `not defined` | reports the state, hints provision, exits 1 | provisions from scratch | reports not defined, exits 0 | same as above; failed virsh steps are accepted after confirming absence |
 | unexpected (`paused`, `crashed`, `pmsuspended`) | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | attempts removal regardless of state |
 | `unavailable` (libvirt did not answer) | reports it and says the domain was not checked, exits 1 | refuses before creating anything, exits 1 | reports it and exits 1 | stops if DHCP cleanup fails, preserving resources; otherwise attempts removal |
 
@@ -652,14 +652,20 @@ for a question nobody answered. The distinction stops at reporting: nothing
 retries or reconnects, because that would be a wait budget, which is tracked
 separately.
 
-**Cleanup never checks state, deliberately.** Its contract is idempotent
+**Cleanup has no state precheck.** Its contract is idempotent
 removal, and the end state is the same from every starting state. A pre-check
 would race — the domain can change between the check and the command — and would
 buy nothing. DHCP reservations are removed before the domain or its files.
 If DHCP lookup or deletion fails, cleanup returns 1 and preserves the domain,
 disk pair and seed so a retry can still read the actual interface MAC.
-After DHCP cleanup succeeds, each remaining teardown step reports its outcome.
-Do not add state checks here for symmetry with the other three actions.
+After DHCP cleanup succeeds, cleanup attempts destroy and undefine in order.
+A failed destroy is tolerated only when the domain reports `shut off` or a
+successful full domain listing proves it absent. A failed undefine is tolerated
+only when a successful full listing proves absence. Any other failure returns
+1 before removing the disk pair or seed; a destroy failure also stops before
+undefine. These checks follow failed commands, rather than predicting their
+outcomes. DHCP reservations already removed are not restored after a later
+teardown failure.
 
 ## 15. Image Selection
 

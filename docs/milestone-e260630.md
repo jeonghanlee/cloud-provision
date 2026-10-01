@@ -2,7 +2,7 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: verify the M11 cloud-provision and ansible-provision master landing conditions.
+Next session entry point: in `docs/milestone-e260630.md`, verify the M11 cloud-provision and ansible-provision master landing conditions.
 M15 is Complete: the real Ansible includedir task passed twice without changes
 on the already ordered Rocky guest, T1-T3 passed, the verification record was
 pushed in `68d047c`, and GitHub issue #46 is closed.
@@ -1301,8 +1301,151 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
+| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Scope and priority remain unresolved; seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; [M16 detail](#m16). |
 
 ### Backlog Details
+
+<a id="m16"></a>
+#### M16 - Resolve whole-codebase review findings and verification gaps
+
+Origin: e260630 / M16
+Identity History: none
+GitHub Issue: none
+Status: Open
+
+##### Summary
+
+The whole-codebase conceptual-integrity review examined all 79 tracked files
+at `1b80978f55138848230a28b197a982526c2c9c94`: production scripts, tests,
+configuration, templates, fixtures and documentation. Seven findings are
+confirmed, one remains a hypothesis, and one requires an audit-policy choice.
+This record preserves the reviewed state and observed checks. Remediation
+scope and execution priority are unresolved as of 2026-10-01.
+
+##### Scope
+
+- Resolve the findings below against their original design premises.
+- Define and separately authorize the selected changes and their real-path
+  regression checks before implementation.
+- Preserve a dated Keep verdict in `docs/CLOSED_DOORS.md` for any examined
+  candidate deliberately left unchanged.
+
+Out of scope: automatically changing code, accepting the draft plan, changing
+the M11 landing order, duplicating M13 Phoebus work or M4 EtherCAT validation,
+and inspecting or modifying existing VM/image artifacts without D1 authority.
+
+##### Review Findings
+
+All source coordinates below refer to the reviewed commit, not this record's
+eventual carrying commit. Outer transport boundaries were controlled for
+offline reproductions; the shipped CLI and its internal path were executed.
+
+| Finding | Severity | Observed Behavior And Evidence | Premise To Preserve |
+| --- | --- | --- | --- |
+| Cleanup ignores teardown failure | P1 | In the shipped create CLI, failing `virsh destroy` and `undefine` still produced exit 0 and removed the temporary disk, creation record and seed; the outer libvirt boundary still reported a running domain. The reproduction used the shipped empty DHCP fixture. `bin/create_vm.bash:450-478@1b80978`. | Cleanup is idempotent and intentionally avoids a state precheck; distinguish absent domains from actual teardown failure before removing files. No live domain was deleted in this review. |
+| EPICS-env test boundary is stale | P2 | `make check-runtime-inventory` failed because the test's fake virsh lacks `domiflist --inactive`, now required by existing-domain MAC discovery. It aborted before the driver assertions. `tests/check-epics-env-inventory.bash:38-61@1b80978`. | The failure establishes a test-boundary mismatch, not a production MAC-discovery defect. |
+| Consumer management requires a current golden image | P2 | With an empty temporary image directory and an existing-domain outer boundary, the shipped create CLI rejected status, stop and cleanup before consulting libvirt. `bin/create_vm.bash:359-365@1b80978`. | A consumer disk is an independent copy; managing it should not depend on retaining its original golden image. |
+| Bake refresh follows SSH readiness | P2 | The shipped IOC bake exited during Step 1 when the SSH boundary returned a changed-host-key failure; Step 2's refresh was never reached. `bin/bake_iocrunner_image.bash:356-368@1b80978`. EtherCAT has the same ordering by source inspection only: `bin/bake_ethercat_image.bash:203-219@1b80978`. | Ordinary VM access intentionally rejects changed host keys; any bake-specific change must preserve that behavior. EtherCAT's separate IP-pipeline concern remains in M4. |
+| EPICS-env Make steps disagree on VM_PREFIX | P2 | Actual `make epics-env VM_PREFIX=review` with controlled outer libvirt state provisioned against the default lab names, then looked for review names and exited 2 before Ansible. Core and matrix provisioning omit `-p`; the build driver receives it. `configure/RULES_EPICS_ENV:11-25@1b80978`. | Provisioning and build must identify the same VM pair for a supported prefix override. |
+| IPv4 validation accepts additional inventory lines | P2 | The shipped generator accepted an address consisting of `192.0.2.1`, a newline, `[injected]`, a newline and `extra`. Real `ansible-inventory --list` accepted the generated file and reported the injected group and host; both commands exited 0. `bin/generate_ansible_inventory.bash:111-125@1b80978`, `bin/generate_ansible_inventory.bash:169@1b80978`. | The address must be validated in full before being written to inventory. |
+| Proxy documentation disagrees with the current contract | P3 | Architecture lists four artifact identities as the complete renderer output; the ADR index still names 8/8/7 while the current contract has 9/9/8. `docs/ARCHITECTURE.md:148-165@1b80978`, `docs/decisions/README.md:7@1b80978`. | The production artifact inventory is the authority; reconcile descriptive documents with the current staging/apply path. |
+
+##### Hypothesis And Audit Choice
+
+- Hypothesis: explicitly reusing `IMAGE_WORKFLOW_RUN_ID` after a failed bake
+  may reuse its existing build VM because the resolver accepts the supplied
+  ID and the bake invokes create without force. Source evidence:
+  `bin/image_workflow.bash:23-30@1b80978` and
+  `bin/bake_iocrunner_image.bash:357@1b80978`. A repeated full bake was not
+  executed; this is not a confirmed runtime defect or authorization to force
+  VM replacement.
+- Audit choice: the tracked IOC audit pins an older proxy-contract digest.
+  Running the shipped audit against an empty temporary directory under a
+  root user namespace exited 1 at `proxy-contract-drift`, before enumerating
+  images. `bin/audit_iocrunner_images.bash:342@1b80978`. This guard is
+  intentional. Decide whether to update the complete artifact inventory and
+  digest together or retain the refusal; no existing image contents were
+  audited and no policy change is authorized by this record.
+
+##### Completion Criteria
+
+- Each confirmed finding and the hypothesis has an evidence-backed resolution
+  or dated Keep verdict; the audit choice is explicitly resolved.
+- Selected implementation scope has an accepted plan and separate authority.
+- Selected changes pass their targeted real-path checks and the applicable
+  shipped suite; any unexecuted live gate remains explicit.
+- Closure names the resulting commits and observed results without treating
+  offline boundaries as real VM or image verification.
+
+##### Dependencies And Decisions
+
+- `D1` applies to any later existing-artifact operation.
+- Recorded on 2026-10-01; scope and priority remain unresolved. This is
+  unassigned Backlog work, with no inferred execution-order dependency.
+- No finding has a Keep verdict, accepted correction, or implementation
+  authorization merely because it appears in this review record. On
+  2026-10-01, the owner accepted and authorized the first cleanup correction
+  after its bounded proposal. The other candidates remain unresolved, so
+  the aggregate Backlog row remains Open.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-10-01; first cleanup finding only, following the proposal to preserve files on teardown failure while permitting cleanup of absent domains
+Implementation Authorization: 2026-10-01; explicit instruction to start the first correction
+Superseded Plan Artifacts: none
+
+The accepted plan applies only to the P1 cleanup finding. It does not accept
+or authorize correction of the remaining review candidates.
+
+1. In `bin/create_vm.bash`, attempt teardown without a state precheck. On
+   destroy failure, proceed only after confirming shut off or absence. On
+   undefine failure, proceed only after a successful full listing proves
+   absence. Otherwise return failure before removing disk, record or seed.
+2. Extend `tests/check-cloud-init-status.bash` through its external libvirt
+   boundary and shipped DHCP fixture; cover teardown failures, failed absence
+   inspection, stopped and absent domains, and repeated cleanup. Execute the
+   same regression against the original production tree to confirm rejection.
+3. Reconcile the lifecycle contract in `docs/ARCHITECTURE.md`; run the cleanup,
+   related bake and documentation checks, Bash syntax and ShellCheck. Existing
+   VM/image execution remains outside this correction.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Baseline review | Inspect all tracked files; run the shipped check targets, Bash syntax and ShellCheck; exercise the recorded CLI reproductions | Control host, temporary filesystem and controlled outer libvirt/SSH boundaries; real Ansible inventory parser | Establish the current failures and verification limits without changing existing artifacts. |
+| T2 | Regression | Run `make check-cloud-init-status check-bake check-docs`, Bash syntax and `shellcheck -S warning bin/*.bash tests/*.bash`; execute the updated cleanup test against production code from `1b80978` | Control host; public create CLI with controlled outer libvirt transport and shipped empty DHCP XML | Failed teardown preserves every VM file; absent/stopped cleanup succeeds; the original defect fails the new regression. |
+| T3 | Live validation | Execute only live VM/image checks selected by the accepted plan and separately authorized under D1 | To be specified by the accepted plan | Required live behavior is observed; offline checks alone do not satisfy it. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-01 | Control host; reviewed tree `1b80978`; offline outer boundaries and real Ansible inventory parser | Baseline recorded; suite has one failure | 12 distinct test scripts attempted: 11 passed, EPICS-env inventory aborted before its assertions. 905 successful top-level assertions across the passing scripts; nested reruns were not counted twice. All 23 production/test Bash scripts passed syntax checks; ShellCheck at warning severity and above passed. Reproduction outcomes are recorded above. |
+| T2 | 2026-10-01 | Local correction; control host and controlled outer libvirt boundary | Passed for the accepted P1 scope | Cleanup 269/269; fresh 7/7; IOC bake provenance 155/155; proxy lifecycle 35/35; documentation references 14/14 and proxy statements 8/8. The same updated cleanup suite against the original production tree at `1b80978` exited 2 with 251/269, including failures of file-preservation assertions. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above passed. No existing VM/image was changed. |
+| T3 | Not run | No existing VM/image runtime verification authorized or executed for this review | Pending | none |
+
+Baseline commands: `make check-cloud-init-status check-proxy-injection
+check-runtime-inventory check-bake check-docs check-vm-help
+check-required-group` stopped at the EPICS-env test failure. The remaining
+targets passed through `make -k check-bake check-docs check-vm-help
+check-required-group`. Each of `bin/*.bash` and `tests/*.bash` was checked
+with `bash -n`; `shellcheck -S warning bin/*.bash tests/*.bash` exited 0.
+These observations do not establish a real KVM bake, guest readiness, image
+content audit or EtherCAT bake result.
+
+##### Closure Evidence
+
+- Review acceptance: 2026-10-01; the owner accepted the P1 cleanup correction
+  after its first review (third-person self-review) and second review
+  (second-person self-review), both with no additional required corrections.
+  The third-person pass also exercised five additional public-CLI cases for
+  exact domain-name matching, partial listing failure and unexpected state;
+  all passed with controlled outer libvirt boundaries. This acceptance applies
+  only to the first correction and does not close the aggregate work.
+- The P1 correction is local and has no commit or landing evidence yet. The
+  other review candidates remain unassigned; this aggregate work is not Complete.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
