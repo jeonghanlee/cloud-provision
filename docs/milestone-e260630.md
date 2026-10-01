@@ -1387,28 +1387,29 @@ offline reproductions; the shipped CLI and its internal path were executed.
   2026-10-01, the owner accepted and authorized the first cleanup correction
   after its bounded proposal. The other candidates remain unresolved, so
   the aggregate Backlog row remains Open.
+- On 2026-10-01, the owner directed the second correction: restore the
+  EPICS-env test's external virsh boundary for existing-domain MAC discovery.
+  Production behavior and the remaining candidates are outside this change.
 
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: 2026-10-01; first cleanup finding only, following the proposal to preserve files on teardown failure while permitting cleanup of absent domains
-Implementation Authorization: 2026-10-01; explicit instruction to start the first correction
-Superseded Plan Artifacts: none
+Plan Acceptance: 2026-10-01; second finding only, following the proposal to add the missing existing-domain interface MAC response to the test boundary
+Implementation Authorization: 2026-10-01; explicit direction to proceed with the second correction
+Superseded Plan Artifacts: `docs/milestone-e260630.md@fe79689`, M16's accepted P1 cleanup plan; implemented and review-accepted
 
-The accepted plan applies only to the P1 cleanup finding. It does not accept
-or authorize correction of the remaining review candidates.
+The current accepted plan applies only to the stale EPICS-env test boundary.
+The P1 correction and its verification remain recorded below; the other
+review candidates are not accepted or authorized by this plan.
 
-1. In `bin/create_vm.bash`, attempt teardown without a state precheck. On
-   destroy failure, proceed only after confirming shut off or absence. On
-   undefine failure, proceed only after a successful full listing proves
-   absence. Otherwise return failure before removing disk, record or seed.
-2. Extend `tests/check-cloud-init-status.bash` through its external libvirt
-   boundary and shipped DHCP fixture; cover teardown failures, failed absence
-   inspection, stopped and absent domains, and repeated cleanup. Execute the
-   same regression against the original production tree to confirm rejection.
-3. Reconcile the lifecycle contract in `docs/ARCHITECTURE.md`; run the cleanup,
-   related bake and documentation checks, Bash syntax and ShellCheck. Existing
-   VM/image execution remains outside this correction.
+1. In `tests/check-epics-env-inventory.bash`, recognize `domiflist` and return
+   one valid interface row for the shipped `lab` network, allowing the real
+   existing-domain MAC discovery to execute.
+2. Run the unchanged success and not-ready refusal assertions through the
+   shipped build driver, create CLI, inventory generator and cloud-init
+   fixtures. Replace only external command boundaries.
+3. Run `make check-runtime-inventory check-docs`, Bash syntax and ShellCheck;
+   record the observed result without claiming a real guest or Ansible run.
 
 ##### Test Plan
 
@@ -1417,6 +1418,7 @@ or authorize correction of the remaining review candidates.
 | T1 | Baseline review | Inspect all tracked files; run the shipped check targets, Bash syntax and ShellCheck; exercise the recorded CLI reproductions | Control host, temporary filesystem and controlled outer libvirt/SSH boundaries; real Ansible inventory parser | Establish the current failures and verification limits without changing existing artifacts. |
 | T2 | Regression | Run `make check-cloud-init-status check-bake check-docs`, Bash syntax and `shellcheck -S warning bin/*.bash tests/*.bash`; execute the updated cleanup test against production code from `1b80978` | Control host; public create CLI with controlled outer libvirt transport and shipped empty DHCP XML | Failed teardown preserves every VM file; absent/stopped cleanup succeeds; the original defect fails the new regression. |
 | T3 | Live validation | Execute only live VM/image checks selected by the accepted plan and separately authorized under D1 | To be specified by the accepted plan | Required live behavior is observed; offline checks alone do not satisfy it. |
+| T4 | Test boundary | Run `make check-runtime-inventory check-docs`, `bash -n tests/check-epics-env-inventory.bash` and ShellCheck | Control host; shipped driver, create CLI, generator and cloud-init fixtures; external virsh/SSH/Ansible boundaries | Both generated inventories reach the external Ansible boundary, temporary inventories are removed, and an unready VM is refused with its status report. |
 
 ##### Verification Results
 
@@ -1425,6 +1427,7 @@ or authorize correction of the remaining review candidates.
 | T1 | 2026-10-01 | Control host; reviewed tree `1b80978`; offline outer boundaries and real Ansible inventory parser | Baseline recorded; suite has one failure | 12 distinct test scripts attempted: 11 passed, EPICS-env inventory aborted before its assertions. 905 successful top-level assertions across the passing scripts; nested reruns were not counted twice. All 23 production/test Bash scripts passed syntax checks; ShellCheck at warning severity and above passed. Reproduction outcomes are recorded above. |
 | T2 | 2026-10-01 | Local correction; control host and controlled outer libvirt boundary | Passed for the accepted P1 scope | Cleanup 269/269; fresh 7/7; IOC bake provenance 155/155; proxy lifecycle 35/35; documentation references 14/14 and proxy statements 8/8. The same updated cleanup suite against the original production tree at `1b80978` exited 2 with 251/269, including failures of file-preservation assertions. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above passed. No existing VM/image was changed. |
 | T3 | Not run | No existing VM/image runtime verification authorized or executed for this review | Pending | none |
+| T4 | 2026-10-01 | Local test-boundary correction on `fe79689`; control host, shipped internal paths and external command boundaries | Passed | Before correction, the EPICS-env test exited 1 on unsupported `domiflist --inactive`, before its assertions. After correction, `make check-runtime-inventory check-docs` exited 0: generated inventory 233/233, EPICS-env driver 3/3, documentation references 14/14 and proxy statements 8/8. Bash syntax and both warning-gated and full ShellCheck on the changed test passed. Production files were unchanged; no real VM or Ansible provisioning was run. |
 
 Baseline commands: `make check-cloud-init-status check-proxy-injection
 check-runtime-inventory check-bake check-docs check-vm-help
@@ -1444,8 +1447,11 @@ content audit or EtherCAT bake result.
   exact domain-name matching, partial listing failure and unexpected state;
   all passed with controlled outer libvirt boundaries. This acceptance applies
   only to the first correction and does not close the aggregate work.
-- The P1 correction is local and has no commit or landing evidence yet. The
-  other review candidates remain unassigned; this aggregate work is not Complete.
+- P1 landing: 2026-10-01; `fe796897e273077caadb0559803a2a4775e7d0c2`
+  was pushed to `origin/m11-middleware-operators`; direct remote branch
+  inspection matched that commit. This is branch landing, not master landing.
+- The second correction is not committed yet. The other review candidates
+  remain unassigned; this aggregate work is not Complete.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites

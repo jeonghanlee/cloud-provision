@@ -35,7 +35,7 @@ set -euo pipefail
 command_name=""
 for argument in "$@"; do
     case "${argument}" in
-        uri|domstate|dominfo|domifaddr)
+        uri|domstate|dominfo|domiflist|domifaddr)
             command_name="${argument}"
             break
             ;;
@@ -50,6 +50,10 @@ case "${command_name}" in
         ;;
     dominfo)
         printf "%s\n" "State: running"
+        ;;
+    domiflist)
+        printf '%s\n' 'Interface Type Source Model MAC'
+        printf '%s\n' 'vnet0 network lab virtio 52:54:00:01:64:00'
         ;;
     domifaddr)
         ;;
