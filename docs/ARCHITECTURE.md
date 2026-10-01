@@ -669,9 +669,13 @@ teardown failure.
 
 ## 15. Image Selection
 
-Every `OS_TYPE` selects exactly one base image, and the choice is decided before
-anything is created. `-s` and the provision header both print it, so an operator
-can see which image a run will use before the run does anything.
+A new VM selects one base image after existing-domain dispatch and before
+creating its disk. The creation header prints that selected image.
+Status, stop, cleanup, running reuse and stopped restart operate on the VM's
+identity and independent disk; they do not select or require a retained golden
+image. Status reports domain, IP, SSH and cloud-init readiness without a
+base-image line. A missing or invalid golden image pair still blocks creation
+of a new consumer VM.
 
 What matters operationally is not the file name but whether the image can be
 obtained again. Three classes follow from that.

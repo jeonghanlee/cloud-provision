@@ -356,15 +356,6 @@ if ! VM_NAME="$(image_workflow_vm_name \
     printf "Error: failed to resolve VM name\n" >&2
     exit 1
 fi
-if [[ -n "${BASE_IMAGE_KIND}" ]]; then
-    if ! BASE_IMAGE_NAME="$(image_workflow_select_latest_image \
-        "${IMAGE_DIR}" "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}")"; then
-        printf "Error: no valid %s image found for %s in %s\n" \
-            "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}" "${IMAGE_DIR}" >&2
-        exit 1
-    fi
-fi
-BASE_IMAGE_FULL_PATH="${IMAGE_DIR}/${BASE_IMAGE_NAME}"
 if ! TARGET_DISK="$(image_workflow_vm_disk_path \
     "${IMAGE_DIR}" "${VM_PREFIX}" "${OS_TYPE}" "${NODE_ID}" \
     "${IMAGE_WORKFLOW_RUN_ID}")"; then
@@ -1114,7 +1105,6 @@ function print_status_report {
     local rc=0
 
     domain_state=$(get_domain_state)
-    printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
     printf "Domain     : %s\n" "${domain_state}"
 
     if [[ "${domain_state}" != "running" ]]; then
@@ -1345,7 +1335,6 @@ printf "OS Type    : %s\n" "${OS_TYPE}"
 printf "Node ID    : %s\n" "${NODE_ID}"
 printf "VM Name    : %s\n" "${VM_NAME}"
 printf "Storage    : %s\n" "${IMAGE_DIR}"
-printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
 if [[ -n "${VM_IP}" ]]; then
     printf "IP Address : %s\n" "${VM_IP}"
     printf "MAC Address: %s\n" "${VM_MAC}"
@@ -1400,6 +1389,18 @@ if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
             ;;
     esac
 fi
+
+if [[ -n "${BASE_IMAGE_KIND}" ]]; then
+    if ! BASE_IMAGE_NAME="$(image_workflow_select_latest_image \
+        "${IMAGE_DIR}" "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}")"; then
+        printf "Error: no valid %s image found for %s in %s\n" \
+            "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}" "${IMAGE_DIR}" >&2
+        exit 1
+    fi
+fi
+BASE_IMAGE_FULL_PATH="${IMAGE_DIR}/${BASE_IMAGE_NAME}"
+
+printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
 
 discover_proxy_configuration
 verify_base_image

@@ -1390,26 +1390,34 @@ offline reproductions; the shipped CLI and its internal path were executed.
 - On 2026-10-01, the owner directed the second correction: restore the
   EPICS-env test's external virsh boundary for existing-domain MAC discovery.
   Production behavior and the remaining candidates are outside this change.
+- On 2026-10-01, the third correction was selected: defer golden-image
+  selection until new creation and remove the status base-image line.
+  Existing-domain summaries retain their IP and MAC output. No existing guest
+  or image operation is authorized by this offline correction.
 
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: 2026-10-01; second finding only, following the proposal to add the missing existing-domain interface MAC response to the test boundary
-Implementation Authorization: 2026-10-01; explicit direction to proceed with the second correction
-Superseded Plan Artifacts: `docs/milestone-e260630.md@fe79689`, M16's accepted P1 cleanup plan; implemented and review-accepted
+Plan Acceptance: 2026-10-01; third finding only, with the status base-image line removed and selection limited to new VM creation
+Implementation Authorization: 2026-10-01; explicit direction to proceed and selection of the status-output change
+Superseded Plan Artifacts: `docs/milestone-e260630.md@e468393`, the implemented second correction plan
 
-The current accepted plan applies only to the stale EPICS-env test boundary.
-The P1 correction and its verification remain recorded below; the other
-review candidates are not accepted or authorized by this plan.
+The current plan applies only to consumer management without a retained golden
+image. Earlier correction evidence remains below; the other candidates are
+outside this plan.
 
-1. In `tests/check-epics-env-inventory.bash`, recognize `domiflist` and return
-   one valid interface row for the shipped `lab` network, allowing the real
-   existing-domain MAC discovery to execute.
-2. Run the unchanged success and not-ready refusal assertions through the
-   shipped build driver, create CLI, inventory generator and cloud-init
-   fixtures. Replace only external command boundaries.
-3. Run `make check-runtime-inventory check-docs`, Bash syntax and ShellCheck;
-   record the observed result without claiming a real guest or Ansible run.
+1. In `bin/create_vm.bash`, select the baked image and derive its source path
+   only after existing-domain dispatch, before new provisioning. Remove the
+   base-image line from status; retain the selected image in the creation header.
+2. Extend `tests/check-cloud-init-status.bash` through the public CLI and outer
+   command boundaries. Cover all five golden consumer selectors without golden
+   images for status, stop, cleanup, running reuse and stopped restart; require
+   absent-domain creation to reject missing or invalid image pairs. Move image
+   selection assertions to actual new provisioning.
+3. Reconcile `docs/ARCHITECTURE.md`; run the lifecycle, fresh-input, bake,
+   runtime-inventory and documentation checks, syntax and ShellCheck. Run the
+   updated regression against production code at `e468393` to demonstrate the
+   old defect. Existing guests and images remain outside this operation.
 
 ##### Test Plan
 
@@ -1419,6 +1427,7 @@ review candidates are not accepted or authorized by this plan.
 | T2 | Regression | Run `make check-cloud-init-status check-bake check-docs`, Bash syntax and `shellcheck -S warning bin/*.bash tests/*.bash`; execute the updated cleanup test against production code from `1b80978` | Control host; public create CLI with controlled outer libvirt transport and shipped empty DHCP XML | Failed teardown preserves every VM file; absent/stopped cleanup succeeds; the original defect fails the new regression. |
 | T3 | Live validation | Execute only live VM/image checks selected by the accepted plan and separately authorized under D1 | To be specified by the accepted plan | Required live behavior is observed; offline checks alone do not satisfy it. |
 | T4 | Test boundary | Run `make check-runtime-inventory check-docs`, `bash -n tests/check-epics-env-inventory.bash` and ShellCheck | Control host; shipped driver, create CLI, generator and cloud-init fixtures; external virsh/SSH/Ansible boundaries | Both generated inventories reach the external Ansible boundary, temporary inventories are removed, and an unready VM is refused with its status report. |
+| T5 | Consumer lifecycle | Run `make check-cloud-init-status check-bake check-runtime-inventory check-docs`, syntax and ShellCheck; run the updated lifecycle test against production code at `e468393` | Control host; public create CLI, shipped cloud-init and DHCP fixtures, temporary files and controlled outer commands | Existing-domain management works without a golden image; new creation still requires a valid pair; the old production path fails the new regression. |
 
 ##### Verification Results
 
@@ -1428,6 +1437,7 @@ review candidates are not accepted or authorized by this plan.
 | T2 | 2026-10-01 | Local correction; control host and controlled outer libvirt boundary | Passed for the accepted P1 scope | Cleanup 269/269; fresh 7/7; IOC bake provenance 155/155; proxy lifecycle 35/35; documentation references 14/14 and proxy statements 8/8. The same updated cleanup suite against the original production tree at `1b80978` exited 2 with 251/269, including failures of file-preservation assertions. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above passed. No existing VM/image was changed. |
 | T3 | Not run | No existing VM/image runtime verification authorized or executed for this review | Pending | none |
 | T4 | 2026-10-01 | Local test-boundary correction on `fe79689`; control host, shipped internal paths and external command boundaries | Passed | Before correction, the EPICS-env test exited 1 on unsupported `domiflist --inactive`, before its assertions. After correction, `make check-runtime-inventory check-docs` exited 0: generated inventory 233/233, EPICS-env driver 3/3, documentation references 14/14 and proxy statements 8/8. Bash syntax and both warning-gated and full ShellCheck on the changed test passed. Production files were unchanged; no real VM or Ansible provisioning was run. |
+| T5 | 2026-10-01 | Local third correction on `e468393`; public CLI, shipped cloud-init/DHCP fixtures, temporary independent disk files and outer command boundaries | Passed for the selected scope | Lifecycle 400/400, fresh inputs 7/7, IOC bake provenance 155/155, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3 and documentation 14/14 plus 8/8. All five golden consumer selectors passed status, stop, cleanup, running reuse and stopped restart without a golden pair; missing and invalid pairs still refused new creation. The updated lifecycle regression against production code at `e468393` exited 1 with 345/400, including 55 failures in the image-independent management cases. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above and `shellcheck -x` on the changed files passed. No real guest, image bake or Ansible provisioning ran. |
 
 Baseline commands: `make check-cloud-init-status check-proxy-injection
 check-runtime-inventory check-bake check-docs check-vm-help
@@ -1450,8 +1460,20 @@ content audit or EtherCAT bake result.
 - P1 landing: 2026-10-01; `fe796897e273077caadb0559803a2a4775e7d0c2`
   was pushed to `origin/m11-middleware-operators`; direct remote branch
   inspection matched that commit. This is branch landing, not master landing.
-- The second correction is not committed yet. The other review candidates
-  remain unassigned; this aggregate work is not Complete.
+- Second-correction landing: 2026-10-01; `e468393242000f627f626fffbb2f5b7277f344e3`
+  was pushed to `origin/m11-middleware-operators`; direct remote inspection
+  matched the commit. Its third-person and second-person passes found no
+  required corrections. This is branch landing, not master landing.
+- Third-correction review acceptance: 2026-10-01; the owner accepted the
+  first review (third-person self-review) and second review (second-person
+  self-review), both with no additional required corrections. The third-person
+  pass also verified 23 additional public-CLI error combinations with controlled
+  outer command boundaries; the second-person pass checked the changed text
+  against observed CLI output and verification evidence. This acceptance
+  applies only to image-independent consumer management and status output.
+- The third correction passed T5 offline checks and remains uncommitted;
+  branch landing is not recorded yet. Other candidates remain unassigned;
+  this aggregate work is not Complete.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites

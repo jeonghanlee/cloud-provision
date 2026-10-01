@@ -404,7 +404,7 @@ function run_create_vm {
     local rc=0
     local domain_state="running"
     local dominfo_rc=1
-    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "${CASE_NODE_ID:-main}" "-d" "${WORKSPACE}/images" "-p" "${CASE_PREFIX:-lab}")
+    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "${CASE_NODE_ID:-main}" "-d" "${CASE_IMAGE_DIR:-${WORKSPACE}/images}" "-p" "${CASE_PREFIX:-lab}")
 
     case "${action}" in
         status)
@@ -778,20 +778,86 @@ function run_outage_case {
     expect_not_contains "${name} not absent" "${output}" "to provision"
 }
 
-# Asserts the base image an OS type selects, and its class, through the public
-# status path. Selection is decided before anything is created, so this needs no
-# image, no libvirt, and no network.
+# Existing independent disks remain manageable without a source image pair.
+# Each case uses its own image directory so a previous case cannot supply one.
+function run_without_golden_case {
+    local os_type="$1"
+    local action="$2"
+    local state="$3"
+    local expected_rc="$4"
+    local expected_text="$5"
+    local name="${os_type} without golden ${action} ${state}"
+    local image_dir="${WORKSPACE}/without-golden-${os_type}-${action}-${state}"
+    local disk="${image_dir}/lab-${os_type}-main.qcow2"
+    local record="${disk}.creation-record"
+    local seed="${image_dir}/lab-${os_type}-main-seed.iso"
+    local marker="${image_dir}/shutdown-marker"
+    local result output
+    local dominfo_rc=0
+
+    mkdir -p "${image_dir}"
+    printf '%s\n' 'independent disk fixture' > "${disk}"
+    printf '%s\n' 'consumer record fixture' > "${record}"
+    printf '%s\n' 'seed fixture' > "${seed}"
+    [[ "${state}" != absent ]] || dominfo_rc=1
+    reset_sleep_log
+    : > "${QEMU_IMG_LOG}"
+    result=$(CASE_OS_TYPE="${os_type}" CASE_IMAGE_DIR="${image_dir}" \
+        CASE_DOMINFO_RC="${dominfo_rc}" FAKE_STATE_OVERRIDE="${state}" \
+        FAKE_SHUTDOWN_MARKER="${marker}" \
+        FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/empty.xml" \
+        run_create_vm "$(cloud_init_fixture "done")" "${action}")
+    output="${result#*$'\n'}"
+    expect_exit "${name} exit" "${expected_rc}" "${result%%$'\n'*}"
+    expect_contains "${name} result" "${output}" "${expected_text}"
+    expect_equal "${name} does not inspect or copy an image" '' "$(cat "${QEMU_IMG_LOG}")"
+    if [[ "${action}" == cleanup ]]; then
+        if [[ ! -e "${disk}" && ! -e "${record}" && ! -e "${seed}" ]]; then
+            record_pass "${name} removes VM artifacts"
+        else
+            record_fail "${name} removes VM artifacts" 'VM artifacts remain'
+        fi
+    else
+        if [[ -s "${disk}" && -s "${record}" && -s "${seed}" ]]; then
+            record_pass "${name} preserves VM artifacts"
+        else
+            record_fail "${name} preserves VM artifacts" 'VM artifacts changed'
+        fi
+    fi
+    if [[ "${action}" == status ]]; then
+        expect_not_contains "${name} omits base image" "${output}" 'Base image :'
+    fi
+}
+
+# Exercises image selection through new provisioning with real source files and
+# records; only the image-tool, libvirt and SSH command boundaries are replaced.
 function run_selection_case {
     local os_type="$1"
     local want_line="$2"
     local result output
+    local image_name
 
-    if [[ "${os_type}" == "rocky8-iocrunner" ]]; then
-        write_baked_image_fixture "iocrunner" "rocky8"
-    fi
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf '%s\n' 'ssh-ed25519 AAAAC3NzaFixture test' \
+        > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    case "${os_type}" in
+        rocky8|rocky8-epics-dev)
+            image_name="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+            ;;
+        debian13-rtbase)
+            image_name="debian-13-genericcloud-amd64-20260601-2496.qcow2"
+            ;;
+        rocky8-iocrunner)
+            write_baked_image_fixture "iocrunner" "rocky8"
+            image_name="iocrunner-rocky8-20260812T000000Z-abcdef123456.qcow2"
+            ;;
+    esac
+    printf '%s\n' 'base fixture' > "${WORKSPACE}/images/${image_name}"
     reset_sleep_log
-    result=$(CASE_OS_TYPE="${os_type}" run_create_vm "$(cloud_init_fixture "done")" "status")
+    result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID=selection CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent run_create_vm "$(cloud_init_fixture "done")" "provision")
     output="${result#*$'\n'}"
+    expect_exit "select ${os_type} creation exit" 0 "${result%%$'\n'*}"
     expect_contains "select ${os_type}" "${output}" "${want_line}"
 }
 
@@ -806,8 +872,10 @@ function run_bake_pair_case {
     write_baked_image_fixture "iocrunner" "${bake_os}"
     derived="iocrunner-${bake_os}-20260812T000000Z-abcdef123456.qcow2"
     reset_sleep_log
-    result=$(CASE_OS_TYPE="${consumer_os}" run_create_vm "$(cloud_init_fixture "done")" "status")
+    result=$(CASE_OS_TYPE="${consumer_os}" CASE_NODE_ID=pair CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent run_create_vm "$(cloud_init_fixture "done")" "provision")
     output="${result#*$'\n'}"
+    expect_exit "bake pair ${bake_os} creation exit" 0 "${result%%$'\n'*}"
     expect_contains "bake pair ${bake_os}" "${output}" "Base image : ${derived}"
 }
 
@@ -903,7 +971,8 @@ function run_pair_rejection_case {
         sed -i 's/^image_platform=rocky8$/image_platform=debian13/' \
             "${image_path}.creation-record"
     fi
-    result=$(CASE_OS_TYPE="rocky8-iocrunner" run_create_vm "$(cloud_init_fixture "done")" "status")
+    result=$(CASE_OS_TYPE="rocky8-iocrunner" CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     expect_exit "${name} exit" "1" "${rc}"
@@ -1383,6 +1452,17 @@ run_cleanup_teardown_case already-absent absent 1 1 0 0
 run_outage_case "status outage" "status" 1 "libvirt did not answer"
 run_outage_case "stop outage" "stop" 1 "was not checked"
 run_outage_case "provision outage" "provision" 1 "nothing was created"
+
+# Independent consumer management and absent-domain creation refusal.
+for consumer_os in rocky8-iocrunner debian13-iocrunner rocky8-iocrunner-nfs \
+    debian13-iocrunner-nfs debian13-ethercat; do
+    run_without_golden_case "${consumer_os}" status running 0 'cloud-init : done'
+    run_without_golden_case "${consumer_os}" stop running 0 'shut off [OK]'
+    run_without_golden_case "${consumer_os}" cleanup running 0 'Removing disk pair'
+    run_without_golden_case "${consumer_os}" provision running 0 'already running'
+    run_without_golden_case "${consumer_os}" provision 'shut off' 0 'READY'
+    run_without_golden_case "${consumer_os}" provision absent 1 'no valid'
+done
 
 # Image selection, ARCHITECTURE section 15.
 run_selection_case "rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
