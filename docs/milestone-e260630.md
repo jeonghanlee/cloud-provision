@@ -1301,7 +1301,7 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
-| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Scope and priority remain unresolved; seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; [M16 detail](#m16). |
+| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; five findings are corrected on the branch through `de558aa`; two findings, the hypothesis and the audit decision remain unresolved; [M16 detail](#m16). |
 
 ### Backlog Details
 
@@ -1319,8 +1319,9 @@ The whole-codebase conceptual-integrity review examined all 79 tracked files
 at `1b80978f55138848230a28b197a982526c2c9c94`: production scripts, tests,
 configuration, templates, fixtures and documentation. Seven findings are
 confirmed, one remains a hypothesis, and one requires an audit-policy choice.
-This record preserves the reviewed state and observed checks. Remediation
-scope and execution priority are unresolved as of 2026-10-01.
+This record preserves the reviewed state and observed checks. Five findings
+were corrected on the branch by 2026-10-02. Scope and priority of the two
+remaining findings, the hypothesis and the audit choice are unresolved.
 
 ##### Scope
 
@@ -1398,6 +1399,12 @@ offline reproductions; the shipped CLI and its internal path were executed.
   explicitly request host-key refresh before SSH readiness. Ordinary VM access
   retains changed-key rejection. Existing guests and host SSH files remain
   outside the offline implementation and verification scope.
+- On 2026-10-02, the fifth correction was selected: the EPICS-env Make
+  provisioning recipes pass the configured VM_PREFIX to the create CLI.
+  The driver and create CLI contracts are unchanged.
+- After the fifth correction, two confirmed findings (IPv4 validation and
+  proxy documentation), the hypothesis and the audit choice remain
+  unresolved, with no accepted plan, Keep verdict or authorization.
 
 ##### Implementation Plan
 
