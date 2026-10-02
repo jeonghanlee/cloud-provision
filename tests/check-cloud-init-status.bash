@@ -35,6 +35,7 @@ declare -g FAKEBIN
 declare -g SLEEP_LOG
 declare -g SSH_ARG_LOG
 declare -g QEMU_IMG_LOG
+declare -g REAL_SSH_KEYGEN
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
 declare -g TEST_FAILED=0
@@ -43,6 +44,9 @@ declare -ag FAILED_DETAILS=()
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "${SCRIPT_DIR}/.." && pwd)"
 FIXTURE_DIR="${TOP}/tests/fixtures/cloud-init-status"
+REAL_SSH_KEYGEN="$(command -v ssh-keygen)"
+readonly REAL_SSH_KEYGEN
+export REAL_SSH_KEYGEN
 
 function cleanup {
     local rc=$?
@@ -257,6 +261,14 @@ if [[ -n "${FAKE_SSH_ARG_LOG:-}" ]]; then
     printf "%s\n" "$*" >> "${FAKE_SSH_ARG_LOG}"
 fi
 remote_cmd="${@: -1}"
+if [[ "${FAKE_CHECK_KNOWN_HOSTS:-0}" == 1 ]]; then
+    host="${@: -2:1}"
+    if "${REAL_SSH_KEYGEN}" -F "${host#*@}" -f "${HOME}/.ssh/known_hosts" \
+        >/dev/null 2>&1; then
+        printf '%s\n' 'REMOTE HOST IDENTIFICATION HAS CHANGED' >&2
+        exit 255
+    fi
+fi
 case "${remote_cmd}" in
     exit)
         if [[ -n "${FAKE_SSH_STDERR:-}" ]]; then
@@ -309,6 +321,17 @@ if [[ -n "${FAKE_SLEEP_LOG:-}" ]]; then
     printf "%s\n" "$1" >> "${FAKE_SLEEP_LOG}"
 fi
 exit 0
+EOF
+
+    cat > "${FAKEBIN}/ssh-keygen" <<'EOF'
+#!/usr/bin/env bash
+set -e
+printf '%s\n' "$*" >> "${FAKE_REFRESH_LOG}"
+[[ "${FAKE_REFRESH_FAIL:-0}" == 0 ]] || exit 1
+if [[ "$*" == *' -F '* && "${FAKE_REFRESH_LOOKUP_RC:-0}" != 0 ]]; then
+    exit "${FAKE_REFRESH_LOOKUP_RC}"
+fi
+exec "${REAL_SSH_KEYGEN}" "$@"
 EOF
 
 cat > "${FAKEBIN}/qemu-img" <<'EOF'
@@ -368,6 +391,7 @@ EOF
 
     chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh" "${FAKEBIN}/sleep" \
         "${FAKEBIN}/qemu-img" "${FAKEBIN}/genisoimage" "${FAKEBIN}/virt-install"
+    chmod +x "${FAKEBIN}/ssh-keygen"
 }
 
 function write_baked_image_fixture {
@@ -406,6 +430,8 @@ function run_create_vm {
     local dominfo_rc=1
     local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "${CASE_NODE_ID:-main}" "-d" "${CASE_IMAGE_DIR:-${WORKSPACE}/images}" "-p" "${CASE_PREFIX:-lab}")
 
+    [[ "${CASE_REFRESH_HOST_KEY:-0}" != 1 ]] || args+=(-R)
+
     case "${action}" in
         status)
             args+=("-s")
@@ -431,6 +457,10 @@ function run_create_vm {
     FAKE_DOMINFO_RC="${CASE_DOMINFO_RC:-${dominfo_rc}}" \
     FAKE_SSH_EXIT_RC="${FAKE_SSH_EXIT_RC:-0}" \
     FAKE_SSH_STDERR="${FAKE_SSH_STDERR:-}" \
+    FAKE_CHECK_KNOWN_HOSTS="${FAKE_CHECK_KNOWN_HOSTS:-0}" \
+    FAKE_REFRESH_LOG="${WORKSPACE}/refresh.log" \
+    FAKE_REFRESH_FAIL="${FAKE_REFRESH_FAIL:-0}" \
+    FAKE_REFRESH_LOOKUP_RC="${FAKE_REFRESH_LOOKUP_RC:-0}" \
     FAKE_SSH_READY_AFTER="${FAKE_SSH_READY_AFTER:-}" \
     FAKE_SSH_COUNT_FILE="${FAKE_SSH_COUNT_FILE:-}" \
     FAKE_CLOUD_INIT_READY_AFTER="${FAKE_CLOUD_INIT_READY_AFTER:-}" \
@@ -549,6 +579,109 @@ function run_ssh_rejection_case {
         expect_contains "${name} default attempts" "${output}" "after 6 attempts"
         expect_equal "${name} sleeps between attempts" "5" "${sleeps}"
         expect_equal "${name} default retry interval" "10" "${interval_values}"
+    fi
+}
+
+# Real ssh-keygen mutates a temporary known_hosts file. The SSH transport
+# rejects a stored old identity, so success requires the actual removal path.
+function run_host_key_refresh_case {
+    local mode="$1"
+    local action="provision"
+    local node=main
+    local state="shut off"
+    local refresh=1
+    local fail=0
+    local lookup_rc=0
+    local expected_rc=0
+    local expected_text='READY'
+    local known_hosts="${WORKSPACE}/home/.ssh/known_hosts"
+    local refresh_log="${WORKSPACE}/refresh.log"
+    local ssh_log="${WORKSPACE}/refresh-ssh.log"
+    local original="${WORKSPACE}/refresh-original"
+    local key_type key_body
+    local result output target_rc=0 unrelated_rc=0
+
+    mkdir -p "${WORKSPACE}/home/.ssh"
+    read -r key_type key_body _ < "${WORKSPACE}/host-key.pub"
+    printf '%s %s %s\n' 192.168.123.100 "${key_type}" "${key_body}" > "${known_hosts}"
+    printf '%s %s %s\n' 192.0.2.1 "${key_type}" "${key_body}" >> "${known_hosts}"
+    : > "${refresh_log}"
+    : > "${ssh_log}"
+    case "${mode}" in
+        default) refresh=0; expected_rc=1; expected_text='different host key' ;;
+        dhcp) node=dhcp ;;
+        hashed) "${REAL_SSH_KEYGEN}" -H -f "${known_hosts}" >/dev/null 2>&1 ;;
+        aliases)
+            printf '%s %s %s\n' 192.168.123.100,192.0.2.1 "${key_type}" "${key_body}" \
+                > "${known_hosts}"
+            ;;
+        pattern)
+            printf '%s %s %s\n' '192.168.*,192.0.2.1' "${key_type}" "${key_body}" \
+                > "${known_hosts}"
+            expected_rc=1; expected_text='cannot refresh a shared host pattern'
+            ;;
+        lookup-failure)
+            printf '%s %s %s\n' '192.168.*,192.0.2.1' "${key_type}" "${key_body}" \
+                > "${known_hosts}"
+            lookup_rc=255; expected_rc=1; expected_text='failed to refresh'
+            ;;
+        unmatched)
+            printf '%s %s %s\n' 192.0.2.1 "${key_type}" "${key_body}" > "${known_hosts}"
+            ;;
+        running) state=running; expected_text='already running' ;;
+        failure) fail=1; expected_rc=1; expected_text='failed to refresh' ;;
+        status|stop|cleanup)
+            action="${mode}"; expected_rc=1; expected_text='-R is valid only for provisioning'
+            ;;
+        missing) rm -f -- "${known_hosts}" ;;
+    esac
+    [[ ! -f "${known_hosts}" ]] || cp -p -- "${known_hosts}" "${original}"
+    reset_sleep_log
+    result=$(CASE_REFRESH_HOST_KEY="${refresh}" CASE_NODE_ID="${node}" \
+        FAKE_STATE_OVERRIDE="${state}" FAKE_CHECK_KNOWN_HOSTS=1 \
+        FAKE_REFRESH_FAIL="${fail}" SSH_ARG_LOG="${ssh_log}" \
+        FAKE_REFRESH_LOOKUP_RC="${lookup_rc}" \
+        run_create_vm "$(cloud_init_fixture "done")" "${action}")
+    output="${result#*$'\n'}"
+    expect_exit "host key ${mode} exit" "${expected_rc}" "${result%%$'\n'*}"
+    expect_contains "host key ${mode} output" "${output}" "${expected_text}"
+    "${REAL_SSH_KEYGEN}" -F 192.168.123.100 -f "${known_hosts}" \
+        >/dev/null 2>&1 || target_rc=$?
+    "${REAL_SSH_KEYGEN}" -F 192.0.2.1 -f "${known_hosts}" \
+        >/dev/null 2>&1 || unrelated_rc=$?
+    case "${mode}" in
+        default|status|stop|cleanup|failure|pattern|lookup-failure)
+            expect_equal "host key ${mode} retains target" 0 "${target_rc}"
+            ;;
+        missing) ;;
+        *) expect_equal "host key ${mode} removes target" 1 "${target_rc}" ;;
+    esac
+    if [[ "${mode}" != missing ]]; then
+        expect_equal "host key ${mode} retains unrelated key" 0 "${unrelated_rc}"
+    fi
+    case "${mode}" in
+        default|status|stop|cleanup|missing)
+            expect_equal "host key ${mode} does not invoke removal" '' "$(cat "${refresh_log}")"
+            ;;
+        lookup-failure)
+            expect_equal 'lookup failure does not invoke removal' 0 \
+                "$(grep -c -- '-R ' "${refresh_log}" || true)"
+            if cmp -s -- "${original}" "${known_hosts}"; then
+                record_pass 'lookup failure preserves original known_hosts bytes'
+            else
+                record_fail 'lookup failure preserves original known_hosts bytes' 'file changed'
+            fi
+            ;;
+        pattern) ;;
+        *)
+            expect_equal "host key ${mode} removes exactly once" 1 \
+                "$(grep -c -- '-R ' "${refresh_log}")"
+            expect_contains "host key ${mode} removes resolved address" \
+                "$(cat "${refresh_log}")" '-R 192.168.123.100'
+            ;;
+    esac
+    if [[ "${mode}" == failure || "${mode}" == pattern || "${mode}" == lookup-failure ]]; then
+        expect_equal "host key removal failure precedes SSH" '' "$(cat "${ssh_log}")"
     fi
 }
 
@@ -1373,7 +1506,7 @@ function run_case {
 # previous run at the same reused address accepts the connection, fails
 # mid-request, and returns a non-blocking stdin the caller never clears.
 function assert_ssh_multiplexing_off {
-    local total multiplexing_offenders timeout_offenders
+    local total multiplexing_offenders timeout_offenders host_key_offenders
 
     if [[ ! -s "${SSH_ARG_LOG}" ]]; then
         record_fail "ssh probes were recorded" "no ssh invocation reached the log"
@@ -1386,11 +1519,16 @@ function assert_ssh_multiplexing_off {
     timeout_offenders="$(awk \
         '!/-o ConnectTimeout=5/ {count++} END {print count + 0}' \
         "${SSH_ARG_LOG}")"
+    host_key_offenders="$(awk \
+        '!/-o StrictHostKeyChecking=accept-new/ {count++} END {print count + 0}' \
+        "${SSH_ARG_LOG}")"
     printf "  ssh invocations recorded: %s (multiplexing: %s, timeout: %s)\n" \
         "${total}" "${multiplexing_offenders}" "${timeout_offenders}"
     expect_equal "every ssh probe refuses multiplexing" "0" "${multiplexing_offenders}"
     expect_equal "every default SSH probe uses the 5-second connection timeout" \
         "0" "${timeout_offenders}"
+    expect_equal 'every SSH probe accepts new keys and rejects changed keys' \
+        0 "${host_key_offenders}"
 }
 
 function print_summary {
@@ -1411,6 +1549,11 @@ mkdir -p "${FAKEBIN}"
 : > "${SSH_ARG_LOG}"
 : > "${QEMU_IMG_LOG}"
 write_fake_commands
+"${REAL_SSH_KEYGEN}" -q -t ed25519 -N '' -f "${WORKSPACE}/host-key"
+
+for refresh_mode in default static dhcp hashed aliases pattern lookup-failure unmatched running failure status stop cleanup missing; do
+    run_host_key_refresh_case "${refresh_mode}"
+done
 
 run_case "status done" "$(cloud_init_fixture "done")" "status" 0 "cloud-init : done"
 run_case "status running" "$(cloud_init_fixture running)" "status" 1 "cloud-init : running"

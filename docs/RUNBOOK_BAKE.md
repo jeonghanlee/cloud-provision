@@ -112,6 +112,24 @@ Without `-r` the bake takes whatever the inventory resolves to and the manifest
 record is unchanged. A ref that does not exist fails during the Ansible run and
 publishes nothing.
 
+## Build VM SSH host keys
+
+Both bake entry points pass `-R` to `create_vm.bash` for the build VM. After
+resolving its static or DHCP address, the provisioner removes that address's
+stored key from `~/.ssh/known_hosts` before the first SSH readiness check. The
+first connection accepts the new key. Other stored addresses are preserved.
+Comma-separated host lists retain their other addresses. Refresh runs on a
+temporary copy and replaces the original only after successful removal.
+Matching shared patterns, non-regular files and symlinks stop the bake without
+replacing the original. A missing file needs no removal; a removal failure
+stops the bake.
+
+This opt-in also applies if the build VM is already running or is restarted.
+Ordinary VM probes use `StrictHostKeyChecking=accept-new` to accept previously
+unknown keys and reject changed stored keys. `-R` is valid only for
+provisioning; status, stop and cleanup reject it. Bake step 2 does not refresh
+the key again.
+
 ## Fresh consumer SSH host keys
 
 Fresh consumer VMs reuse deterministic lab IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.

@@ -100,6 +100,7 @@ declare -g DO_CLEANUP=false
 declare -g DO_STATUS=false
 declare -g DO_STOP=false
 declare -g DO_FRESH=false
+declare -g DO_REFRESH_HOST_KEY=false
 
 function print_usage {
     printf "Usage: %s [options]\n" "$(basename "$0")"
@@ -126,6 +127,8 @@ function print_usage {
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
     printf "  -S             Graceful shutdown of running VM (ACPI, polls until shut off)\n"
     printf "  -F             Require a new domain and disk (provisioning only)\n"
+    printf "  -R             Refresh the resolved IP's stored SSH key before readiness\n"
+    printf "                 (explicit bake opt-in; provisioning only)\n"
     printf "  -h             Show this help message\n"
     printf "\n"
     printf "Examples:\n"
@@ -145,7 +148,7 @@ if ! groups "$USER" | grep -q "\b${REQUIRED_GROUP}\b"; then
 fi
 
 # --- Argument Processing ---
-while getopts ":o:n:d:p:m:z:csSFh" opt; do
+while getopts ":o:n:d:p:m:z:csSFRh" opt; do
     case "$opt" in
         o) OS_TYPE="$OPTARG" ;;
         n) NODE_ID="$OPTARG" ;;
@@ -157,6 +160,7 @@ while getopts ":o:n:d:p:m:z:csSFh" opt; do
         s) DO_STATUS=true ;;
         S) DO_STOP=true ;;
         F) DO_FRESH=true ;;
+        R) DO_REFRESH_HOST_KEY=true ;;
         h) print_usage; exit 0 ;;
         :) printf "Error: Option -%s requires an argument.\n" "$OPTARG"; exit 1 ;;
         ?) printf "Error: Unknown option -%s\n" "$OPTARG"; exit 1 ;;
@@ -170,6 +174,12 @@ done
 if [[ "${DO_FRESH}" == true ]] && \
    { [[ "${DO_CLEANUP}" == true ]] || [[ "${DO_STATUS}" == true ]] || [[ "${DO_STOP}" == true ]]; }; then
     printf "Error: -F is valid only for provisioning.\n" >&2
+    exit 1
+fi
+
+if [[ "${DO_REFRESH_HOST_KEY}" == true ]] && \
+   { [[ "${DO_CLEANUP}" == true ]] || [[ "${DO_STATUS}" == true ]] || [[ "${DO_STOP}" == true ]]; }; then
+    printf "Error: -R is valid only for provisioning.\n" >&2
     exit 1
 fi
 
@@ -995,8 +1005,8 @@ function resolve_runtime_ip {
 # remote command execution. BatchMode=yes removes password and keyboard-
 # interactive authentication, so a probe can pass only with a usable key, and
 # the probe runs a remote command rather than opening a socket. A first-time
-# host key is accepted; a CHANGED host key is not, and StrictHostKeyChecking=no
-# does not override that. That case means the address now answers for a
+# host key is accepted; accept-new rejects a CHANGED host key. That case means
+# the address now answers for a
 # different host, which is a different fact from "not ready yet", so ssh_probe
 # reports it separately and the callers say so.
 #
@@ -1012,7 +1022,7 @@ function resolve_runtime_ip {
 # socket, ControlMaster=no stops it from becoming one for the next call.
 declare -g SSH_USER="vmadmin"
 declare -ag SSH_PROBE_OPTIONS=(
-    -o StrictHostKeyChecking=no
+    -o StrictHostKeyChecking=accept-new
     -o "ConnectTimeout=${VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS}"
     -o BatchMode=yes
     -o ControlMaster=no
@@ -1229,6 +1239,82 @@ function wait_for_vm {
     return 1
 }
 
+# Explicit bake opt-in removes only this address's stored identity. The first
+# readiness connection accepts its new key through the normal SSH contract.
+function refresh_host_key {
+    local ip_addr="$1"
+    local known_hosts="${HOME}/.ssh/known_hosts"
+    local workspace matches
+    local rc=0
+    local lookup_rc=0
+
+    [[ "${DO_REFRESH_HOST_KEY}" == true ]] || return 0
+    [[ -n "${ip_addr}" ]] || return 0
+    [[ -e "${known_hosts}" || -L "${known_hosts}" ]] || return 0
+    if [[ ! -f "${known_hosts}" || -L "${known_hosts}" ]]; then
+        printf 'Error: host-key refresh requires a regular non-symlink file: %s\n' \
+            "${known_hosts}" >&2
+        return 1
+    fi
+    workspace="$(mktemp -d "${known_hosts}.refresh.XXXXXX")" || return 1
+    # Remove an exact address from shared host lists before OpenSSH removes
+    # whole matching lines. Keep every other host token and the key bytes.
+    if ! cp -p -- "${known_hosts}" "${workspace}/known_hosts" || \
+       ! awk -v target="${ip_addr}" '
+        /^[[:space:]]*#/ || NF == 0 { print; next }
+        {
+            field = ($1 ~ /^@/) ? 2 : 1
+            hosts = $field
+            count = split(hosts, tokens, ",")
+            found = 0
+            kept = ""
+            for (i = 1; i <= count; i++) {
+                if (tokens[i] == target) found = 1
+                else kept = kept (kept == "" ? "" : ",") tokens[i]
+            }
+            if (count > 1 && found) {
+                if (kept != "") {
+                    start = index($0, hosts)
+                    print substr($0, 1, start - 1) kept substr($0, start + length(hosts))
+                }
+                next
+            }
+            print
+        }
+    ' "${known_hosts}" > "${workspace}/normalized" || \
+       ! cat "${workspace}/normalized" > "${workspace}/known_hosts"; then
+        rc=1
+    fi
+    if [[ "${rc}" == 0 ]]; then
+        matches="$(ssh-keygen -f "${workspace}/known_hosts" -F "${ip_addr}")" || lookup_rc=$?
+        # A matching pattern identifies more than one address. Refuse instead
+        # of deleting its shared trust entry. Hashed single hosts are safe.
+        # OpenSSH returns 1 when no key matches; other failures stop refresh.
+        if [[ "${lookup_rc}" != 0 && "${lookup_rc}" != 1 ]]; then
+            rc=1
+        elif ! awk -v target="${ip_addr}" '
+            /^[[:space:]]*#/ || NF == 0 { next }
+            {
+                host = ($1 ~ /^@/) ? $2 : $1
+                if (host != target && host !~ /^\|1\|[^,]+$/) exit 1
+            }
+        ' <<< "${matches}"; then
+            printf 'Error: cannot refresh a shared host pattern for %s.\n' "${ip_addr}" >&2
+            rc=1
+        elif ! ssh-keygen -f "${workspace}/known_hosts" -R "${ip_addr}" || \
+             ! mv -- "${workspace}/known_hosts" "${known_hosts}"; then
+            rc=1
+        fi
+    fi
+    rm -rf -- "${workspace}"
+    if [[ "${rc}" != 0 ]]; then
+        printf "Error: failed to refresh the stored SSH key for %s.\n" \
+            "${ip_addr}" >&2
+        return 1
+    fi
+    return 0
+}
+
 function wait_for_ssh {
     local ip_addr="$1"
     local mode="${2:-retry}"
@@ -1236,6 +1322,8 @@ function wait_for_ssh {
     local interval="${VM_WAIT_SSH_INTERVAL_SECONDS}"
     local attempt=0
     local probe_rc
+
+    refresh_host_key "${ip_addr}" || return 1
 
     while [[ ${attempt} -lt ${max_retry} ]]; do
         probe_rc=0
@@ -1370,6 +1458,7 @@ if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
             ;;
         running)
             existing_ip=$(resolve_runtime_ip)
+            refresh_host_key "${existing_ip}" || exit 1
             printf "VM '%s' is already running.\n" "${VM_NAME}"
             printf "%s\n" "------------------------------------------------------------"
             printf "VM Name    : %s\n" "${VM_NAME}"

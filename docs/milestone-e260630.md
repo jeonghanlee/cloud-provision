@@ -1394,30 +1394,49 @@ offline reproductions; the shipped CLI and its internal path were executed.
   selection until new creation and remove the status base-image line.
   Existing-domain summaries retain their IP and MAC output. No existing guest
   or image operation is authorized by this offline correction.
+- On 2026-10-01, the fourth correction was selected: IOC and EtherCAT bake
+  explicitly request host-key refresh before SSH readiness. Ordinary VM access
+  retains changed-key rejection. Existing guests and host SSH files remain
+  outside the offline implementation and verification scope.
 
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: 2026-10-01; third finding only, with the status base-image line removed and selection limited to new VM creation
-Implementation Authorization: 2026-10-01; explicit direction to proceed and selection of the status-output change
-Superseded Plan Artifacts: `docs/milestone-e260630.md@e468393`, the implemented second correction plan
+Plan Acceptance: 2026-10-01; fourth finding and accepted review corrections: preserve shared host-list addresses, enforce changed-key rejection with accept-new, and stop on host-key lookup errors
+Implementation Authorization: 2026-10-01; direction to proceed, explicit direction to apply both rounds of review corrections, and selection of actual changed-key rejection
+Superseded Plan Artifacts: `docs/milestone-e260630.md@d899671`, the implemented and review-accepted third correction plan
 
-The current plan applies only to consumer management without a retained golden
-image. Earlier correction evidence remains below; the other candidates are
-outside this plan.
+The current plan applies only to the bake host-key refresh ordering. Earlier
+correction evidence remains below; the other candidates are outside this plan.
 
-1. In `bin/create_vm.bash`, select the baked image and derive its source path
-   only after existing-domain dispatch, before new provisioning. Remove the
-   base-image line from status; retain the selected image in the creation header.
-2. Extend `tests/check-cloud-init-status.bash` through the public CLI and outer
-   command boundaries. Cover all five golden consumer selectors without golden
-   images for status, stop, cleanup, running reuse and stopped restart; require
-   absent-domain creation to reject missing or invalid image pairs. Move image
-   selection assertions to actual new provisioning.
-3. Reconcile `docs/ARCHITECTURE.md`; run the lifecycle, fresh-input, bake,
-   runtime-inventory and documentation checks, syntax and ShellCheck. Run the
-   updated regression against production code at `e468393` to demonstrate the
-   old defect. Existing guests and images remain outside this operation.
+1. Add provisioning-only `-R` to `bin/create_vm.bash`. When explicitly requested,
+   remove the resolved address's stored key before the first SSH readiness probe
+   or before returning an existing-running summary. A missing known_hosts file
+   needs no removal; a removal failure stops the operation. Other actions reject
+   `-R`. Use `StrictHostKeyChecking=accept-new` for ordinary probes. Refresh a
+   temporary copy, preserve other addresses in shared host lists, and refuse
+   matching shared patterns or unsupported file types without replacing the
+   original. Distinguish a normal no-match lookup result from an execution
+   failure; a lookup execution failure stops before removal, replacement or SSH.
+2. Pass `-R` from both bake entry points and remove their post-readiness key
+   refresh. Exercise the public create CLI and IOC bake with stale keys through
+   outer command boundaries; verify static and DHCP addressing, preservation of
+   unrelated keys, default rejection and removal failure. Run the regression
+   against production code at `d899671` to demonstrate the old defect.
+3. Reconcile architecture and bake procedures; run lifecycle, bake,
+   runtime-inventory, documentation and help checks, Bash syntax and ShellCheck.
+   No live guest, real image bake or host known_hosts change is authorized.
+
+The first third-person review found that whole-line removal also deleted
+other addresses in a shared host list. It also observed real OpenSSH accepting
+a changed key under `StrictHostKeyChecking=no`; the controlled SSH failure in
+T6 did not establish changed-key rejection. The accepted correction uses
+`accept-new` and verifies that behavior against a temporary loopback SSH server.
+
+The second third-person review observed that ignoring a failed host-key lookup
+allowed whole-line removal to delete another address's shared key. The accepted
+correction captures the lookup exit code, permits OpenSSH's normal no-match
+result, and stops on other lookup failures without replacing the original.
 
 ##### Test Plan
 
@@ -1428,6 +1447,9 @@ outside this plan.
 | T3 | Live validation | Execute only live VM/image checks selected by the accepted plan and separately authorized under D1 | To be specified by the accepted plan | Required live behavior is observed; offline checks alone do not satisfy it. |
 | T4 | Test boundary | Run `make check-runtime-inventory check-docs`, `bash -n tests/check-epics-env-inventory.bash` and ShellCheck | Control host; shipped driver, create CLI, generator and cloud-init fixtures; external virsh/SSH/Ansible boundaries | Both generated inventories reach the external Ansible boundary, temporary inventories are removed, and an unready VM is refused with its status report. |
 | T5 | Consumer lifecycle | Run `make check-cloud-init-status check-bake check-runtime-inventory check-docs`, syntax and ShellCheck; run the updated lifecycle test against production code at `e468393` | Control host; public create CLI, shipped cloud-init and DHCP fixtures, temporary files and controlled outer commands | Existing-domain management works without a golden image; new creation still requires a valid pair; the old production path fails the new regression. |
+| T6 | Bake host keys | Run lifecycle, bake, runtime-inventory, documentation and help checks, syntax and ShellCheck; run updated lifecycle and IOC bake regressions against `d899671` | Control host; real create and bake entry points, real ssh-keygen on temporary files, shipped cloud-init/proxy fixtures and outer command boundaries | Explicit refresh removes only the resolved address's old key before readiness; default access rejects a changed key; failure stops before SSH. IOC bake proceeds with stale keys; EtherCAT reaches inventory and the following SSH boundary. Offline checks do not establish a real guest or EtherCAT image publication. |
+| T7 | Host-key review corrections | Run the public CLI with real OpenSSH against a temporary loopback server; run the shipped suite and syntax/ShellCheck checks | Temporary host/client keys and known_hosts; real SSH authentication; controlled libvirt boundary | Changed stored keys are refused in status and restart probes, unknown keys are accepted, explicit refresh preserves another address on the same line, and a matching shared pattern leaves the original unchanged. No cloud-init completion or real VM/image result is inferred from the loopback checks. |
+| T8 | Host-key lookup failure | Run the updated lifecycle suite before and after the lookup correction; run lifecycle, bake, runtime-inventory, documentation and help checks, and syntax/ShellCheck on both changed Bash files | Public create CLI, temporary real host keys and known_hosts, shipped fixtures and controlled outer commands; only the failing ssh-keygen lookup returns 255 | A failed lookup preserves the original file and both stored addresses, invokes no removal or SSH, and returns failure. A normal no-match result still permits readiness and preserves unrelated keys. The pre-correction path fails the new regression. |
 
 ##### Verification Results
 
@@ -1438,6 +1460,9 @@ outside this plan.
 | T3 | Not run | No existing VM/image runtime verification authorized or executed for this review | Pending | none |
 | T4 | 2026-10-01 | Local test-boundary correction on `fe79689`; control host, shipped internal paths and external command boundaries | Passed | Before correction, the EPICS-env test exited 1 on unsupported `domiflist --inactive`, before its assertions. After correction, `make check-runtime-inventory check-docs` exited 0: generated inventory 233/233, EPICS-env driver 3/3, documentation references 14/14 and proxy statements 8/8. Bash syntax and both warning-gated and full ShellCheck on the changed test passed. Production files were unchanged; no real VM or Ansible provisioning was run. |
 | T5 | 2026-10-01 | Local third correction on `e468393`; public CLI, shipped cloud-init/DHCP fixtures, temporary independent disk files and outer command boundaries | Passed for the selected scope | Lifecycle 400/400, fresh inputs 7/7, IOC bake provenance 155/155, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3 and documentation 14/14 plus 8/8. All five golden consumer selectors passed status, stop, cleanup, running reuse and stopped restart without a golden pair; missing and invalid pairs still refused new creation. The updated lifecycle regression against production code at `e468393` exited 1 with 345/400, including 55 failures in the image-independent management cases. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above and `shellcheck -x` on the changed files passed. No real guest, image bake or Ansible provisioning ran. |
+| T6 | 2026-10-01 | Local fourth correction on `d899671`; temporary known_hosts files, real ssh-keygen, public create/IOC/EtherCAT entry points and controlled outer transports | Passed controlled transport checks; contract evidence superseded by T7 | Lifecycle 454/454, fresh inputs 7/7, IOC bake provenance 158/158 including three EtherCAT readiness-boundary assertions, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Static, DHCP, hashed keys, restart, running reuse, missing-file, removal-failure and incompatible-action cases passed; unrelated keys on separate lines were preserved and the controlled SSH transport refused the stored old key. Both IOC OS bakes passed with stale keys. EtherCAT reached readiness, generated inventory and exited 43 at the following controlled SSH boundary; its image publication was not exercised. Against production code at `d899671`, the updated lifecycle test exited 1 with 426/454; the IOC Rocky seal-case exited 1 with 3/7 and stopped at Step 1's changed-key refusal before inventory or publication. All five changed Bash files passed syntax; repository-wide and source-following ShellCheck gates at warning severity and above passed. No real guest, host known_hosts, image bake or Ansible provisioning was changed or run. |
+| T7 | 2026-10-01 | Accepted fourth-correction review changes; public CLI, real OpenSSH loopback server, temporary known_hosts and controlled libvirt boundary | Passed for the selected local scope | Real SSH refused changed keys in status and stopped restart, accepted a previously unknown key, and accepted the refreshed key while preserving another address on the same line and mode 0640. Matching shared patterns left the original unchanged and stopped before SSH. Directory, existing and dangling symlink, and malformed-file cases preserved the original and stopped before SSH; temporary refresh directories were removed. Lifecycle 466/466, fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, package parity 6/6, EPICS packages 6/6, middleware packages 2/2, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. All five changed Bash files passed syntax; repository-wide and source-following ShellCheck gates at warning severity and above passed. Lifecycle and documentation checks were repeated after the dangling-symlink guard. Loopback checks establish SSH behavior only; cloud-init completion, live VM readiness and real image publication were not exercised. |
+| T8 | 2026-10-01 | Accepted lookup-error correction in the fourth-correction working tree; public CLI, real key files and controlled outer commands | Passed for the selected local scope | Before the lookup correction, the updated lifecycle suite exited 1 with 472/479: seven assertions exposed successful exit, loss of the target and unrelated keys, removal invocation, original-file replacement and SSH execution after a failed lookup. After correction it passed 479/479, including failed-lookup preservation and normal no-match readiness. Fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Both changed Bash files passed syntax and source-following ShellCheck at warning severity and above; git diff --check passed. No real guest, image publication or owner known_hosts change was exercised. |
 
 Baseline commands: `make check-cloud-init-status check-proxy-injection
 check-runtime-inventory check-bake check-docs check-vm-help
@@ -1471,9 +1496,21 @@ content audit or EtherCAT bake result.
   outer command boundaries; the second-person pass checked the changed text
   against observed CLI output and verification evidence. This acceptance
   applies only to image-independent consumer management and status output.
-- The third correction passed T5 offline checks and remains uncommitted;
-  branch landing is not recorded yet. Other candidates remain unassigned;
-  this aggregate work is not Complete.
+- Third-correction landing: 2026-10-01; `d899671adc053673a5f2773f309ad61324c84d53`
+  was pushed to `origin/m11-middleware-operators`; direct remote inspection
+  matched that commit. This is branch landing, not master landing.
+- Fourth-correction review results: 2026-10-01; the first third-person
+  self-review found shared host-list key loss and an unsupported changed-key
+  rejection claim. Both corrections were explicitly accepted and applied.
+  The second third-person self-review found the ignored lookup failure; that
+  correction was explicitly accepted and passed T8. The third review,
+  second-person self-review, found no additional required corrections in the
+  bake instructions, failure behavior or verification limits. Its checks
+  compared the changed text with executed CLI and real SSH results, bake
+  dry-run commands and actual CLI help.
+- The fourth correction and accepted review fixes passed T7 and T8 local checks and remain uncommitted;
+  review acceptance and branch landing are not recorded yet. Other candidates
+  remain unassigned; this aggregate work is not Complete.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites

@@ -9,6 +9,7 @@ declare -g TOP
 declare -g VALIDATOR
 declare -g BAKE
 declare -g WORKSPACE
+declare -g REAL_SSH_KEYGEN
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
 declare -g TEST_FAILED=0
@@ -18,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VALIDATOR="${TOP}/bin/validate_iocrunner_bake.bash"
 BAKE="${TOP}/bin/bake_iocrunner_image.bash"
+REAL_SSH_KEYGEN="$(command -v ssh-keygen)"
+readonly REAL_SSH_KEYGEN
 
 function cleanup {
     local rc=$?
@@ -648,7 +651,7 @@ EOF
 
     cat > "${fakebin}/ssh-keygen" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+exec "${REAL_SSH_KEYGEN}" "$@"
 EOF
 
     cat > "${fakebin}/ssh-keyscan" <<'EOF'
@@ -731,7 +734,19 @@ if [[ -e "${FAKE_GUEST_ROOT:-/nonexistent}/.proxy-sealed" ]]; then
     exit 6
 fi
 remote_command="${@: -1}"
+host="${@: -2:1}"
+if "${REAL_SSH_KEYGEN}" -F "${host#*@}" -f "${HOME}/.ssh/known_hosts" \
+    >/dev/null 2>&1; then
+    printf '%s\n' 'REMOTE HOST IDENTIFICATION HAS CHANGED' >&2
+    exit 255
+fi
 case "${remote_command}" in
+    "sudo tee /etc/ethercat-bake.manifest >/dev/null")
+        # Stop at the outer SSH boundary after the real EtherCAT readiness
+        # and inventory paths; this case does not exercise image publication.
+        printf '%s\n' 'EtherCAT readiness boundary reached' >&2
+        exit 43
+        ;;
     exit)
         exit 0
         ;;
@@ -849,6 +864,7 @@ function run_promotion_case {
     local image_stem=""
     local image_regex=""
     local epics_commit runner_commit fixture_commit
+    local key_type key_body address_suffix
     local rc=0
     local -a images=()
 
@@ -868,10 +884,18 @@ function run_promotion_case {
             ;;
     esac
     image_regex="^iocrunner-${os_type}-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}[.]qcow2$"
+    if [[ "${mode}" == ethercat-readiness ]]; then
+        base_image_name=debian-13-genericcloud-amd64-20260601-2496.qcow2
+    fi
 
     mkdir -p "${fakebin}" "${image_dir}" "${home_dir}/.ssh"
     printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" > "${home_dir}/.ssh/id_ed25519.pub"
+    read -r key_type key_body _ < "${WORKSPACE}/host-key.pub"
     : > "${home_dir}/.ssh/known_hosts"
+    for ((address_suffix=160; address_suffix<=254; address_suffix++)); do
+        printf '192.168.123.%s %s %s\n' "${address_suffix}" "${key_type}" \
+            "${key_body}" >> "${home_dir}/.ssh/known_hosts"
+    done
     printf "%s\n" "base image" > "${image_dir}/${base_image_name}"
     init_checkout "${epics_checkout}" "https://github.com/jeonghanlee/EPICS-env-distribution"
     init_checkout "${runner_checkout}" "https://github.com/jeonghanlee/epics-ioc-runner"
@@ -883,6 +907,7 @@ function run_promotion_case {
     prepare_proxy_guest_root "${guest_root}" "${os_type}" "${mode}"
 
     local -a bake_env=(
+        "REAL_SSH_KEYGEN=${REAL_SSH_KEYGEN}"
         "ANSIBLE_ARG_LOG=${case_dir}/ansible-args.log"
         "RUNTIME_INVENTORY_ARG_LOG=${case_dir}/runtime-inventory-args.log"
         "RUNTIME_INVENTORY_SNAPSHOT=${case_dir}/runtime-inventory.ini"
@@ -917,12 +942,29 @@ function run_promotion_case {
         "${BAKE}" -o "${os_type}" -d "${image_dir}" \
         -a "${TOP}/../ansible-provision"
     )
+    if [[ "${mode}" == ethercat-readiness ]]; then
+        bake_command[0]="${TOP}/bin/bake_ethercat_image.bash"
+    fi
     [[ "${mode}" == cleanup-* ]] || bake_command+=(-k)
     if [[ -n "${CASE_RUNNER_REF:-}" ]]; then
         bake_command+=(-r "${CASE_RUNNER_REF}")
     fi
     env "${bake_env[@]}" "${bake_command[@]}" \
         > "${case_dir}/output.txt" 2>&1 || rc=$?
+
+    if [[ "${mode}" == ethercat-readiness ]]; then
+        expect_equal "EtherCAT reaches the post-readiness SSH boundary" 43 "${rc}"
+        if grep -q '^READY$' "${case_dir}/output.txt" && \
+           grep -q 'runtime inventory for .* \[OK\]' "${case_dir}/output.txt" && \
+           grep -q 'EtherCAT readiness boundary reached' "${case_dir}/output.txt"; then
+            record_pass 'EtherCAT clears the stale key before readiness and inventory'
+        else
+            record_fail 'EtherCAT clears the stale key before readiness and inventory' \
+                'the real entry point stopped before the expected boundary'
+        fi
+        assert_ssh_multiplexing_off "${label}" "${case_dir}/ssh-args.log"
+        return 0
+    fi
 
     assert_runtime_inventory "${label}" \
         "${case_dir}/runtime-inventory-args.log" \
@@ -1292,6 +1334,7 @@ function run_ref_guard_tests {
 }
 
 WORKSPACE="$(mktemp -d /tmp/iocrunner-bake-provenance-test.XXXXXX)"
+"${REAL_SSH_KEYGEN}" -q -t ed25519 -N '' -f "${WORKSPACE}/host-key"
 
 case "${1:-all}" in
     validator)
@@ -1322,6 +1365,7 @@ case "${1:-all}" in
     all)
         run_validator_tests
         run_ref_guard_tests
+        run_promotion_case ethercat-readiness debian13
         run_promotion_case seal-case debian13
         run_promotion_case seal-case rocky8
         run_promotion_case placement-tamper rocky8

@@ -201,11 +201,12 @@ printf "  Playbook   : %s\n" "${ETHERCAT_BASE_PLAYBOOK}"
 printf "%s\n" "------------------------------------------------------------"
 
 # Step 1: create_vm.bash creates a run-specific build VM and polls until SSH
-# and cloud-init are ready before returning.
+# and cloud-init are ready before returning. Explicit bake opt-in refreshes the
+# resolved address's stored host key before the first readiness connection.
 printf "\nStep 1/8: Boot %s\n" "${VM_NAME}"
-"${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
+"${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -R
 
-printf "\nStep 2/8: Refresh known_hosts for VM IP\n"
+printf "\nStep 2/8: Resolve the VM address and generate runtime inventory\n"
 declare -g VM_IP
 VM_IP="$("${CREATE_VM}" -o "${BUILD_OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
     | awk -F': *' '/^IP Address/ {print $2; exit}')"
@@ -213,8 +214,6 @@ if [[ -z "${VM_IP}" ]]; then
     printf "Error: failed to resolve VM IP\n" >&2
     exit 1
 fi
-ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "${VM_IP}" 2>/dev/null || true
-ssh-keyscan -H "${VM_IP}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null
 printf "  VM_IP=%s [OK]\n" "${VM_IP}"
 RUNTIME_INVENTORY="$(mktemp /tmp/cloud-provision-ansible-inventory.XXXXXX)"
 if ! "${INVENTORY_GENERATOR}" \

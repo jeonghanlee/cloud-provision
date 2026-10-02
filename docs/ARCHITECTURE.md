@@ -394,9 +394,10 @@ ready-to-use environment.
 ```
 [ bin/bake_iocrunner_image.bash -o <os> ]
      |
-     | 1. create_vm.bash -o <os> -n build with the shared run ID
+     | 1. create_vm.bash -o <os> -n build -R with the shared run ID;
+     |    refresh the resolved address's stored key before SSH readiness
      |
-     | 2. refresh known_hosts, resolve the build VM address, and call the
+     | 2. resolve the build VM address and call the
      |    shared inventory generator for the run-specific host
      |
      | 3. resolve the source image from the source-disk creation record and
@@ -423,8 +424,8 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 
 | Step | Tool | Purpose |
 |------|------|---------|
-| 1 | `create_vm.bash` | Boot a run-specific build VM and independent VM disk |
-| 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan`, `generate_ansible_inventory.bash` | Resolve the build VM address, refresh its `known_hosts` entry, and generate its temporary Ansible inventory entry |
+| 1 | `create_vm.bash -R`, `ssh-keygen` | Boot a run-specific build VM and independent disk; remove the resolved address's stored key before the first SSH readiness probe |
+| 2 | `create_vm.bash -s`, `generate_ansible_inventory.bash` | Resolve the build VM address and generate its temporary Ansible inventory entry |
 | 3 | `qemu-img`, `sha256sum` | Record the selected source-image filename and digest |
 | 4 | `ansible-playbook` | Apply the species assembly of the selected flavor in one invocation; its EPICS operators install the EPICS OS build dependencies defined in `configure/epics-packages` (guarded by `make check-epics-packages`) |
 | 5 | remote privileged Bash | Append `pip3 freeze` provenance |
@@ -547,7 +548,7 @@ Two option choices carry that meaning.
 | Option | What it decides |
 | --- | --- |
 | `BatchMode=yes` | Removes password and keyboard-interactive authentication, so a probe can pass only with a usable key and never blocks on a prompt. |
-| `StrictHostKeyChecking=no` | Accepts a host key that is not yet known, so a freshly provisioned VM needs no operator step. It does **not** accept a key that has changed. |
+| `StrictHostKeyChecking=accept-new` | Automatically records a previously unknown host key and rejects a changed stored key. |
 
 That second limit produces a third outcome the contract names explicitly. VMs
 reuse deterministic addresses, so recreating one leaves the previous host key
@@ -556,11 +557,18 @@ ready yet" and waiting will not resolve it, so `ssh_probe` returns a distinct
 code for it, `wait_for_ssh` stops instead of spending its budget, and the
 operator is given the `ssh-keygen -R` repair for that address.
 
-Refreshing `known_hosts` automatically is deliberately not done here. The bake
-scripts do it at their own step 2 because they are talking to a VM they created
-seconds earlier; the provisioner also reports on long-lived VMs the operator did
-not just create, where silently accepting a changed identity would hide a fact
-worth seeing.
+Ordinary VM access does not refresh `known_hosts`. IOC and EtherCAT bake
+explicitly pass provisioning-only `-R`: after resolving the address, the
+provisioner removes only that address's stored key before its first SSH
+readiness probe. The normal first-contact behavior then accepts the new key.
+This also applies to stopped restart and existing-running reuse when `-R` is
+requested. A missing `~/.ssh/known_hosts` needs no removal; a removal failure
+stops the operation. Refresh runs on a temporary copy and preserves other
+addresses on comma-separated host lists. Matching shared patterns, non-regular
+files and symlinks are refused without replacing the original file. Status,
+stop and cleanup reject `-R`. Without it, changed
+keys retain the rejection and repair behavior above. Bake step 2 resolves the
+address and generates inventory without another host-key refresh.
 
 ### Wait policy
 
