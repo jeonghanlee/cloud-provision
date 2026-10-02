@@ -1402,41 +1402,55 @@ offline reproductions; the shipped CLI and its internal path were executed.
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: 2026-10-01; fourth finding and accepted review corrections: preserve shared host-list addresses, enforce changed-key rejection with accept-new, and stop on host-key lookup errors
-Implementation Authorization: 2026-10-01; direction to proceed, explicit direction to apply both rounds of review corrections, and selection of actual changed-key rejection
-Superseded Plan Artifacts: `docs/milestone-e260630.md@d899671`, the implemented and review-accepted third correction plan
+Plan Acceptance: 2026-10-02; owner accepted the fifth-correction VM_PREFIX plan after two third-person reviews, the accepted export-suppression correction, and a second-person review
+Implementation Authorization: 2026-10-02; owner explicitly authorized implementation of the accepted fifth-correction VM_PREFIX plan
+Superseded Plan Artifacts: `docs/milestone-e260630.md@a52bb79687f0ba260123de362f5ade77d136ceb9`, the implemented fourth-correction plan and its accepted review fixes
 
-The current plan applies only to the bake host-key refresh ordering. Earlier
-correction evidence remains below; the other candidates are outside this plan.
+The accepted plan applies only to the EPICS-env Make VM_PREFIX mismatch.
+At plan acceptance, the four provisioning recipes omitted `-p`, while the
+build recipe passed VM_PREFIX to the driver. Source inspection and Make
+dry-runs confirmed that mismatch. The recorded runtime reproduction remains
+in Review Findings; implementation verification is recorded in T9 below.
+Earlier correction results remain below.
 
-1. Add provisioning-only `-R` to `bin/create_vm.bash`. When explicitly requested,
-   remove the resolved address's stored key before the first SSH readiness probe
-   or before returning an existing-running summary. A missing known_hosts file
-   needs no removal; a removal failure stops the operation. Other actions reject
-   `-R`. Use `StrictHostKeyChecking=accept-new` for ordinary probes. Refresh a
-   temporary copy, preserve other addresses in shared host lists, and refuse
-   matching shared patterns or unsupported file types without replacing the
-   original. Distinguish a normal no-match lookup result from an execution
-   failure; a lookup execution failure stops before removal, replacement or SSH.
-2. Pass `-R` from both bake entry points and remove their post-readiness key
-   refresh. Exercise the public create CLI and IOC bake with stale keys through
-   outer command boundaries; verify static and DHCP addressing, preservation of
-   unrelated keys, default rejection and removal failure. Run the regression
-   against production code at `d899671` to demonstrate the old defect.
-3. Reconcile architecture and bake procedures; run lifecycle, bake,
-   runtime-inventory, documentation and help checks, Bash syntax and ShellCheck.
-   No live guest, real image bake or host known_hosts change is authorized.
+1. In `configure/RULES_EPICS_ENV`, pass the configured VM_PREFIX through `-p`
+   in all four create calls: both core calls in `epics-env.provision` and both
+   matrix calls in `epics-env.provision.matrix`. Provisioning and the existing
+   build driver must select the same VM names. Retain the current OS selection,
+   instance, memory and image-directory arguments and the default `lab` prefix.
+2. Extend `tests/check-epics-env-inventory.bash` to execute the shipped Make
+   targets, create CLI, build driver and inventory generator with a default
+   prefix and a non-default command-line prefix. Remove VM_PREFIX from Make's
+   inherited environment and use `--eval='unexport VM_PREFIX'` in these test
+   invocations to suppress Make's automatic export of command-line variables.
+   At the recipe shell boundary, assert that VM_PREFIX is absent from the
+   environment before executing the real shell with the original arguments.
+   The selected prefix must therefore reach the CLI through recipe arguments.
+   Replace only the outer libvirt,
+   SSH, image-tool and Ansible command boundaries required by each case; use
+   shipped cloud-init and DHCP fixtures where those paths consume them.
+3. Assert the selected domain names at the libvirt boundary and the matching
+   host names in the generated inventories at the Ansible boundary. Verify
+   both core provisioning targets and the matrix provisioning target. Retain
+   the existing driver checks for inventory cleanup and refusal of an unready
+   VM. The non-default Make case must fail against the unmodified production
+   rules at `a52bb79` and pass after correction.
+4. Run `make check-epics-env-inventory check-runtime-inventory check-docs`,
+   Bash syntax and ShellCheck on the changed test, and `git diff --check`.
+   Record the actual results and verification limits. Review the correction
+   before preparing its commit.
 
-The first third-person review found that whole-line removal also deleted
-other addresses in a shared host list. It also observed real OpenSSH accepting
-a changed key under `StrictHostKeyChecking=no`; the controlled SSH failure in
-T6 did not establish changed-key rejection. The accepted correction uses
-`accept-new` and verifies that behavior against a temporary loopback SSH server.
+Excluded: changing the driver or create CLI contract, adding OS selectors,
+changing VM resources or address rules, real VM creation or deletion, real
+EPICS builds, Ansible deployment, and the other M16 findings. Plan acceptance
+and implementation authorization remain separate from this drafting request.
 
-The second third-person review observed that ignoring a failed host-key lookup
-allowed whole-line removal to delete another address's shared key. The accepted
-correction captures the lookup exit code, permits OpenSSH's normal no-match
-result, and stops on other lookup failures without replacing the original.
+Accepted review correction, 2026-10-01: removing VM_PREFIX from the parent
+environment alone does not prevent Make from exporting a command-line value.
+The test plan now requires explicit Make export suppression and an assertion
+at the recipe shell boundary. Acceptance of that correction did not authorize
+implementation; subsequent plan acceptance and implementation authorization
+are recorded above.
 
 ##### Test Plan
 
@@ -1450,6 +1464,7 @@ result, and stops on other lookup failures without replacing the original.
 | T6 | Bake host keys | Run lifecycle, bake, runtime-inventory, documentation and help checks, syntax and ShellCheck; run updated lifecycle and IOC bake regressions against `d899671` | Control host; real create and bake entry points, real ssh-keygen on temporary files, shipped cloud-init/proxy fixtures and outer command boundaries | Explicit refresh removes only the resolved address's old key before readiness; default access rejects a changed key; failure stops before SSH. IOC bake proceeds with stale keys; EtherCAT reaches inventory and the following SSH boundary. Offline checks do not establish a real guest or EtherCAT image publication. |
 | T7 | Host-key review corrections | Run the public CLI with real OpenSSH against a temporary loopback server; run the shipped suite and syntax/ShellCheck checks | Temporary host/client keys and known_hosts; real SSH authentication; controlled libvirt boundary | Changed stored keys are refused in status and restart probes, unknown keys are accepted, explicit refresh preserves another address on the same line, and a matching shared pattern leaves the original unchanged. No cloud-init completion or real VM/image result is inferred from the loopback checks. |
 | T8 | Host-key lookup failure | Run the updated lifecycle suite before and after the lookup correction; run lifecycle, bake, runtime-inventory, documentation and help checks, and syntax/ShellCheck on both changed Bash files | Public create CLI, temporary real host keys and known_hosts, shipped fixtures and controlled outer commands; only the failing ssh-keygen lookup returns 255 | A failed lookup preserves the original file and both stored addresses, invokes no removal or SSH, and returns failure. A normal no-match result still permits readiness and preserves unrelated keys. The pre-correction path fails the new regression. |
+| T9 | EPICS-env prefix propagation | Execute the shipped Make core and matrix targets with default and non-default prefixes; assert VM_PREFIX is absent at the recipe shell boundary before executing the real shell; compare libvirt domain identities and generated Ansible host identities; run the non-default regression against production rules at `a52bb79`, then the corrected rules and applicable checks | Temporary files, inherited VM_PREFIX unset and Make export suppressed with `--eval='unexport VM_PREFIX'`, shipped CLI/driver/generator and consumed fixtures, controlled outer commands | All four provisioning calls receive the selected prefix through recipe arguments; core provisioning and build inventories identify the same pair. Default behavior, inventory cleanup and unready-VM refusal remain valid. The original rules fail the non-default regression. No real guest, EPICS build or deployment result is inferred. |
 
 ##### Verification Results
 
@@ -1463,6 +1478,7 @@ result, and stops on other lookup failures without replacing the original.
 | T6 | 2026-10-01 | Local fourth correction on `d899671`; temporary known_hosts files, real ssh-keygen, public create/IOC/EtherCAT entry points and controlled outer transports | Passed controlled transport checks; contract evidence superseded by T7 | Lifecycle 454/454, fresh inputs 7/7, IOC bake provenance 158/158 including three EtherCAT readiness-boundary assertions, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Static, DHCP, hashed keys, restart, running reuse, missing-file, removal-failure and incompatible-action cases passed; unrelated keys on separate lines were preserved and the controlled SSH transport refused the stored old key. Both IOC OS bakes passed with stale keys. EtherCAT reached readiness, generated inventory and exited 43 at the following controlled SSH boundary; its image publication was not exercised. Against production code at `d899671`, the updated lifecycle test exited 1 with 426/454; the IOC Rocky seal-case exited 1 with 3/7 and stopped at Step 1's changed-key refusal before inventory or publication. All five changed Bash files passed syntax; repository-wide and source-following ShellCheck gates at warning severity and above passed. No real guest, host known_hosts, image bake or Ansible provisioning was changed or run. |
 | T7 | 2026-10-01 | Accepted fourth-correction review changes; public CLI, real OpenSSH loopback server, temporary known_hosts and controlled libvirt boundary | Passed for the selected local scope | Real SSH refused changed keys in status and stopped restart, accepted a previously unknown key, and accepted the refreshed key while preserving another address on the same line and mode 0640. Matching shared patterns left the original unchanged and stopped before SSH. Directory, existing and dangling symlink, and malformed-file cases preserved the original and stopped before SSH; temporary refresh directories were removed. Lifecycle 466/466, fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, package parity 6/6, EPICS packages 6/6, middleware packages 2/2, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. All five changed Bash files passed syntax; repository-wide and source-following ShellCheck gates at warning severity and above passed. Lifecycle and documentation checks were repeated after the dangling-symlink guard. Loopback checks establish SSH behavior only; cloud-init completion, live VM readiness and real image publication were not exercised. |
 | T8 | 2026-10-01 | Accepted lookup-error correction in the fourth-correction working tree; public CLI, real key files and controlled outer commands | Passed for the selected local scope | Before the lookup correction, the updated lifecycle suite exited 1 with 472/479: seven assertions exposed successful exit, loss of the target and unrelated keys, removal invocation, original-file replacement and SSH execution after a failed lookup. After correction it passed 479/479, including failed-lookup preservation and normal no-match readiness. Fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Both changed Bash files passed syntax and source-following ShellCheck at warning severity and above; git diff --check passed. No real guest, image publication or owner known_hosts change was exercised. |
+| T9 | 2026-10-02 | Authorized fifth correction on `a52bb79`; shipped Make targets, create CLI, driver and generator; temporary HOME/image directory, shipped cloud-init fixtures, existing-running-domain libvirt boundary and external SSH/Ansible boundaries | Passed for the selected local scope | Before the four recipe changes, the updated test exited 1: the three driver checks and all three default-prefix Make cases passed, then `epics-env.provision VM_PREFIX=review` selected lab names and failed the domain comparison. After correction, all six default/non-default Make cases and the three driver checks passed (9/9). Recipe-shell assertions confirmed VM_PREFIX was absent after Make export suppression; Ansible-boundary checks confirmed both generated core host identities, cleanup and the existing unready-VM refusal. `make check-epics-env-inventory check-runtime-inventory check-docs` exited 0: EPICS-env 9/9, generated inventory 233/233, documentation 14/14 plus 8/8. The changed test passed Bash syntax, warning-gated and full ShellCheck; git diff --check passed. The libvirt boundary reported existing running domains; no new guest, real image tool, EPICS build or Ansible deployment was exercised. Accepted review correction: the two Ansible host-row checks now use full-line equality. In isolated copies running the actual driver and generator, prepending wrong- to all generated host names failed with exit 1; prepending it only to review-prefixed hosts failed the Make build case with exit 2. Before this correction, the wrong-name mutation passed 9/9. The final test again failed with exit 1 against production rules at a52bb79 and passed the required suite, syntax and both ShellCheck gates after correction. |
 
 Baseline commands: `make check-cloud-init-status check-proxy-injection
 check-runtime-inventory check-bake check-docs check-vm-help
@@ -1508,9 +1524,29 @@ content audit or EtherCAT bake result.
   bake instructions, failure behavior or verification limits. Its checks
   compared the changed text with executed CLI and real SSH results, bake
   dry-run commands and actual CLI help.
-- The fourth correction and accepted review fixes passed T7 and T8 local checks and remain uncommitted;
-  review acceptance and branch landing are not recorded yet. Other candidates
-  remain unassigned; this aggregate work is not Complete.
+- Fourth-correction landing: 2026-10-01; `a52bb79687f0ba260123de362f5ade77d136ceb9`
+  was pushed to `origin/m11-middleware-operators`; direct remote inspection
+  matched the commit. T7 and T8 establish the selected local scope only.
+  This is branch landing, not master landing.
+- The fifth-correction VM_PREFIX plan was accepted on 2026-10-02 after two
+  third-person reviews and a second-person review. Implementation was explicitly
+  authorized on 2026-10-02. The four recipe changes and the real-path regression
+  passed T9 local checks and remain uncommitted. The third-person implementation
+  review and the second-person implementation review were accepted on
+  2026-10-02. Branch landing remains pending. The other candidates remain
+  unassigned and this aggregate work remains Open.
+- Fifth-correction implementation review, 2026-10-02: the first third-person
+  self-review found that substring host-row checks accepted wrong-prefixed
+  inventory names while the entire test passed. The owner accepted the finding;
+  both checks now require full-line equality. Normal and wrong-name checks were
+  rerun through the actual Make, CLI, driver and generator paths as recorded in
+  T9. The review also verified that omitting each of the four recipe prefix
+  arguments independently fails the regression. The second third-person
+  self-review found no additional required corrections and was accepted on
+  2026-10-02. The third implementation review, second-person self-review, found
+  no required corrections and was accepted on 2026-10-02. It checked the current
+  plan, T9 results and closure text against the executed normal, original-rules
+  and wrong-name cases. Branch landing remains pending.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
