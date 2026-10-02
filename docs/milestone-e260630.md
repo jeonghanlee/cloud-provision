@@ -1301,7 +1301,7 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
-| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; five findings are corrected on the branch through `de558aa`; the IPv4 validation correction is implemented and verified with its branch landing pending; the proxy documentation finding, the hypothesis and the audit decision remain unresolved; [M16 detail](#m16). |
+| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; six findings are corrected on the branch through `4cc3d8f`; the proxy documentation finding, the hypothesis and the audit decision remain unresolved; [M16 detail](#m16). |
 
 ### Backlog Details
 
@@ -1319,11 +1319,9 @@ The whole-codebase conceptual-integrity review examined all 79 tracked files
 at `1b80978f55138848230a28b197a982526c2c9c94`: production scripts, tests,
 configuration, templates, fixtures and documentation. Seven findings are
 confirmed, one remains a hypothesis, and one requires an audit-policy choice.
-This record preserves the reviewed state and observed checks. Five findings
-were corrected on the branch by 2026-10-02, and the IPv4 validation
-correction is implemented with its branch landing pending. Scope and
-priority of the proxy documentation finding, the hypothesis and the audit
-choice are unresolved.
+This record preserves the reviewed state and observed checks. Six findings
+were corrected on the branch by 2026-10-02. Scope and priority of the proxy
+documentation finding, the hypothesis and the audit choice are unresolved.
 
 ##### Scope
 
@@ -1580,9 +1578,9 @@ content audit or EtherCAT bake result.
 - The sixth-correction IPv4 address-validation plan was accepted on
   2026-10-02 after two third-person reviews and a second-person review, and
   its implementation was explicitly authorized on 2026-10-02. The generator
-  change and its regression passed T10 local checks. Branch landing remains
-  pending. The proxy documentation finding, the hypothesis and the audit
-  choice remain unassigned and this aggregate work remains Open.
+  change and its regression passed T10 local checks. The proxy documentation
+  finding, the hypothesis and the audit choice remain unassigned and this
+  aggregate work remains Open.
 - Sixth-correction implementation review, 2026-10-02: the first third-person
   self-review found that the leading-zero regression passed with that rule
   removed, because its address was rejected by octal arithmetic instead, and
@@ -1594,6 +1592,12 @@ content audit or EtherCAT bake result.
   the corrected counts. It also ran every shipped check target and
   repository-wide ShellCheck on the corrected tree, all with exit 0. The
   third review, second-person self-review, found no required correction.
+- Sixth-correction landing: 2026-10-02; `4cc3d8f4ffe3489a98e5c50ac8f05e214fd2130c`
+  committed the generator validation, its regression test and the
+  verification record, and was pushed to `origin/m11-middleware-operators`.
+  Direct remote inspection at 2026-10-02T23:17:34Z matched that commit at
+  `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
+  T10 establishes the selected local scope. Master landing remains pending.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
