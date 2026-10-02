@@ -1301,7 +1301,7 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
-| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; five findings are corrected on the branch through `de558aa`; two findings, the hypothesis and the audit decision remain unresolved; [M16 detail](#m16). |
+| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; five findings are corrected on the branch through `de558aa`; the IPv4 validation correction is implemented and verified with its branch landing pending; the proxy documentation finding, the hypothesis and the audit decision remain unresolved; [M16 detail](#m16). |
 
 ### Backlog Details
 
@@ -1320,8 +1320,10 @@ at `1b80978f55138848230a28b197a982526c2c9c94`: production scripts, tests,
 configuration, templates, fixtures and documentation. Seven findings are
 confirmed, one remains a hypothesis, and one requires an audit-policy choice.
 This record preserves the reviewed state and observed checks. Five findings
-were corrected on the branch by 2026-10-02. Scope and priority of the two
-remaining findings, the hypothesis and the audit choice are unresolved.
+were corrected on the branch by 2026-10-02, and the IPv4 validation
+correction is implemented with its branch landing pending. Scope and
+priority of the proxy documentation finding, the hypothesis and the audit
+choice are unresolved.
 
 ##### Scope
 
@@ -1405,59 +1407,72 @@ offline reproductions; the shipped CLI and its internal path were executed.
 - After the fifth correction, two confirmed findings (IPv4 validation and
   proxy documentation), the hypothesis and the audit choice remain
   unresolved, with no accepted plan, Keep verdict or authorization.
+- On 2026-10-02, the sixth correction was selected: the inventory generator
+  validates the complete address as one canonical dotted quad. Trailing-dot
+  and leading-zero addresses, accepted before, are rejected with it. The
+  proxy documentation finding, the hypothesis and the audit choice remain
+  unresolved.
 
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: 2026-10-02; owner accepted the fifth-correction VM_PREFIX plan after two third-person reviews, the accepted export-suppression correction, and a second-person review
-Implementation Authorization: 2026-10-02; owner explicitly authorized implementation of the accepted fifth-correction VM_PREFIX plan
-Superseded Plan Artifacts: `docs/milestone-e260630.md@a52bb79687f0ba260123de362f5ade77d136ceb9`, the implemented fourth-correction plan and its accepted review fixes
+Plan Acceptance: 2026-10-02; owner accepted the sixth-correction IPv4 address-validation plan after two third-person reviews, their accepted corrections, and a second-person review with one accepted correction
+Implementation Authorization: 2026-10-02; owner explicitly authorized implementation of the accepted sixth-correction IPv4 address-validation plan
+Superseded Plan Artifacts: `docs/milestone-e260630.md@9da0436bf6fbd780015156ea04c2b535fe5507ec`, the implemented fifth-correction VM_PREFIX plan and its accepted review correction
 
-The accepted plan applies only to the EPICS-env Make VM_PREFIX mismatch.
-At plan acceptance, the four provisioning recipes omitted `-p`, while the
-build recipe passed VM_PREFIX to the driver. Source inspection and Make
-dry-runs confirmed that mismatch. The recorded runtime reproduction remains
-in Review Findings; implementation verification is recorded in T9 below.
-Earlier correction results remain below.
+The accepted plan applies only to the IPv4 inventory-input finding. Observed on
+2026-10-02 through the shipped generator at `9da0436`: an `--address` value is
+accepted with exit 0 when its first line is a valid IPv4 address, whether it
+ends in a newline or continues with a group header and a host. The real
+`ansible-inventory --list` reported the additional group and host from that
+output. `validate_ipv4_address` reads the octets from a here-string, which
+stops at the first newline, while the complete value is written into the host
+line. Newline-bearing `--vm-name`, `--ansible-user`, `--os-type` and
+`--species` values are already rejected with exit 1, and `--status-input`
+takes one field from one line. Two single-line forms are also accepted with
+exit 0 at `9da0436`: an address with one trailing dot, written unchanged into
+the host line, and octets with leading zeros, which `inet_aton` reads as
+octal, so `010.001.002.003` names `8.1.2.3`. An address with a leading newline
+is already rejected with exit 1. Earlier correction results remain below.
 
-1. In `configure/RULES_EPICS_ENV`, pass the configured VM_PREFIX through `-p`
-   in all four create calls: both core calls in `epics-env.provision` and both
-   matrix calls in `epics-env.provision.matrix`. Provisioning and the existing
-   build driver must select the same VM names. Retain the current OS selection,
-   instance, memory and image-directory arguments and the default `lab` prefix.
-2. Extend `tests/check-epics-env-inventory.bash` to execute the shipped Make
-   targets, create CLI, build driver and inventory generator with a default
-   prefix and a non-default command-line prefix. Remove VM_PREFIX from Make's
-   inherited environment and use `--eval='unexport VM_PREFIX'` in these test
-   invocations to suppress Make's automatic export of command-line variables.
-   At the recipe shell boundary, assert that VM_PREFIX is absent from the
-   environment before executing the real shell with the original arguments.
-   The selected prefix must therefore reach the CLI through recipe arguments.
-   Replace only the outer libvirt,
-   SSH, image-tool and Ansible command boundaries required by each case; use
-   shipped cloud-init and DHCP fixtures where those paths consume them.
-3. Assert the selected domain names at the libvirt boundary and the matching
-   host names in the generated inventories at the Ansible boundary. Verify
-   both core provisioning targets and the matrix provisioning target. Retain
-   the existing driver checks for inventory cleanup and refusal of an unready
-   VM. The non-default Make case must fail against the unmodified production
-   rules at `a52bb79` and pass after correction.
-4. Run `make check-epics-env-inventory check-runtime-inventory check-docs`,
-   Bash syntax and ShellCheck on the changed test, and `git diff --check`.
-   Record the actual results and verification limits. Review the correction
-   before preparing its commit.
+1. In `bin/generate_ansible_inventory.bash`, make `validate_ipv4_address`
+   match the complete value against one anchored pattern before the per-octet
+   range check: exactly four dot-separated octets, each either `0` or one to
+   three digits without a leading zero. A value containing a newline,
+   surrounding whitespace, a trailing dot, a leading-zero octet or any other
+   character is rejected before any inventory output. Retain acceptance of
+   canonical dotted-quad addresses from `0.0.0.0` through `255.255.255.255`,
+   the 0-255 range check, the error text and exit status 1. Acceptance of the
+   trailing-dot and leading-zero forms is intentionally removed.
+2. Extend `tests/check-generated-ansible-inventory.bash` through the public
+   generator, requiring a nonzero exit and empty standard output for each
+   rejected address. Four cases are accepted by the unmodified generator at
+   `9da0436` and must therefore fail before correction and pass after it: an
+   address followed by a group header and host, an address with only a
+   trailing newline, an address with a trailing dot, and an address with a
+   leading-zero octet. One case pins a rejection that already holds and must
+   pass both before and after correction: an address with a leading newline.
+   Add accepted boundary cases for `0.0.0.0` and `255.255.255.255`; keep the
+   existing matrix as the accepted single-line coverage.
+3. Run `make check-runtime-inventory check-bake check-docs`, Bash syntax and
+   ShellCheck on both changed files, and `git diff --check`. Record the actual
+   results and verification limits. Review the correction before preparing
+   its commit.
 
-Excluded: changing the driver or create CLI contract, adding OS selectors,
-changing VM resources or address rules, real VM creation or deletion, real
-EPICS builds, Ansible deployment, and the other M16 findings. Plan acceptance
-and implementation authorization remain separate from this drafting request.
+Excluded: changing `--status-input` parsing, the VM name or user rules, IPv6
+or host-name addresses, real VM creation or deletion, Ansible deployment, and
+the other M16 candidates.
 
-Accepted review correction, 2026-10-01: removing VM_PREFIX from the parent
-environment alone does not prevent Make from exporting a command-line value.
-The test plan now requires explicit Make export suppression and an assertion
-at the recipe shell boundary. Acceptance of that correction did not authorize
-implementation; subsequent plan acceptance and implementation authorization
-are recorded above.
+Accepted review corrections, 2026-10-02: the first third-person review found
+that the leading-newline case does not fail before correction, that the
+anchored pattern removes today's acceptance of a trailing dot while the draft
+claimed unchanged single-line acceptance, and that leading-zero octets name a
+different address. The owner accepted all three; the plan now separates the
+pre-correction failures from the retained rejection and rejects both
+single-line forms. The second third-person review found no required
+correction. The second-person review found that T10 named the real-parser
+step without its expected result; the owner accepted that correction. Plan
+acceptance and implementation authorization are recorded above.
 
 ##### Test Plan
 
@@ -1472,6 +1487,7 @@ are recorded above.
 | T7 | Host-key review corrections | Run the public CLI with real OpenSSH against a temporary loopback server; run the shipped suite and syntax/ShellCheck checks | Temporary host/client keys and known_hosts; real SSH authentication; controlled libvirt boundary | Changed stored keys are refused in status and restart probes, unknown keys are accepted, explicit refresh preserves another address on the same line, and a matching shared pattern leaves the original unchanged. No cloud-init completion or real VM/image result is inferred from the loopback checks. |
 | T8 | Host-key lookup failure | Run the updated lifecycle suite before and after the lookup correction; run lifecycle, bake, runtime-inventory, documentation and help checks, and syntax/ShellCheck on both changed Bash files | Public create CLI, temporary real host keys and known_hosts, shipped fixtures and controlled outer commands; only the failing ssh-keygen lookup returns 255 | A failed lookup preserves the original file and both stored addresses, invokes no removal or SSH, and returns failure. A normal no-match result still permits readiness and preserves unrelated keys. The pre-correction path fails the new regression. |
 | T9 | EPICS-env prefix propagation | Execute the shipped Make core and matrix targets with default and non-default prefixes; assert VM_PREFIX is absent at the recipe shell boundary before executing the real shell; compare libvirt domain identities and generated Ansible host identities; run the non-default regression against production rules at `a52bb79`, then the corrected rules and applicable checks | Temporary files, inherited VM_PREFIX unset and Make export suppressed with `--eval='unexport VM_PREFIX'`, shipped CLI/driver/generator and consumed fixtures, controlled outer commands | All four provisioning calls receive the selected prefix through recipe arguments; core provisioning and build inventories identify the same pair. Default behavior, inventory cleanup and unready-VM refusal remain valid. The original rules fail the non-default regression. No real guest, EPICS build or deployment result is inferred. |
+| T10 | Inventory address validation | Run the updated generated-inventory test against the unmodified generator at `9da0436`, then against the corrected generator; parse the pre-correction multiline output with the real `ansible-inventory --list`; run `make check-runtime-inventory check-bake check-docs`, Bash syntax and ShellCheck on both changed files | Control host; public generator, maintained ansible-provision group inventory and real Ansible inventory parser; temporary files only | Multiline, newline-terminated, trailing-dot and leading-zero addresses exit nonzero with empty standard output; the leading-newline rejection is retained. `0.0.0.0`, `255.255.255.255` and every existing single-line case still parse with their required groups, address and user. Against the unmodified generator the four newly rejected cases fail and the leading-newline case passes, and the real parser reports the additional group and host from that generator's multiline output. No real VM or Ansible deployment result is inferred. |
 
 ##### Verification Results
 
@@ -1486,6 +1502,7 @@ are recorded above.
 | T7 | 2026-10-01 | Accepted fourth-correction review changes; public CLI, real OpenSSH loopback server, temporary known_hosts and controlled libvirt boundary | Passed for the selected local scope | Real SSH refused changed keys in status and stopped restart, accepted a previously unknown key, and accepted the refreshed key while preserving another address on the same line and mode 0640. Matching shared patterns left the original unchanged and stopped before SSH. Directory, existing and dangling symlink, and malformed-file cases preserved the original and stopped before SSH; temporary refresh directories were removed. Lifecycle 466/466, fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, package parity 6/6, EPICS packages 6/6, middleware packages 2/2, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. All five changed Bash files passed syntax; repository-wide and source-following ShellCheck gates at warning severity and above passed. Lifecycle and documentation checks were repeated after the dangling-symlink guard. Loopback checks establish SSH behavior only; cloud-init completion, live VM readiness and real image publication were not exercised. |
 | T8 | 2026-10-01 | Accepted lookup-error correction in the fourth-correction working tree; public CLI, real key files and controlled outer commands | Passed for the selected local scope | Before the lookup correction, the updated lifecycle suite exited 1 with 472/479: seven assertions exposed successful exit, loss of the target and unrelated keys, removal invocation, original-file replacement and SSH execution after a failed lookup. After correction it passed 479/479, including failed-lookup preservation and normal no-match readiness. Fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Both changed Bash files passed syntax and source-following ShellCheck at warning severity and above; git diff --check passed. No real guest, image publication or owner known_hosts change was exercised. |
 | T9 | 2026-10-02 | Authorized fifth correction on `a52bb79`; shipped Make targets, create CLI, driver and generator; temporary HOME/image directory, shipped cloud-init fixtures, existing-running-domain libvirt boundary and external SSH/Ansible boundaries | Passed for the selected local scope | Before the four recipe changes, the updated test exited 1: the three driver checks and all three default-prefix Make cases passed, then `epics-env.provision VM_PREFIX=review` selected lab names and failed the domain comparison. After correction, all six default/non-default Make cases and the three driver checks passed (9/9). Recipe-shell assertions confirmed VM_PREFIX was absent after Make export suppression; Ansible-boundary checks confirmed both generated core host identities, cleanup and the existing unready-VM refusal. `make check-epics-env-inventory check-runtime-inventory check-docs` exited 0: EPICS-env 9/9, generated inventory 233/233, documentation 14/14 plus 8/8. The changed test passed Bash syntax, warning-gated and full ShellCheck; git diff --check passed. The libvirt boundary reported existing running domains; no new guest, real image tool, EPICS build or Ansible deployment was exercised. Accepted review correction: the two Ansible host-row checks now use full-line equality. In isolated copies running the actual driver and generator, prepending wrong- to all generated host names failed with exit 1; prepending it only to review-prefixed hosts failed the Make build case with exit 2. Before this correction, the wrong-name mutation passed 9/9. The final test again failed with exit 1 against production rules at a52bb79 and passed the required suite, syntax and both ShellCheck gates after correction. |
+| T10 | 2026-10-02T22:53:28Z | Authorized sixth correction on `9da0436`; control host, public generator, maintained ansible-provision group inventory, real Ansible inventory parser and temporary files | Passed for the selected local scope | Against an unmodified copy of the tree at `9da0436` carrying only the updated test, the test exited 1 with 242/246: the group-header, trailing-newline, trailing-dot and leading-zero cases failed, while the leading-newline rejection and both boundary addresses passed. The real `ansible-inventory --list`, given the maintained inventory and that generator's multiline output, reported group `injected` with host `extra` beside the intended host. After correction, `make check-runtime-inventory check-bake check-docs` exited 0: generated inventory 246/246 including all five rejected-address cases and both boundary addresses, EPICS-env 9/9, fresh inputs 7/7, IOC bake provenance 158/158, proxy lifecycle 35/35, documentation 14/14 plus 8/8. Both changed Bash files passed syntax, warning-gated and full ShellCheck; `git diff --check` passed. No real VM, image bake or Ansible deployment was run. Accepted review correction: the leading-zero case first used `192.168.123.080`, which Bash arithmetic rejects as invalid octal, so a generator copy with the leading-zero rule removed still passed 246/246. The case now uses `192.168.123.060`; the same mutated copy fails it with 245/246. Mutated copies without the end anchor, the start anchor, the range check and the whole-value match failed 4, 1, 1 and 5 cases. The results above were observed again with the corrected case. |
 
 Baseline commands: `make check-cloud-init-status check-proxy-injection
 check-runtime-inventory check-bake check-docs check-vm-help
@@ -1560,6 +1577,23 @@ content audit or EtherCAT bake result.
   Direct remote inspection at 2026-10-02T16:53:00Z matched that commit at
   `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
   T9 establishes the selected local scope. Master landing remains pending.
+- The sixth-correction IPv4 address-validation plan was accepted on
+  2026-10-02 after two third-person reviews and a second-person review, and
+  its implementation was explicitly authorized on 2026-10-02. The generator
+  change and its regression passed T10 local checks. Branch landing remains
+  pending. The proxy documentation finding, the hypothesis and the audit
+  choice remain unassigned and this aggregate work remains Open.
+- Sixth-correction implementation review, 2026-10-02: the first third-person
+  self-review found that the leading-zero regression passed with that rule
+  removed, because its address was rejected by octal arithmetic instead, and
+  that the Backlog row, Summary and Closure Evidence did not yet describe
+  this correction. The owner accepted both findings. The regression address
+  was replaced and rechecked against the mutated and unmodified generators as
+  recorded in T10. The second third-person self-review found that T10 still
+  carried mutation counts observed before the replacement; the owner accepted
+  the corrected counts. It also ran every shipped check target and
+  repository-wide ShellCheck on the corrected tree, all with exit 0. The
+  third review, second-person self-review, found no required correction.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites

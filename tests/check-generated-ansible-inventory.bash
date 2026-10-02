@@ -164,6 +164,23 @@ function run_case {
     done
 }
 
+# A rejected address must stop the generator before any inventory output.
+function expect_address_rejected {
+    local name="$1"
+    local address="$2"
+    local output
+    local rc=0
+
+    output="$("${GENERATOR}" --vm-name bad --address "${address}" \
+        --os-type rocky8 --species bare 2>/dev/null)" || rc=$?
+    if [[ "${rc}" != "0" && -z "${output}" ]]; then
+        record_pass "${name}"
+    else
+        record_fail "${name}" \
+            "exit ${rc} with ${#output} bytes of inventory output"
+    fi
+}
+
 require_command ansible-inventory
 require_command jq
 [[ -x "${GENERATOR}" ]] || { printf "Error: generator is not executable\n" >&2; exit 1; }
@@ -254,6 +271,25 @@ if "${GENERATOR}" --vm-name bad --address 192.168.123.300 \
 else
     record_pass "invalid IPv4 address is rejected"
 fi
+
+# The host line receives the address whole, so the complete value must be
+# one canonical dotted quad: no further line, no trailing dot, and no
+# leading zero, which resolvers read as octal.
+expect_address_rejected "address followed by a group header and host is rejected" \
+    $'192.168.123.80\n[injected]\nextra'
+expect_address_rejected "address with a trailing newline is rejected" \
+    $'192.168.123.80\n'
+expect_address_rejected "address with a trailing dot is rejected" \
+    "192.168.123.80."
+# 060 is valid octal, so only the address pattern can refuse it; a digit
+# outside octal would also be refused by the range arithmetic.
+expect_address_rejected "address with a leading-zero octet is rejected" \
+    "192.168.123.060"
+expect_address_rejected "address with a leading newline is rejected" \
+    $'\n192.168.123.80'
+
+run_case address-lowest rocky8 bare "rocky8" "vacua" 0.0.0.0
+run_case address-highest rocky8 bare "rocky8" "vacua" 255.255.255.255
 
 if "${GENERATOR}" --vm-name bad --address 192.168.123.80 \
     --os-type rocky7 --species bare >/dev/null 2>&1; then

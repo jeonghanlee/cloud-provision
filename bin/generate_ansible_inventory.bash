@@ -112,12 +112,16 @@ function validate_ipv4_address {
     local address="$1"
     local octet
     local -a octets=()
+    local octet_pattern='(0|[1-9][0-9]{0,2})'
+    local address_pattern="^${octet_pattern}(\.${octet_pattern}){3}\$"
 
+    # The pattern covers the complete value because the host line receives
+    # it whole, while read below stops at the first newline. A leading zero
+    # is refused: resolvers read such an octet as octal.
+    [[ "${address}" =~ ${address_pattern} ]] || return 1
     IFS='.' read -r -a octets <<< "${address}"
-    [[ "${#octets[@]}" -eq 4 ]] || return 1
     for octet in "${octets[@]}"; do
-        [[ "${octet}" =~ ^[0-9]{1,3}$ ]] || return 1
-        (( 10#${octet} <= 255 )) || return 1
+        (( octet <= 255 )) || return 1
     done
 }
 
