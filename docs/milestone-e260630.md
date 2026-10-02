@@ -1531,9 +1531,9 @@ content audit or EtherCAT bake result.
 - The fifth-correction VM_PREFIX plan was accepted on 2026-10-02 after two
   third-person reviews and a second-person review. Implementation was explicitly
   authorized on 2026-10-02. The four recipe changes and the real-path regression
-  passed T9 local checks and remain uncommitted. The third-person implementation
+  passed T9 local checks. The third-person implementation
   review and the second-person implementation review were accepted on
-  2026-10-02. Branch landing remains pending. The other candidates remain
+  2026-10-02. The other candidates remain
   unassigned and this aggregate work remains Open.
 - Fifth-correction implementation review, 2026-10-02: the first third-person
   self-review found that substring host-row checks accepted wrong-prefixed
@@ -1546,7 +1546,13 @@ content audit or EtherCAT bake result.
   2026-10-02. The third implementation review, second-person self-review, found
   no required corrections and was accepted on 2026-10-02. It checked the current
   plan, T9 results and closure text against the executed normal, original-rules
-  and wrong-name cases. Branch landing remains pending.
+  and wrong-name cases.
+- Fifth-correction landing: 2026-10-02; `de558aa07b1f103ca052652040dd7cf44b203d6a`
+  committed the four EPICS-env recipe prefix arguments, their regression test
+  and the verification record, and was pushed to `origin/m11-middleware-operators`.
+  Direct remote inspection at 2026-10-02T16:53:00Z matched that commit at
+  `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
+  T9 establishes the selected local scope. Master landing remains pending.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
