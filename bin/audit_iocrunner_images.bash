@@ -21,7 +21,7 @@ SC_TOP="${SC_RPATH%/*}/.."
 SC_TOP="$(realpath "${SC_TOP}")"
 
 readonly PROXY_CONTRACT="${SC_TOP}/bin/proxy_contract.bash"
-readonly PROXY_CONTRACT_SHA256="4fac765bcaa5246a011ac8c464a70aa368919583e5d9843377ca717eefb8392f"
+readonly PROXY_CONTRACT_SHA256="2215e3fc4e93dde0f28d5086d384c13f1811c5d75e3b73925536c17ac6c753da"
 
 # The verifier mirrors only value-free paths, markers, and key names from the
 # shipped proxy contract. The pinned digest makes inventory drift fail closed
@@ -38,6 +38,7 @@ readonly PROXY_CONTRACT_SSHD_MAIN="/etc/ssh/sshd_config"
 readonly PROXY_CONTRACT_SSH_ENVIRONMENT="/home/vmadmin/.ssh/environment"
 readonly PROXY_CONTRACT_PIP="/etc/pip.conf"
 readonly PROXY_CONTRACT_GIT="/etc/gitconfig"
+readonly PROXY_CONTRACT_MAVEN="/etc/maven-proxy-settings.xml"
 readonly PROXY_CONTRACT_RUNTIME_DIR="/run/cloud-provision"
 readonly PROXY_CONTRACT_SCRIPT="${PROXY_CONTRACT_RUNTIME_DIR}/proxy_contract.bash"
 readonly PROXY_CONTRACT_INPUT="${PROXY_CONTRACT_RUNTIME_DIR}/proxy-contract.input"
@@ -273,6 +274,7 @@ verify_guest_proxy_clean() {
     verify_absent ssh-environment "${PROXY_CONTRACT_SSH_ENVIRONMENT}"
     verify_absent pip "${PROXY_CONTRACT_PIP}"
     verify_shared git "${PROXY_CONTRACT_GIT}" "${PROXY_GENERIC_PATTERN}"
+    verify_absent maven "${PROXY_CONTRACT_MAVEN}"
 
     case "${IMAGE_OS}" in
         debian)

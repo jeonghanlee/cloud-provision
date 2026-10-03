@@ -477,7 +477,8 @@ requires exact clean 40-hex repository identities.
 
 ## Offline bake checks
 
-Run these checks after editing the bake scripts, validator, or bake tests:
+Run these checks after editing the bake scripts, validator, proxy contract,
+IOC image audit, or bake tests:
 
 ```
 make check-bake
@@ -488,10 +489,17 @@ The target expands to:
 - `make check-bake-fresh-inputs`
 - `make check-bake-provenance`
 - `make check-proxy-lifecycle`
+- `make check-package-parity`
+- `make check-epics-packages`
+- `make check-middleware-packages`
+- `make check-audit-inventory`
 
-These checks replace only the host boundary commands. The public bake
-scripts, producer, proxy contract, and validator still run through their normal
-entry points. The aggregate covers the IOC image workflow only and does not run
+The first three checks replace only the host boundary commands. The public
+bake scripts, producer, proxy contract, and validator still run through their
+normal entry points. The remaining four are consistency checks that read
+source files: the cloud-init templates against P_common, the EPICS and
+middleware package sources, and the IOC image audit against the shipped proxy
+contract. The aggregate covers the IOC image workflow only and does not run
 a dedicated EtherCAT image workflow test, while production `bake.ethercat`
 targets stay available. These local checks do not replace the supported
 Libvirt/KVM producer-consumer gates or an authorized existing-artifact audit.
