@@ -1301,8 +1301,8 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
-| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; all seven findings are corrected on the branch through `fb974df`; the hypothesis is closed by a Keep verdict; the audit inventory and digest update is implemented and verified with its branch landing pending; [M16 detail](#m16). |
-| OS packages | M17 | Add the Perl modules used by EPICS-env tooling to the EPICS package source | Milestone | In progress | No |  | `configure/epics-packages` lists `perl-Digest-SHA`, `perl-JSON-PP`, `perl-Pod-Checker` and `perl-Test-Simple` for rocky8 and rocky10 and `perl` for debian12, debian13, ubuntu24 and ubuntu26, matching ansible-provision `4dfb290`, and the package checks pass; [M17 detail](#m17). |
+| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Complete | No | D1 | Seven confirmed findings, one hypothesis and one audit decision recorded at `1b80978` are resolved on the branch: all seven findings corrected through `fb974df`, the hypothesis closed by a Keep verdict, and the audit inventory and digest updated in `a73432c`; no live check was selected; [M16 detail](#m16). |
+| OS packages | M17 | Add the Perl modules used by EPICS-env tooling to the EPICS package source | Milestone | Complete | No |  | `configure/epics-packages` lists `perl-Digest-SHA`, `perl-JSON-PP`, `perl-Pod-Checker` and `perl-Test-Simple` for rocky8 and rocky10 and `perl` for debian12, debian13, ubuntu24 and ubuntu26, matching ansible-provision `4dfb290`, and the package checks pass; landed in `3d4759a`; [M17 detail](#m17). |
 
 ### Backlog Details
 
@@ -1312,7 +1312,7 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 Origin: e260630 / M16
 Identity History: none
 GitHub Issue: none
-Status: Open
+Status: Complete
 
 ##### Summary
 
@@ -1323,8 +1323,8 @@ confirmed, one remains a hypothesis, and one requires an audit-policy choice.
 This record preserves the reviewed state and observed checks. All seven
 findings were corrected on the branch by 2026-10-02. On 2026-10-02 the owner
 closed the hypothesis with a Keep verdict and resolved the audit choice as an
-inventory and digest update, which is implemented with its branch landing
-pending.
+inventory and digest update, which landed in `a73432c`. The work closed on
+2026-10-03.
 
 ##### Scope
 
@@ -1541,7 +1541,7 @@ recorded above.
 | --- | --- | --- | --- | --- |
 | T1 | 2026-10-01 | Control host; reviewed tree `1b80978`; offline outer boundaries and real Ansible inventory parser | Baseline recorded; suite has one failure | 12 distinct test scripts attempted: 11 passed, EPICS-env inventory aborted before its assertions. 905 successful top-level assertions across the passing scripts; nested reruns were not counted twice. All 23 production/test Bash scripts passed syntax checks; ShellCheck at warning severity and above passed. Reproduction outcomes are recorded above. |
 | T2 | 2026-10-01 | Local correction; control host and controlled outer libvirt boundary | Passed for the accepted P1 scope | Cleanup 269/269; fresh 7/7; IOC bake provenance 155/155; proxy lifecycle 35/35; documentation references 14/14 and proxy statements 8/8. The same updated cleanup suite against the original production tree at `1b80978` exited 2 with 251/269, including failures of file-preservation assertions. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above passed. No existing VM/image was changed. |
-| T3 | Not run | No existing VM/image runtime verification authorized or executed for this review | Pending | none |
+| T3 | Not selected | No accepted plan of this work selected a live VM or image check | Not selected; owner decision 2026-10-02 | No existing VM or image was read, run or changed for this work; reading the published IOC images with the updated audit remains separate work under D1. |
 | T4 | 2026-10-01 | Local test-boundary correction on `fe79689`; control host, shipped internal paths and external command boundaries | Passed | Before correction, the EPICS-env test exited 1 on unsupported `domiflist --inactive`, before its assertions. After correction, `make check-runtime-inventory check-docs` exited 0: generated inventory 233/233, EPICS-env driver 3/3, documentation references 14/14 and proxy statements 8/8. Bash syntax and both warning-gated and full ShellCheck on the changed test passed. Production files were unchanged; no real VM or Ansible provisioning was run. |
 | T5 | 2026-10-01 | Local third correction on `e468393`; public CLI, shipped cloud-init/DHCP fixtures, temporary independent disk files and outer command boundaries | Passed for the selected scope | Lifecycle 400/400, fresh inputs 7/7, IOC bake provenance 155/155, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3 and documentation 14/14 plus 8/8. All five golden consumer selectors passed status, stop, cleanup, running reuse and stopped restart without a golden pair; missing and invalid pairs still refused new creation. The updated lifecycle regression against production code at `e468393` exited 1 with 345/400, including 55 failures in the image-independent management cases. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above and `shellcheck -x` on the changed files passed. No real guest, image bake or Ansible provisioning ran. |
 | T6 | 2026-10-01 | Local fourth correction on `d899671`; temporary known_hosts files, real ssh-keygen, public create/IOC/EtherCAT entry points and controlled outer transports | Passed controlled transport checks; contract evidence superseded by T7 | Lifecycle 454/454, fresh inputs 7/7, IOC bake provenance 158/158 including three EtherCAT readiness-boundary assertions, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Static, DHCP, hashed keys, restart, running reuse, missing-file, removal-failure and incompatible-action cases passed; unrelated keys on separate lines were preserved and the controlled SSH transport refused the stored old key. Both IOC OS bakes passed with stale keys. EtherCAT reached readiness, generated inventory and exited 43 at the following controlled SSH boundary; its image publication was not exercised. Against production code at `d899671`, the updated lifecycle test exited 1 with 426/454; the IOC Rocky seal-case exited 1 with 3/7 and stopped at Step 1's changed-key refusal before inventory or publication. All five changed Bash files passed syntax; repository-wide and source-following ShellCheck gates at warning severity and above passed. No real guest, host known_hosts, image bake or Ansible provisioning was changed or run. |
@@ -1675,7 +1675,7 @@ content audit or EtherCAT bake result.
   2026-10-02 after three third-person reviews and two second-person reviews,
   and its implementation was explicitly authorized on 2026-10-02. The audit
   change, the new source check and its Make and runbook wiring passed T12
-  local checks. Branch landing remains pending.
+  local checks.
 - Eighth-correction implementation review, 2026-10-03: the first third-person
   self-review also exercised a dedicated identity checked as shared, a
   removed runtime check, a contract with an unknown identity, a missing
@@ -1685,6 +1685,20 @@ content audit or EtherCAT bake result.
   second-person self-review found that the Backlog row, Summary and Closure
   Evidence still described the audit update as unplanned; the owner accepted
   that correction.
+- Eighth-correction landing: 2026-10-03; `a73432c2a96f5a08dcd7b2429143f92fd7d5fd26`
+  committed the audit inventory and digest update, the new source check, its
+  Make and runbook wiring, the kept run-ID decision and this record, and was
+  pushed to `origin/m11-middleware-operators`. Direct remote inspection at
+  2026-10-03T06:10:40Z matched that commit at
+  `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
+  T12 establishes the selected local scope. Master landing remains pending.
+- Closure: 2026-10-03. Every completion criterion is met. The seven
+  findings are corrected in `fe79689`, `e468393`, `d899671`, `a52bb79`,
+  `de558aa`, `4cc3d8f` and `fb974df`; the hypothesis has the dated Keep
+  verdict of 2026-10-02 in `docs/CLOSED_DOORS.md`; the audit choice was
+  resolved and landed in `a73432c`. T2 and T4 through T12 record the
+  targeted real-path checks, and T3 records that no live check was
+  selected. These are branch landings; master landing follows the branch.
 
 <a id="m17"></a>
 #### M17 - Add the Perl modules used by EPICS-env tooling to the EPICS package source
@@ -1692,7 +1706,7 @@ content audit or EtherCAT bake result.
 Origin: e260630 / M17
 Identity History: none
 GitHub Issue: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -1773,7 +1787,15 @@ Superseded Plan Artifacts: none
 
 ##### Closure Evidence
 
-- None.
+- Landing: 2026-10-03; `3d4759a` committed the six package lines and this
+  record, and was pushed to `origin/m11-middleware-operators`. Direct remote
+  inspection at 2026-10-03T06:10:40Z found it on that branch beneath
+  `a73432c2a96f5a08dcd7b2429143f92fd7d5fd26`; recheck with Git ls-remote and
+  `git branch -r --contains 3d4759a`. Master landing remains pending.
+- Closure: 2026-10-03. The six lines carry the names in Scope and match the
+  ansible-provision lists at `4dfb290`, and T1 passed. Installation on fresh
+  vacua is verified separately by ansible-provision under
+  jeonghanlee/ansible-provision#29.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
