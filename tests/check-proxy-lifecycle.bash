@@ -120,7 +120,7 @@ function validate_fixture {
             record_pass "${os} fixture matches the production inventory tuple"
         else
             record_fail "${os} fixture matches the production inventory tuple" \
-                "path, owner, group, mode, form, marker, cleanup, or remnant differs"
+                "path, owner, group, mode, form, marker, cleanup, remnant, or format differs"
             valid=false
         fi
     done
@@ -219,6 +219,7 @@ function run_mutations {
     run_inventory_omission debian13 ssh-environment
     run_inventory_omission debian13 pip
     run_inventory_omission debian13 git
+    run_inventory_omission debian13 maven
     run_inventory_omission rocky8 profile
     run_inventory_omission rocky8 environment
     run_inventory_omission rocky8 dnf
@@ -226,10 +227,11 @@ function run_mutations {
     run_inventory_omission rocky8 ssh-environment
     run_inventory_omission rocky8 pip
     run_inventory_omission rocky8 git
-    if [[ "${INVENTORY_OMISSION_TOTAL}" == 15 ]]; then
-        record_pass "IOC lifecycle executes exactly fifteen inventory omissions"
+    run_inventory_omission rocky8 maven
+    if [[ "${INVENTORY_OMISSION_TOTAL}" == 17 ]]; then
+        record_pass "IOC lifecycle executes exactly seventeen inventory omissions"
     else
-        record_fail "IOC lifecycle executes exactly fifteen inventory omissions" \
+        record_fail "IOC lifecycle executes exactly seventeen inventory omissions" \
             "observed ${INVENTORY_OMISSION_TOTAL}"
     fi
 

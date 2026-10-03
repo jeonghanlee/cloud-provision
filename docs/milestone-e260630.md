@@ -1301,7 +1301,7 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
-| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; six findings are corrected on the branch through `4cc3d8f`; the proxy documentation finding, the hypothesis and the audit decision remain unresolved; [M16 detail](#m16). |
+| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; six findings are corrected on the branch through `4cc3d8f`; the proxy documentation correction is implemented and verified with its branch landing pending; the hypothesis and the audit decision remain unresolved; [M16 detail](#m16). |
 
 ### Backlog Details
 
@@ -1320,8 +1320,9 @@ at `1b80978f55138848230a28b197a982526c2c9c94`: production scripts, tests,
 configuration, templates, fixtures and documentation. Seven findings are
 confirmed, one remains a hypothesis, and one requires an audit-policy choice.
 This record preserves the reviewed state and observed checks. Six findings
-were corrected on the branch by 2026-10-02. Scope and priority of the proxy
-documentation finding, the hypothesis and the audit choice are unresolved.
+were corrected on the branch by 2026-10-02, and the proxy documentation
+correction is implemented with its branch landing pending. Scope and priority
+of the hypothesis and the audit choice are unresolved.
 
 ##### Scope
 
@@ -1410,67 +1411,85 @@ offline reproductions; the shipped CLI and its internal path were executed.
   and leading-zero addresses, accepted before, are rejected with it. The
   proxy documentation finding, the hypothesis and the audit choice remain
   unresolved.
+- On 2026-10-02, the seventh correction was selected: the descriptive proxy
+  documents defer to the ADR inventory and state its current 9/9/8 counts, and
+  the IOC lifecycle harness omits every Debian 13 and Rocky 8 identity,
+  `maven` included. The hypothesis and the audit choice remain unresolved.
 
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: 2026-10-02; owner accepted the sixth-correction IPv4 address-validation plan after two third-person reviews, their accepted corrections, and a second-person review with one accepted correction
-Implementation Authorization: 2026-10-02; owner explicitly authorized implementation of the accepted sixth-correction IPv4 address-validation plan
-Superseded Plan Artifacts: `docs/milestone-e260630.md@9da0436bf6fbd780015156ea04c2b535fe5507ec`, the implemented fifth-correction VM_PREFIX plan and its accepted review correction
+Plan Acceptance: 2026-10-02; owner accepted the seventh-correction proxy documentation plan after four third-person reviews and three second-person reviews, with their accepted corrections
+Implementation Authorization: 2026-10-02; owner explicitly authorized implementation of the accepted seventh-correction proxy documentation plan
+Superseded Plan Artifacts: `docs/milestone-e260630.md@6ae1dbf3dd0d115185f7eee29f657ab318f94393`, the implemented sixth-correction IPv4 address-validation plan and its accepted review corrections
 
-The accepted plan applies only to the IPv4 inventory-input finding. Observed on
-2026-10-02 through the shipped generator at `9da0436`: an `--address` value is
-accepted with exit 0 when its first line is a valid IPv4 address, whether it
-ends in a newline or continues with a group header and a host. The real
-`ansible-inventory --list` reported the additional group and host from that
-output. `validate_ipv4_address` reads the octets from a here-string, which
-stops at the first newline, while the complete value is written into the host
-line. Newline-bearing `--vm-name`, `--ansible-user`, `--os-type` and
-`--species` values are already rejected with exit 1, and `--status-input`
-takes one field from one line. Two single-line forms are also accepted with
-exit 0 at `9da0436`: an address with one trailing dot, written unchanged into
-the host line, and octets with leading zeros, which `inet_aton` reads as
-octal, so `010.001.002.003` names `8.1.2.3`. An address with a leading newline
-is already rejected with exit 1. Earlier correction results remain below.
+The accepted plan applies only to the proxy documentation finding. Observed on
+2026-10-02 at `6ae1dbf`: `proxy_contract_print_inventory` in
+`bin/proxy_contract.bash` lists nine Debian identities, nine Ubuntu
+identities and eight Rocky identities, and the independent fixture
+`tests/fixtures/proxy-artifacts.tsv` has eleven columns. `docs/ARCHITECTURE.md`
+section 6 lists four identities as the rows the renderer writes and states that
+every dedicated file carries fixed first and last markers, although the
+`maven` artifact is a whole XML file without markers.
+`docs/decisions/README.md` records an exact 8/8/7 contract. The proxy ADR calls
+the fixture tuples ten-field and states exactly fifteen one-at-a-time inventory
+omissions; `tests/check-proxy-lifecycle.bash` executes those fifteen, which
+cover every Debian 13 and Rocky 8 identity except `maven`. Deleting the
+`maven` inventory row in a full checkout copy at `6ae1dbf` made the shipped
+seal-case fail on both families with `omitted proxy identity maven`, no seal
+completion, no publication and no proxy value in the output, while an
+unmodified copy passed 7/7. The omission mechanism detects it, but the
+executed list does not include it. `docs/OPERATOR_MODEL.md` P_proxy already names every artifact
+kind and refers to the ADR for the exact inventory.
 
-1. In `bin/generate_ansible_inventory.bash`, make `validate_ipv4_address`
-   match the complete value against one anchored pattern before the per-octet
-   range check: exactly four dot-separated octets, each either `0` or one to
-   three digits without a leading zero. A value containing a newline,
-   surrounding whitespace, a trailing dot, a leading-zero octet or any other
-   character is rejected before any inventory output. Retain acceptance of
-   canonical dotted-quad addresses from `0.0.0.0` through `255.255.255.255`,
-   the 0-255 range check, the error text and exit status 1. Acceptance of the
-   trailing-dot and leading-zero forms is intentionally removed.
-2. Extend `tests/check-generated-ansible-inventory.bash` through the public
-   generator, requiring a nonzero exit and empty standard output for each
-   rejected address. Four cases are accepted by the unmodified generator at
-   `9da0436` and must therefore fail before correction and pass after it: an
-   address followed by a group header and host, an address with only a
-   trailing newline, an address with a trailing dot, and an address with a
-   leading-zero octet. One case pins a rejection that already holds and must
-   pass both before and after correction: an address with a leading newline.
-   Add accepted boundary cases for `0.0.0.0` and `255.255.255.255`; keep the
-   existing matrix as the accepted single-line coverage.
-3. Run `make check-runtime-inventory check-bake check-docs`, Bash syntax and
-   ShellCheck on both changed files, and `git diff --check`. Record the actual
-   results and verification limits. Review the correction before preparing
-   its commit.
+1. In `docs/ARCHITECTURE.md` section 6, rewrite the lead-in sentence that
+   says the renderer writes only the applicable rows below so that it names
+   the complete applicable ADR inventory. Replace the four-row table with a
+   summary that names the ADR as the exact inventory authority, states the
+   nine Debian, nine Ubuntu and eight Rocky rows, and names the artifact kinds
+   in the order `docs/OPERATOR_MODEL.md` uses. State that dedicated
+   hash-comment files carry fixed first and last markers, shared files carry
+   one marked block, and the `maven` XML file has no markers. Keep the profile
+   variable and bypass statement and the no-proxy statement after checking each
+   against `bin/proxy_contract.bash`. Keep the statement that the production
+   inventory fixes each identity's ownership form, marker identity, cleanup
+   requirement and remnant requirement, and add its format to that list.
+2. In `docs/decisions/README.md`, change the exact contract count to 9/9/8.
+   Leave the remaining status text unchanged; this plan has no evidence about
+   real IOC gates or the artifact audit.
+3. In the proxy ADR, describe the fixture tuples as eleven-field and the IOC
+   harness as exactly seventeen one-at-a-time inventory omissions. Leave the
+   Consequences section unchanged as the decision-time record.
+4. In `tests/check-proxy-lifecycle.bash`, add the Debian 13 and Rocky 8 `maven`
+   omissions and require exactly seventeen. Each new omission must fail before
+   seal completion and publication through the shipped seal-case, as the
+   existing fifteen do. Add the format to the fields named by the failure text
+   of the fixture-to-production tuple comparison, which already compares it.
+5. Run `make check-bake check-docs`, Bash syntax and ShellCheck on the changed
+   test, and `git diff --check`. Record the actual results and verification
+   limits. Review the change before preparing its commit.
 
-Excluded: changing `--status-input` parsing, the VM name or user rules, IPv6
-or host-name addresses, real VM creation or deletion, Ansible deployment, and
-the other M16 candidates.
+Excluded: changing `bin/proxy_contract.bash`, the fixture, the audit script or
+its digest, the ADR Consequences section, the remaining README status text,
+real VM or image operations, and the other M16 candidates.
 
 Accepted review corrections, 2026-10-02: the first third-person review found
-that the leading-newline case does not fail before correction, that the
-anchored pattern removes today's acceptance of a trailing dot while the draft
-claimed unchanged single-line acceptance, and that leading-zero octets name a
-different address. The owner accepted all three; the plan now separates the
-pre-correction failures from the retained rejection and rejects both
-single-line forms. The second third-person review found no required
-correction. The second-person review found that T10 named the real-parser
-step without its expected result; the owner accepted that correction. Plan
-acceptance and implementation authorization are recorded above.
+that the draft attributed the `maven` omission observation to `9da0436`,
+although it had been observed at `de558aa`, and that item 1 did not say what
+happens to the inventory-requirement statement in section 6. The owner
+accepted both. The observation was repeated at `6ae1dbf` with an unmodified
+control, and item 1 now keeps that statement and adds the format. The second
+third-person review and the second-person review found no required
+correction. The third third-person review found that item 1 left the
+lead-in sentence about the rows below unaddressed; the owner accepted that
+correction and also added the tuple-comparison failure text, which omitted
+the format, to item 4. The fourth third-person review, on that corrected
+text, found no required correction. The next second-person review, from the verifier's
+seat, found that T11 did not say how to print the production inventory and
+that its failure-text criterion was wider than item 4; the owner accepted
+both corrections. A further second-person review, from the accepting owner's
+seat, found no required correction. Plan acceptance and implementation
+authorization are recorded above.
 
 ##### Test Plan
 
@@ -1486,6 +1505,7 @@ acceptance and implementation authorization are recorded above.
 | T8 | Host-key lookup failure | Run the updated lifecycle suite before and after the lookup correction; run lifecycle, bake, runtime-inventory, documentation and help checks, and syntax/ShellCheck on both changed Bash files | Public create CLI, temporary real host keys and known_hosts, shipped fixtures and controlled outer commands; only the failing ssh-keygen lookup returns 255 | A failed lookup preserves the original file and both stored addresses, invokes no removal or SSH, and returns failure. A normal no-match result still permits readiness and preserves unrelated keys. The pre-correction path fails the new regression. |
 | T9 | EPICS-env prefix propagation | Execute the shipped Make core and matrix targets with default and non-default prefixes; assert VM_PREFIX is absent at the recipe shell boundary before executing the real shell; compare libvirt domain identities and generated Ansible host identities; run the non-default regression against production rules at `a52bb79`, then the corrected rules and applicable checks | Temporary files, inherited VM_PREFIX unset and Make export suppressed with `--eval='unexport VM_PREFIX'`, shipped CLI/driver/generator and consumed fixtures, controlled outer commands | All four provisioning calls receive the selected prefix through recipe arguments; core provisioning and build inventories identify the same pair. Default behavior, inventory cleanup and unready-VM refusal remain valid. The original rules fail the non-default regression. No real guest, EPICS build or deployment result is inferred. |
 | T10 | Inventory address validation | Run the updated generated-inventory test against the unmodified generator at `9da0436`, then against the corrected generator; parse the pre-correction multiline output with the real `ansible-inventory --list`; run `make check-runtime-inventory check-bake check-docs`, Bash syntax and ShellCheck on both changed files | Control host; public generator, maintained ansible-provision group inventory and real Ansible inventory parser; temporary files only | Multiline, newline-terminated, trailing-dot and leading-zero addresses exit nonzero with empty standard output; the leading-newline rejection is retained. `0.0.0.0`, `255.255.255.255` and every existing single-line case still parse with their required groups, address and user. Against the unmodified generator the four newly rejected cases fail and the leading-newline case passes, and the real parser reports the additional group and host from that generator's multiline output. No real VM or Ansible deployment result is inferred. |
+| T11 | Proxy documentation and omission coverage | Compare the changed ARCHITECTURE summary, README count and ADR statements with the production inventory, printed per family by `bash -c 'source bin/proxy_contract.bash; proxy_contract_print_inventory debian'` and likewise for `ubuntu` and `rocky`, and with the fixture header; run the updated proxy lifecycle test; run `make check-bake check-docs`, Bash syntax and ShellCheck on the changed test | Control host; shipped proxy contract, independent fixture, public IOC bake seal-case with its controlled outer boundaries; temporary files only | Every changed count and statement matches the production inventory and fixture, and no sentence in section 6 refers to a removed table. The tuple-comparison failure text names the format in addition to the fields it named before. The lifecycle test executes seventeen omissions, and each, including both `maven` omissions, fails before seal completion and publication without exposing the fixture proxy value. No real VM, image bake or guest audit result is inferred. |
 
 ##### Verification Results
 
@@ -1501,6 +1521,7 @@ acceptance and implementation authorization are recorded above.
 | T8 | 2026-10-01 | Accepted lookup-error correction in the fourth-correction working tree; public CLI, real key files and controlled outer commands | Passed for the selected local scope | Before the lookup correction, the updated lifecycle suite exited 1 with 472/479: seven assertions exposed successful exit, loss of the target and unrelated keys, removal invocation, original-file replacement and SSH execution after a failed lookup. After correction it passed 479/479, including failed-lookup preservation and normal no-match readiness. Fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Both changed Bash files passed syntax and source-following ShellCheck at warning severity and above; git diff --check passed. No real guest, image publication or owner known_hosts change was exercised. |
 | T9 | 2026-10-02 | Authorized fifth correction on `a52bb79`; shipped Make targets, create CLI, driver and generator; temporary HOME/image directory, shipped cloud-init fixtures, existing-running-domain libvirt boundary and external SSH/Ansible boundaries | Passed for the selected local scope | Before the four recipe changes, the updated test exited 1: the three driver checks and all three default-prefix Make cases passed, then `epics-env.provision VM_PREFIX=review` selected lab names and failed the domain comparison. After correction, all six default/non-default Make cases and the three driver checks passed (9/9). Recipe-shell assertions confirmed VM_PREFIX was absent after Make export suppression; Ansible-boundary checks confirmed both generated core host identities, cleanup and the existing unready-VM refusal. `make check-epics-env-inventory check-runtime-inventory check-docs` exited 0: EPICS-env 9/9, generated inventory 233/233, documentation 14/14 plus 8/8. The changed test passed Bash syntax, warning-gated and full ShellCheck; git diff --check passed. The libvirt boundary reported existing running domains; no new guest, real image tool, EPICS build or Ansible deployment was exercised. Accepted review correction: the two Ansible host-row checks now use full-line equality. In isolated copies running the actual driver and generator, prepending wrong- to all generated host names failed with exit 1; prepending it only to review-prefixed hosts failed the Make build case with exit 2. Before this correction, the wrong-name mutation passed 9/9. The final test again failed with exit 1 against production rules at a52bb79 and passed the required suite, syntax and both ShellCheck gates after correction. |
 | T10 | 2026-10-02T22:53:28Z | Authorized sixth correction on `9da0436`; control host, public generator, maintained ansible-provision group inventory, real Ansible inventory parser and temporary files | Passed for the selected local scope | Against an unmodified copy of the tree at `9da0436` carrying only the updated test, the test exited 1 with 242/246: the group-header, trailing-newline, trailing-dot and leading-zero cases failed, while the leading-newline rejection and both boundary addresses passed. The real `ansible-inventory --list`, given the maintained inventory and that generator's multiline output, reported group `injected` with host `extra` beside the intended host. After correction, `make check-runtime-inventory check-bake check-docs` exited 0: generated inventory 246/246 including all five rejected-address cases and both boundary addresses, EPICS-env 9/9, fresh inputs 7/7, IOC bake provenance 158/158, proxy lifecycle 35/35, documentation 14/14 plus 8/8. Both changed Bash files passed syntax, warning-gated and full ShellCheck; `git diff --check` passed. No real VM, image bake or Ansible deployment was run. Accepted review correction: the leading-zero case first used `192.168.123.080`, which Bash arithmetic rejects as invalid octal, so a generator copy with the leading-zero rule removed still passed 246/246. The case now uses `192.168.123.060`; the same mutated copy fails it with 245/246. Mutated copies without the end anchor, the start anchor, the range check and the whole-value match failed 4, 1, 1 and 5 cases. The results above were observed again with the corrected case. |
+| T11 | 2026-10-03T00:30:56Z | Authorized seventh correction on `6ae1dbf`; control host, shipped proxy contract, independent fixture and public IOC bake seal-case with its controlled outer boundaries; temporary files only | Passed for the selected local scope | The printed production inventory has nine Debian, nine Ubuntu and eight Rocky rows; `sudo` appears only for Debian and Ubuntu; every family has one `xml` row and hash-comment rows otherwise, with two shared rows for Debian and Ubuntu and four for Rocky. The fixture has eleven columns. The rewritten section 6 states those counts, names the ADR as the exact authority, contains no table and no sentence about rows below, and carries the marker, XML and format statements. The decisions index states 9/9/8 with its other status text unchanged, and the ADR states eleven-field tuples and seventeen omissions. `make check-bake check-docs` exited 0: fresh inputs 7/7, IOC bake provenance 158/158, proxy lifecycle 37/37 with all seventeen omissions, both `maven` omissions included, failing before seal completion and publication, documentation 14/14 plus 8/8. The changed test passed Bash syntax, warning-gated and full ShellCheck; `git diff --check` passed. The tuple-comparison failure text now names the format; that failure branch was read, not executed. No real VM, image bake or guest audit was run. |
 
 Baseline commands: `make check-cloud-init-status check-proxy-injection
 check-runtime-inventory check-bake check-docs check-vm-help
@@ -1598,6 +1619,23 @@ content audit or EtherCAT bake result.
   Direct remote inspection at 2026-10-02T23:17:34Z matched that commit at
   `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
   T10 establishes the selected local scope. Master landing remains pending.
+- The seventh-correction proxy documentation plan was accepted on
+  2026-10-02 after four third-person reviews and three second-person reviews,
+  and its implementation was explicitly authorized on 2026-10-02. The
+  documentation changes and the extended omission list passed T11 local
+  checks. Branch landing remains pending. The hypothesis and the audit choice
+  remain unassigned and this aggregate work remains Open.
+- Seventh-correction implementation review, 2026-10-03: the first third-person
+  self-review found that the rewritten section 6 said the host-side renderer
+  writes the inventory, although it stages only the contract and its input
+  and the guest's first-boot apply installs the inventory, and that the plan
+  acceptance understated the second-person review count. It also confirmed
+  that removing one `maven` omission makes the lifecycle test fail with
+  "observed 16". The owner accepted both findings and a line rewrap in the
+  ADR. The second third-person self-review found no required correction. The
+  second-person self-review found that the Backlog row, Summary and Closure
+  Evidence did not yet describe this correction; the owner accepted that
+  correction.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites

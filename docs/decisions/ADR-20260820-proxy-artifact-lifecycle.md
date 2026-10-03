@@ -90,12 +90,12 @@ selected cloud-init state and logs are absent. Publication begins only after
 the exact sealed VM is stopped and its exact source disk is confirmed.
 
 The independent fixture under `tests/fixtures/` is not a production input. Its
-ten-field tuples must equal the production inventory. Public local tests run
+eleven-field tuples must equal the production inventory. Public local tests run
 the shipped producer and IOC bake caller with only outer command, SSH transport,
 network, image, and filesystem boundaries replaced. The IOC harness covers
-normal Debian 13 and Rocky 8 paths and exactly fifteen one-at-a-time inventory
-omissions. Dedicated EtherCAT tests are deferred; production EtherCAT behavior
-and generic image workflow tests remain unchanged.
+normal Debian 13 and Rocky 8 paths and exactly seventeen one-at-a-time
+inventory omissions. Dedicated EtherCAT tests are deferred; production
+EtherCAT behavior and generic image workflow tests remain unchanged.
 
 ## Scope Boundary
 

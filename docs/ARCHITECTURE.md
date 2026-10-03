@@ -147,22 +147,24 @@ exact inputs that produced the failure.
 
 **Current proxy artifact contract.** When `create_vm.bash` discovers exactly
 one host `*proxy.sh` file and validates its single quoted `PROXY_URL`, it calls
-the source-only renderer in `bin/proxy_contract.bash`. The renderer writes only
-the applicable rows below; the host script itself is never copied or sourced as
-guest shell code.
+the source-only renderer in `bin/proxy_contract.bash`. The renderer stages the
+contract and its input through `write_files`, and the guest's first-boot
+`apply` installs the complete applicable inventory of the proxy artifact ADR;
+the host script itself is never copied or sourced as guest shell code.
 
-| Identity | Debian and Ubuntu | Rocky | Ownership |
-| --- | --- | --- | --- |
-| `/etc/profile.d/95cloud-provision-proxy.sh` | yes | yes | Dedicated marked file |
-| `/etc/apt/apt.conf.d/95cloud-provision-proxy` | yes | no | Dedicated marked file |
-| `/etc/dnf/dnf.conf` | no | yes | One marked block in a shared file |
-| `/etc/gitconfig` | yes | yes | One marked block in a shared file |
+`docs/decisions/ADR-20260820-proxy-artifact-lifecycle.md` is the exact
+inventory authority for paths, ownership and modes. It has nine Debian rows,
+nine Ubuntu rows and eight Rocky rows: proxy settings for the shell profile,
+`/etc/environment`, apt or dnf, sudo (Debian and Ubuntu only), sshd, the
+vmadmin ssh environment, pip, system git, and Maven.
 
 The profile owns the conventional lower- and upper-case proxy variables and
-the fixed local bypass set. Dedicated files have fixed first and last markers;
-shared targets have one exact begin/end marker pair. The production inventory
-also fixes each identity's ownership form, marker identity, cleanup requirement,
-and remnant requirement. A no-proxy input emits no proxy `write_files` entries.
+the fixed local bypass set. Dedicated hash-comment files have fixed first and
+last markers; shared targets have one exact begin/end marker pair; the Maven
+settings file is a whole XML document without markers. The production
+inventory also fixes each identity's ownership form, marker identity, cleanup
+requirement, remnant requirement, and format. A no-proxy input emits no proxy
+`write_files` entries.
 
 ---
 
