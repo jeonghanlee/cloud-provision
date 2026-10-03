@@ -1302,6 +1302,7 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Open | No | D1 | Seven confirmed findings, one hypothesis and one audit decision are recorded at `1b80978`; six findings are corrected on the branch through `4cc3d8f`; the proxy documentation correction is implemented and verified with its branch landing pending; the hypothesis and the audit decision remain unresolved; [M16 detail](#m16). |
+| OS packages | M17 | Add the Perl modules used by EPICS-env tooling to the EPICS package source | Milestone | In progress | No |  | `configure/epics-packages` lists `perl-Digest-SHA`, `perl-JSON-PP`, `perl-Pod-Checker` and `perl-Test-Simple` for rocky8 and rocky10 and `perl` for debian12, debian13, ubuntu24 and ubuntu26, matching ansible-provision `4dfb290`, and the package checks pass; [M17 detail](#m17). |
 
 ### Backlog Details
 
@@ -1636,6 +1637,95 @@ content audit or EtherCAT bake result.
   second-person self-review found that the Backlog row, Summary and Closure
   Evidence did not yet describe this correction; the owner accepted that
   correction.
+
+<a id="m17"></a>
+#### M17 - Add the Perl modules used by EPICS-env tooling to the EPICS package source
+
+Origin: e260630 / M17
+Identity History: none
+GitHub Issue: none
+Status: In progress
+
+##### Summary
+
+The EPICS-env installed-tree utility moves from Python to Perl. Its runtime
+uses JSON::PP and Digest::SHA, and its tests use Test::More and podchecker.
+On Rocky these modules come from separate packages, as ansible-provision
+reported from `dnf repoquery` on Rocky 8.10 and 10.2; this repository did not
+query the Rocky repositories itself. On Debian and Ubuntu they
+come with the `perl` package, which the base `perl-base` package does not
+provide. ansible-provision added the packages to its `epics_os_packages`
+lists in `4dfb290` on `m14-middleware-reconcile`, which mirror this
+repository's normative `configure/epics-packages`.
+
+##### Scope
+
+- Add `perl-Digest-SHA`, `perl-JSON-PP`, `perl-Pod-Checker` and
+  `perl-Test-Simple` to the rocky8 and rocky10 lines of
+  `configure/epics-packages`.
+- Add `perl` to the debian12, debian13, ubuntu24 and ubuntu26 lines.
+
+Out of scope: ansible-provision lists and their landing, pkg_automation,
+rebaking existing golden images, real VM installation, and other package
+changes.
+
+##### Completion Criteria
+
+- The six lines carry the names above, and each matches the corresponding
+  ansible-provision `epics_os_packages` list at `4dfb290` for these names.
+- `make check-epics-packages check-middleware-packages check-bake check-docs`
+  passes.
+
+##### Dependencies And Decisions
+
+- Related, not a gate: ansible-provision `4dfb290` on
+  `m14-middleware-reconcile` and jeonghanlee/ansible-provision#29, which
+  remains open until live application on fresh vacua. This milestone changes
+  only the normative source here; installation follows the ansible-provision
+  lists.
+- The Rocky 8 iocrunner golden images on this control host were baked between
+  2026-08-13 and 2026-08-31, before these names entered the package lists.
+  Whether each module is already present in them through another package is
+  unverified; reading the images, and any rebake, are separate work that
+  needs its own plan and authority under D1.
+- On 2026-10-02, the owner directed this change after the bounded proposal of
+  the two line groups above.
+- Review, 2026-10-02: the first third-person self-review confirmed the six
+  lines against ansible-provision `4dfb290` and the Debian package ownership on
+  this Debian 13 host, and found that the Rocky package statement lacked its
+  source and that the golden-image statement asserted absence without
+  inspection. The owner accepted both corrections. The second-person
+  self-review found no required correction.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-10-02; owner accepted the bounded two-part proposal by directing the change
+Implementation Authorization: 2026-10-02; explicit owner direction to make the change
+Superseded Plan Artifacts: none
+
+1. Append the four Rocky package names to the rocky8 and rocky10 lines and
+   `perl` to the debian12, debian13, ubuntu24 and ubuntu26 lines of
+   `configure/epics-packages`.
+2. Compare the added names with the ansible-provision lists at `4dfb290`.
+3. Run the checks named in Completion Criteria and `git diff --check`, and
+   record the results.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Package source | Run `make check-epics-packages check-middleware-packages check-bake check-docs`; compare the six changed lines with ansible-provision `inventory/group_vars/<os>.yml` at `4dfb290` | Control host; shipped guards; ansible-provision files read from the remote at that commit | All checks exit 0, and every added name appears in the matching ansible-provision list. No package installation result is inferred. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-03T01:59:16Z | Control host; shipped guards on `fb974df` plus the uncommitted change; ansible-provision group variables read from the remote at `4dfb290` | Passed | The four Rocky names now end the rocky8 and rocky10 lines and `perl` ends the debian12, debian13, ubuntu24 and ubuntu26 lines; every added name also appears in the matching ansible-provision `epics_os_packages` list, and no line carries a duplicate. `make check-epics-packages check-middleware-packages check-bake check-docs` exited 0: EPICS packages 6/6, middleware packages 2/2, the bake suite and documentation 14/14 plus 8/8. `git diff --check` passed. No package was installed on a VM or container here. |
+
+##### Closure Evidence
+
+- None.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
