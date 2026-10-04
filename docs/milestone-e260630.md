@@ -1303,7 +1303,7 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Complete | No | D1 | Seven confirmed findings, one hypothesis and one audit decision recorded at `1b80978` are resolved on the branch: all seven findings corrected through `fb974df`, the hypothesis closed by a Keep verdict, and the audit inventory and digest updated in `a73432c`; no live check was selected; [M16 detail](#m16). |
 | OS packages | M17 | Add the Perl modules used by EPICS-env tooling to the EPICS package source | Milestone | Complete | No |  | `configure/epics-packages` lists `perl-Digest-SHA`, `perl-JSON-PP`, `perl-Pod-Checker` and `perl-Test-Simple` for rocky8 and rocky10 and `perl` for debian12, debian13, ubuntu24 and ubuntu26, matching ansible-provision `4dfb290`, and the package checks pass; landed in `3d4759a`; [M17 detail](#m17). |
-| VM lifecycle | M18 | Recreate a VM at a previously used address without stale SSH or DHCP state | Milestone | In progress | No |  | A new domain at an address whose stored host key or DHCP lease belongs to a removed VM either becomes ready without manual repair (stored key) or stops before creating its disk with the lease holder and expiry (foreign lease); a stopped existing domain keeps changed-key rejection at restart; [M18 detail](#m18). |
+| VM lifecycle | M18 | Recreate a VM at a previously used address without stale SSH or DHCP state | Milestone | Complete | No |  | A new domain at an address whose stored host key or DHCP lease belongs to a removed VM either becomes ready without manual repair (stored key) or stops before creating its disk with the lease holder and expiry (foreign lease); a stopped existing domain keeps changed-key rejection at restart; [M18 detail](#m18). |
 
 ### Backlog Details
 
@@ -1804,7 +1804,7 @@ Superseded Plan Artifacts: none
 Origin: e260630 / M18
 Identity History: none
 GitHub Issue: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -1935,11 +1935,18 @@ Superseded Plan Artifacts: none
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | T1 | 2026-10-04T05:52Z | Control host; uncommitted change on `a29f477`, and a separate `git worktree` at `a29f477` with only the changed tests and added lease and holder fixtures copied in; public create CLI, shipped reservation fixtures, added lease fixtures, controlled virsh and SSH boundaries, real `ssh-keygen` on temporary files | Passed | After the change: lifecycle 522/522, proxy injection 204/204, fresh inputs 7/7, IOC bake provenance 158/158, audit inventory 34/34, generated inventory 246/246, EPICS-env driver 9/9, documentation 14/14 plus 8/8, VM help and the remaining bake checks passed under one `make` run with exit 0. Against `a29f477` the updated lifecycle test exited 1 with 491/522; all 31 failures are in the new cases: new-domain static and DHCP refresh, the foreign orphan lease and its retry hint, the reserved live holder, unreadable leases, and unreadable reservations for a foreign lease. The own-lease and no-lease cases pass on both trees, because the unmodified code never stops on a lease. The updated proxy injection (204/204) and IOC bake provenance (158/158) tests pass on `a29f477`; the worktree needed a sibling `ansible-provision` link because the bake resolves that directory next to the repository. `tests/check-epics-env-inventory.bash` was left unchanged: its controlled libvirt reports every domain as existing, so it never reaches the lease query. Bash syntax, ShellCheck at warning severity with `-x` on the five changed Bash files, and `git diff --check` passed. No real VM was created or changed by these checks. |
-| T2 | Not run | This host | Pending | none |
+| T2 | 2026-10-04T06:52:53Z to 06:54:16Z | This host; committed `81f0669`, unmodified `bin/`; real libvirt, DHCP and `~/.ssh/known_hosts` | Passed | A disposable rocky8 lab guest was removed with `-c`; its reservation was gone while its stored host key (three hashed entries) and its own-MAC lease remained. Creating it again with the same selectors and without `-R` passed the lease check (own MAC), removed that address's stored key, and reached READY with SSH ready on the second probe and cloud-init complete. Against a copy taken before creation, `known_hosts` kept 551 lines; exactly the three entries for that address were replaced and every other line was unchanged. The guest was then shut down with `-S`. The foreign-lease stop was not exercised live because no foreign lease existed on the network. |
 
 ##### Closure Evidence
 
-- None.
+- Implementation commit `81f0669` (provisioner, tests, lease fixtures,
+  architecture, bake runbook and this record), preceded by `78272a9`, which
+  records the rejected fallback-address request in `docs/CLOSED_DOORS.md`.
+  Landing observed 2026-10-04T06:44Z: after `git fetch`, local `HEAD` and
+  `origin/m11-middleware-operators` were both
+  `81f0669c193406ec9494425f739baa33817dfdbc`.
+- T2 passed live on 2026-10-04 under owner direction; M18 is complete. The
+  foreign-lease stop is verified by T1 only.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
