@@ -130,7 +130,7 @@ set -e
 cmd=""
 for arg in "$@"; do
     case "$arg" in
-        domstate|dominfo|domiflist|domifaddr|net-update|net-dumpxml|start|shutdown|destroy|undefine|list|uri)
+        domstate|dominfo|domiflist|domifaddr|net-update|net-dumpxml|net-dhcp-leases|start|shutdown|destroy|undefine|list|uri)
             cmd="$arg"
             break
             ;;
@@ -221,6 +221,13 @@ case "$cmd" in
         printf "%s\n" "<network><ip><dhcp>"
         printf "%s\n" "  <host mac='52:54:00:01:64:01' name='other-vm' ip='${FAKE_RESERVED_IP:-192.168.123.1501}'/>"
         printf "%s\n" "</dhcp></ip></network>"
+        ;;
+    net-dhcp-leases)
+        if [[ "${FAKE_LEASE_FAIL:-}" == "1" ]]; then
+            printf 'error: failed to get leases\n' >&2
+            exit 1
+        fi
+        cat "${FAKE_LEASE_FILE:-${FAKE_LEASE_FIXTURE_DIR}/leases-empty.txt}"
         ;;
     net-update)
         if [[ -n "${FAKE_NET_UPDATE_LOG:-}" ]]; then
@@ -480,6 +487,9 @@ function run_create_vm {
     FAKE_CONFIG_RESERVATION_FILE="${FAKE_CONFIG_RESERVATION_FILE:-}" \
     FAKE_NET_DUMP_FAIL="${FAKE_NET_DUMP_FAIL:-}" \
     FAKE_NET_UPDATE_LOG="${FAKE_NET_UPDATE_LOG:-}" \
+    FAKE_LEASE_FILE="${FAKE_LEASE_FILE:-}" \
+    FAKE_LEASE_FAIL="${FAKE_LEASE_FAIL:-}" \
+    FAKE_LEASE_FIXTURE_DIR="${TOP}/tests/fixtures/dhcp" \
     FAKE_NET_UPDATE_RC="${FAKE_NET_UPDATE_RC:-0}" \
     FAKE_DESTROY_RC="${FAKE_DESTROY_RC:-0}" \
     FAKE_UNDEFINE_RC="${FAKE_UNDEFINE_RC:-0}" \
@@ -592,6 +602,7 @@ function run_host_key_refresh_case {
     local refresh=1
     local fail=0
     local lookup_rc=0
+    local dominfo_rc=""
     local expected_rc=0
     local expected_text='READY'
     local known_hosts="${WORKSPACE}/home/.ssh/known_hosts"
@@ -609,6 +620,15 @@ function run_host_key_refresh_case {
     : > "${ssh_log}"
     case "${mode}" in
         default) refresh=0; expected_rc=1; expected_text='different host key' ;;
+        # A new domain refreshes its address without -R; the stopped restart
+        # above keeps the rejection.
+        new-static|new-dhcp)
+            refresh=0; state=absent; dominfo_rc=1
+            [[ "${mode}" != new-dhcp ]] || node=dhcp
+            mkdir -p "${WORKSPACE}/images"
+            printf '%s\n' 'ssh-ed25519 AAAAC3NzaFixture test' > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+            printf '%s\n' base > "${WORKSPACE}/images/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+            ;;
         dhcp) node=dhcp ;;
         hashed) "${REAL_SSH_KEYGEN}" -H -f "${known_hosts}" >/dev/null 2>&1 ;;
         aliases)
@@ -638,6 +658,7 @@ function run_host_key_refresh_case {
     [[ ! -f "${known_hosts}" ]] || cp -p -- "${known_hosts}" "${original}"
     reset_sleep_log
     result=$(CASE_REFRESH_HOST_KEY="${refresh}" CASE_NODE_ID="${node}" \
+        CASE_DOMINFO_RC="${dominfo_rc}" \
         FAKE_STATE_OVERRIDE="${state}" FAKE_CHECK_KNOWN_HOSTS=1 \
         FAKE_REFRESH_FAIL="${fail}" SSH_ARG_LOG="${ssh_log}" \
         FAKE_REFRESH_LOOKUP_RC="${lookup_rc}" \
@@ -1349,6 +1370,55 @@ function run_reservation_case {
     fi
 }
 
+# A lease outlives its reservation. A new domain whose address is still leased
+# to another MAC must stop before any disk, seed or reservation exists, and must
+# tell a live holder (still reserved, so waiting cannot help) from an orphan
+# lease; its own lease, a lease for another address, or no lease must not stop
+# it. Only the
+# virsh transport is replaced, with shipped lease fixtures.
+function run_lease_case {
+    local name="$1"
+    local fixture="$2"
+    local want_rc="$3"
+    local want_text="$4"
+    local reservation="${5:-}"
+    local log="${WORKSPACE}/lease-net-update.log"
+    local lease_fail=0
+    local result rc output before after
+
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf '%s\n' 'ssh-ed25519 AAAAC3NzaFixture test' > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    printf '%s\n' base > "${WORKSPACE}/images/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+    rm -f -- "${WORKSPACE}/seed-path.txt"
+    : > "${log}"
+    [[ "${fixture}" != failure ]] || lease_fail=1
+    before=$(wc -l < "${QEMU_IMG_LOG}")
+    reset_sleep_log
+    result=$(CASE_DOMINFO_RC=1 FAKE_STATE_OVERRIDE=absent \
+        FAKE_LEASE_FAIL="${lease_fail}" \
+        FAKE_LEASE_FILE="${TOP}/tests/fixtures/dhcp/leases-${fixture}.txt" \
+        FAKE_RESERVATION_FILE="${reservation:+${TOP}/tests/fixtures/dhcp/${reservation}.xml}" \
+        FAKE_NET_UPDATE_LOG="${log}" \
+        run_create_vm "$(cloud_init_fixture "done")" provision)
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    after=$(wc -l < "${QEMU_IMG_LOG}")
+
+    expect_exit "${name} exit" "${want_rc}" "${rc}"
+    expect_contains "${name} result" "${output}" "${want_text}"
+    if [[ "${want_rc}" == 0 ]]; then
+        expect_contains "${name} reached registration" "${output}" 'Network: registering'
+    else
+        expect_equal "${name} touches no disk" "${before}" "${after}"
+        expect_equal "${name} adds no reservation" '' "$(< "${log}")"
+        if [[ -e "${WORKSPACE}/seed-path.txt" ]]; then
+            record_fail "${name} stages no seed" 'seed staging recorded'
+        else
+            record_pass "${name} stages no seed"
+        fi
+    fi
+}
+
 # Drives the public provisioning and cleanup actions with shipped network XML
 # fixtures. Only the virsh transport is replaced; ownership logic is real.
 function run_dhcp_case {
@@ -1551,7 +1621,7 @@ mkdir -p "${FAKEBIN}"
 write_fake_commands
 "${REAL_SSH_KEYGEN}" -q -t ed25519 -N '' -f "${WORKSPACE}/host-key"
 
-for refresh_mode in default static dhcp hashed aliases pattern lookup-failure unmatched running failure status stop cleanup missing; do
+for refresh_mode in default new-static new-dhcp static dhcp hashed aliases pattern lookup-failure unmatched running failure status stop cleanup missing; do
     run_host_key_refresh_case "${refresh_mode}"
 done
 
@@ -1650,6 +1720,17 @@ run_address_distinct_case "probe" rocky8 debian13 rocky10 rocky8-iocrunner debia
 # DHCP reservation guard. rocky8-iocrunner main maps to 192.168.123.150.
 run_reservation_case "reservation guard ignores a longer address" "192.168.123.1501" "no"
 run_reservation_case "reservation guard fires on the same address" "192.168.123.150" "yes"
+run_lease_case 'foreign lease stops a new domain' foreign 1 \
+    'is leased to MAC 02:aa:bb:cc:dd:ee until 2026-10-03 23:14:08'
+run_lease_case 'unreadable leases stop a new domain' failure 1 'cannot read the DHCP leases'
+run_lease_case 'orphan lease names its expiry as the retry point' foreign 1 \
+    'retry after the lease expires'
+run_lease_case 'a reserved holder is reported as a VM in use' foreign 1 \
+    'is in use by the VM with MAC 02:aa:bb:cc:dd:ee' lease-holder
+FAKE_NET_DUMP_FAIL=1 run_lease_case 'a foreign lease with unreadable reservations stops' \
+    foreign 1 'its reservations cannot be read'
+run_lease_case 'own lease proceeds' owned 0 'READY'
+run_lease_case 'no lease proceeds' empty 0 'READY'
 run_dhcp_case 'unnamed IP conflict' unnamed-conflict provision 1 0 0
 run_dhcp_case 'persistent-only IP conflict' empty provision 1 0 0 unnamed-conflict
 run_dhcp_case 'legacy named migration' legacy-owned provision 0 2 1

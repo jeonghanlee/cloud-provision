@@ -501,7 +501,7 @@ set -e
 command_name=""
 for argument in "$@"; do
     case "${argument}" in
-        list|dominfo|domiflist|domblklist|domstate|net-dumpxml|net-update|shutdown|destroy|undefine|uri)
+        list|dominfo|domiflist|domblklist|domstate|net-dumpxml|net-dhcp-leases|net-update|shutdown|destroy|undefine|uri)
             command_name="${argument}"
             break
             ;;
@@ -523,6 +523,10 @@ case "${command_name}" in
     domiflist)
         printf 'Interface Type Source Model MAC\n'
         printf 'vnet0 network lab virtio %s\n' "$(cat "${CASE_DIR}/domain.mac")"
+        ;;
+    net-dhcp-leases)
+        # No lease holds the build address, so the lease guard lets the bake on.
+        printf '%s\n' ' Expiry Time   MAC address   Protocol   IP address   Hostname   Client ID or DUID'
         ;;
     net-dumpxml)
         if [[ "${PROMOTION_MODE}" == cleanup-read-fail && -f "${DOMAIN_STATE_FILE}" ]] && \

@@ -249,7 +249,7 @@ set -euo pipefail
 command_name=""
 for arg in "$@"; do
     case "${arg}" in
-        uri|domstate|dominfo|net-dumpxml|net-update)
+        uri|domstate|dominfo|net-dumpxml|net-dhcp-leases|net-update)
             command_name="${arg}"
             break
             ;;
@@ -264,6 +264,9 @@ case "${command_name}" in
         ;;
     net-dumpxml)
         printf "%s\n" "<network><ip><dhcp></dhcp></ip></network>"
+        ;;
+    net-dhcp-leases)
+        printf '%s\n' ' Expiry Time   MAC address   Protocol   IP address   Hostname   Client ID or DUID'
         ;;
     net-update)
         ;;

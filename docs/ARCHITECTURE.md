@@ -257,6 +257,17 @@ Existing named reservations are eligible for migration or removal only
 when their MAC, IP and name identify the selected VM. An unnamed entry
 requires the selected VM's MAC and IP to agree.
 
+A DHCP lease outlives the reservation that produced it, and the network does
+not hand a leased address to another MAC before the lease expires (one hour
+on the lab network). Before a new domain with a static address creates its
+disk, seed or reservation, the provisioner reads the network's active leases.
+A lease for that address held by another MAC stops the run. When that MAC
+still holds a live reservation, the run reports a VM in use, because its lease
+keeps renewing; otherwise it reports the holding MAC and the lease expiry as
+the retry point. A lease held by the new domain's own MAC, or no lease, does
+not stop the run. A failed lease query, or a failed reservation read for a
+foreign lease, also stops the run before anything is created.
+
 **IP Base Addresses:**
 
 Each addressed (vacuum, species) pair owns one base address; the `main`
@@ -553,20 +564,23 @@ Two option choices carry that meaning.
 | `StrictHostKeyChecking=accept-new` | Automatically records a previously unknown host key and rejects a changed stored key. |
 
 That second limit produces a third outcome the contract names explicitly. VMs
-reuse deterministic addresses, so recreating one leaves the previous host key
-stored against the same address, and every probe then fails. This is not "not
-ready yet" and waiting will not resolve it, so `ssh_probe` returns a distinct
-code for it, `wait_for_ssh` stops instead of spending its budget, and the
-operator is given the `ssh-keygen -R` repair for that address.
+reuse deterministic addresses, so an existing domain whose guest keys changed,
+or an address whose stored key the provisioner did not refresh, makes every
+probe fail. This is not "not ready yet" and waiting will not resolve it, so
+`ssh_probe` returns a distinct code for it, `wait_for_ssh` stops instead of
+spending its budget, and the operator is given the `ssh-keygen -R` repair for
+that address.
 
-Ordinary VM access does not refresh `known_hosts`. IOC and EtherCAT bake
-explicitly pass provisioning-only `-R`: after resolving the address, the
-provisioner removes only that address's stored key before its first SSH
-readiness probe. The normal first-contact behavior then accepts the new key.
-This also applies to stopped restart and existing-running reuse when `-R` is
-requested. A missing `~/.ssh/known_hosts` needs no removal; a removal failure
-stops the operation. Refresh runs on a temporary copy and preserves other
-addresses on comma-separated host lists. Matching shared patterns, non-regular
+A new domain generates new host keys, so a key stored for its address can
+only belong to a removed VM. When the provisioner creates a new domain, it
+removes only that address's stored key before the first SSH readiness probe,
+without any option; the normal first-contact behavior then accepts the new
+key. Existing domains keep the rejection: a stopped restart refreshes the key
+only when provisioning-only `-R` is given, and running reuse does not probe
+SSH but also refreshes under `-R`. IOC and EtherCAT bake pass `-R` so a
+reused build VM is covered as well. A missing `~/.ssh/known_hosts` needs no
+removal; a removal failure stops the operation. Refresh runs on a temporary
+copy and preserves other addresses on comma-separated host lists. Matching shared patterns, non-regular
 files and symlinks are refused without replacing the original file. Status,
 stop and cleanup reject `-R`. Without it, changed
 keys retain the rejection and repair behavior above. Bake step 2 resolves the

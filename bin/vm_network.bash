@@ -79,6 +79,46 @@ function vm_network_owned_reservation {
     [[ "${mac}" == "${VM_LEGACY_MAC}" && "${name}" == "${VM_NAME}" ]]
 }
 
+# A lease outlives the reservation that produced it. While another MAC still
+# holds the address, dnsmasq does not hand it to the new reservation, so the
+# new guest takes another address and its readiness probe fails. Refuse before
+# anything is created. A holder that still has a live reservation is a VM that
+# keeps renewing its lease, so waiting cannot help; any other holder is an
+# orphan whose expiry tells the operator when to retry.
+function check_dhcp_lease {
+    local leases reserved
+    local expiry_date expiry_time mac protocol addr
+
+    [[ -n "${VM_IP}" && -n "${VM_MAC}" ]] || return 0
+    if ! leases="$(virsh --connect "${LIBVIRT_URI}" net-dhcp-leases \
+        "${LIBVIRT_NETWORK}")"; then
+        printf 'Error: cannot read the DHCP leases of network %s; nothing was created.\n' \
+            "${LIBVIRT_NETWORK}" >&2
+        return 1
+    fi
+    while read -r expiry_date expiry_time mac protocol addr _; do
+        [[ "${protocol}" == "ipv4" && "${addr%/*}" == "${VM_IP}" ]] || continue
+        mac="${mac,,}"
+        [[ "${mac}" != "${VM_MAC}" ]] || continue
+        if ! reserved="$(vm_network_reservations live)"; then
+            printf 'Error: %s is leased to MAC %s until %s %s, and its reservations cannot be read; nothing was created.\n' \
+                "${VM_IP}" "${mac}" "${expiry_date}" "${expiry_time}" >&2
+            return 1
+        fi
+        if awk -F'|' -v holder="${mac}" '$1 == holder { found = 1 } END { exit !found }' \
+            <<< "${reserved}"; then
+            printf 'Error: %s is in use by the VM with MAC %s, which holds its reservation and an active lease; nothing was created.\n' \
+                "${VM_IP}" "${mac}" >&2
+            printf 'Hint: remove that VM with its cleanup command or choose a different node ID.\n' >&2
+        else
+            printf 'Error: %s is leased to MAC %s until %s %s; nothing was created.\n' \
+                "${VM_IP}" "${mac}" "${expiry_date}" "${expiry_time}" >&2
+            printf 'Hint: no VM holds a reservation for that MAC; retry after the lease expires or choose a different node ID.\n' >&2
+        fi
+        return 1
+    done <<< "${leases}"
+}
+
 function register_dhcp {
     local live
     local config

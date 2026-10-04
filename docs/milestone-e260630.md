@@ -1303,6 +1303,7 @@ Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
 | Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
 | Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Complete | No | D1 | Seven confirmed findings, one hypothesis and one audit decision recorded at `1b80978` are resolved on the branch: all seven findings corrected through `fb974df`, the hypothesis closed by a Keep verdict, and the audit inventory and digest updated in `a73432c`; no live check was selected; [M16 detail](#m16). |
 | OS packages | M17 | Add the Perl modules used by EPICS-env tooling to the EPICS package source | Milestone | Complete | No |  | `configure/epics-packages` lists `perl-Digest-SHA`, `perl-JSON-PP`, `perl-Pod-Checker` and `perl-Test-Simple` for rocky8 and rocky10 and `perl` for debian12, debian13, ubuntu24 and ubuntu26, matching ansible-provision `4dfb290`, and the package checks pass; landed in `3d4759a`; [M17 detail](#m17). |
+| VM lifecycle | M18 | Recreate a VM at a previously used address without stale SSH or DHCP state | Milestone | In progress | No |  | A new domain at an address whose stored host key or DHCP lease belongs to a removed VM either becomes ready without manual repair (stored key) or stops before creating its disk with the lease holder and expiry (foreign lease); a stopped existing domain keeps changed-key rejection at restart; [M18 detail](#m18). |
 
 ### Backlog Details
 
@@ -1796,6 +1797,149 @@ Superseded Plan Artifacts: none
   ansible-provision lists at `4dfb290`, and T1 passed. Installation on fresh
   vacua is verified separately by ansible-provision under
   jeonghanlee/ansible-provision#29.
+
+<a id="m18"></a>
+#### M18 - Recreate a VM at a previously used address without stale SSH or DHCP state
+
+Origin: e260630 / M18
+Identity History: none
+GitHub Issue: none
+Status: In progress
+
+##### Summary
+
+VM addresses are derived from the OS selector and instance label, so a VM
+that is removed and created again, or a bake build VM whose run ID changes
+its name and MAC, returns to the same address. Two kinds of state from the
+removed VM survive `bin/create_vm.bash -c` and break the new VM's readiness:
+
+- Its host key stays in `~/.ssh/known_hosts`. The new guest generates new
+  keys, so the first readiness probe reports a changed host key and stops.
+  The reset to baseline described in `docs/ARCHITECTURE.md` (clean, then
+  provision) therefore stops at SSH until an operator removes the key. On
+  2026-10-03 a new rocky8 VM at such an address stopped this way on this
+  host; `-R` with the same selectors recovered it. At that time 14 lab
+  addresses without a reservation still had a stored key; recheck by listing
+  the lab addresses that `ssh-keygen -F <address>` finds in
+  `~/.ssh/known_hosts` and removing those that appear as reservations in
+  `virsh --connect qemu:///system net-dumpxml lab`.
+- Its DHCP lease stays until it expires. Registration checks reservations
+  only, so a new VM with a different MAC at the same address cannot obtain
+  that address while the old lease is active, takes another one, and its
+  readiness probe to the reserved address fails. ansible-provision reported
+  this as "No route to host" on this host on 2026-10-03; it was not
+  reproduced here, and no orphan lease existed when checked. The lab
+  network's leases last one hour. Both bakes remove their build VM with
+  `-c` by default, and the next bake's build VM has a new name and MAC at
+  the same address, so after this change a second bake of the same OS
+  within that hour stops at Step 1 with the previous lease's expiry.
+
+##### Scope
+
+- When `create_vm.bash` creates a new domain, refresh the stored host key of
+  its resolved address before the first readiness probe, as `-R` does today.
+- Before creating the disk of a new domain with a static address, refuse when
+  an active lease for that address belongs to another MAC, naming the holder
+  and the lease expiry.
+
+Out of scope: changed-key handling for existing domains (stopped restart
+keeps rejecting a changed key unless `-R` is given; running reuse does not
+probe SSH; status, stop and cleanup keep rejecting `-R`), the lab network
+lease time, editing dnsmasq lease
+files, removing stored keys of addresses not being created, and any existing
+VM or image.
+
+##### Completion Criteria
+
+- A new domain at an address with a stored key from another host becomes
+  ready without manual repair, and only that address's key is replaced.
+- A stopped existing domain whose key changed is still refused at restart
+  without `-R`.
+- A foreign lease at the address stops new-domain creation before any disk,
+  seed or reservation is created, with the holder and expiry in the message;
+  a lease held by the same MAC, or no lease, does not stop it.
+- Regressions through the public CLI fail on the unmodified code and pass
+  after the change; the shipped suites and documentation checks pass.
+
+##### Dependencies And Decisions
+
+- D1 applies to any existing guest, disk or image.
+- Since the M16 fourth correction, selected on 2026-10-01, ordinary VM
+  access rejects changed host keys and only the bakes refresh a key, through
+  `-R`. On 2026-10-03 the owner decided that creating a new domain always
+  refreshes its address's stored key, because a new guest's key is new by
+  definition, while existing domains keep the rejection.
+- On 2026-10-03 the owner chose to stop on a foreign lease with its expiry
+  rather than wait for it or change the lab network lease time.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-10-03; owner accepted this plan after third-person and second-person reviews.
+Implementation Authorization: 2026-10-03; explicit owner direction to implement the accepted plan.
+Superseded Plan Artifacts: none
+
+1. In `bin/create_vm.bash`, apply the existing `refresh_host_key` behavior
+   on the new-domain path (after `provision_vm`, before the first readiness
+   probe) without requiring `-R`. Keep `-R` as the opt-in for the
+   existing-domain paths, and keep every refusal and preservation rule of the
+   refresh (shared host lists, matching patterns, non-regular files, lookup
+   failures). Update the `-R` usage line so it states that a new domain
+   always refreshes and `-R` applies to stopped restart and running reuse.
+2. In `bin/vm_network.bash`, add a lease check that reads the network's
+   active leases and fails when the static address is leased to a MAC other
+   than the new domain's. Call it on the new-domain path before
+   `verify_base_image` and `prepare_disk`, so nothing is created when it
+   fails; report the holder MAC and the expiry and exit nonzero. When the
+   lease query itself fails, stop the same way and report that the leases
+   could not be read.
+3. Extend `tests/check-cloud-init-status.bash` through the public CLI with
+   its controlled libvirt and SSH boundaries and real `ssh-keygen` on a
+   temporary `known_hosts`: a new domain at a static address and a new domain
+   at a DHCP address, each with a stored key, become ready and keep unrelated
+   keys; a stopped existing domain with a changed key is still refused
+   without `-R` (the existing `ssh host key changed` case and the refresh
+   `default` mode); a foreign lease and a failed lease query stop before
+   disk, seed and reservation creation, the foreign lease naming the holder
+   and expiry; an own-MAC lease and no lease proceed. Add the lease outputs
+   these cases read as fixtures under `tests/fixtures/dhcp/`, which today
+   holds reservation XML only. The new cases must fail against the
+   unmodified code at `a29f477`. Every test whose controlled `virsh` drives
+   the new-domain path and exits on an unknown command must answer the lease
+   query: `tests/check-cloud-init-status.bash`,
+   `tests/check-iocrunner-bake-provenance.bash`,
+   `tests/check-proxy-injection.bash` and
+   `tests/check-epics-env-inventory.bash`.
+4. Update `docs/ARCHITECTURE.md` sections 13 and 8 for the new-domain refresh
+   and the lease check, and `docs/RUNBOOK_BAKE.md` in both "Build VM SSH host
+   keys" and "Fresh consumer SSH host keys", whose manual removal no longer
+   applies to a consumer VM created through `create_vm.bash`. The runbook
+   also states that a bake started within the lease time of a previous
+   same-OS bake stops at Step 1 with the lease expiry, and that the operator
+   retries after that time.
+5. Run `make check-cloud-init-status check-proxy-injection check-bake
+   check-runtime-inventory check-docs check-vm-help`, Bash syntax and
+   ShellCheck on the changed
+   files, and `git diff --check`. Record the results and verification limits.
+   Review the change before preparing its commit.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Lifecycle | Run the updated lifecycle test against the unmodified code at `a29f477` and against the change; run the checks in plan item 5. For the unmodified run, create a separate `git worktree` at `a29f477` (or a `cp -a` copy of a checkout at that commit, keeping `.git`), copy only the changed tests and the added fixtures into it, and run the test there; do not check out `a29f477` in the shared checkout | Control host; public create CLI, shipped cloud-init and DHCP reservation fixtures plus the added lease fixtures, controlled libvirt and SSH boundaries, real `ssh-keygen` on temporary files | The new cases fail on the unmodified code and pass after the change; existing cases keep passing. No real VM is created or changed. |
+| T2 | Live | Find a lab address with a stored key and no reservation by the recheck in the Summary; choose selectors whose `create_vm.bash … -s` output reports that address as "mapped to"; then create a new VM with those selectors through `make` or the CLI, without `-R`. After the check, shut the VM down with `-S`; cleanup needs separate owner authorization | This host's libvirt and `~/.ssh/known_hosts`, under separate owner authorization; copy `~/.ssh/known_hosts` before creation | The VM reaches READY without manual repair, and a diff of the copy against `~/.ssh/known_hosts` shows only that address's key changed. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-04T05:52Z | Control host; uncommitted change on `a29f477`, and a separate `git worktree` at `a29f477` with only the changed tests and added lease and holder fixtures copied in; public create CLI, shipped reservation fixtures, added lease fixtures, controlled virsh and SSH boundaries, real `ssh-keygen` on temporary files | Passed | After the change: lifecycle 522/522, proxy injection 204/204, fresh inputs 7/7, IOC bake provenance 158/158, audit inventory 34/34, generated inventory 246/246, EPICS-env driver 9/9, documentation 14/14 plus 8/8, VM help and the remaining bake checks passed under one `make` run with exit 0. Against `a29f477` the updated lifecycle test exited 1 with 491/522; all 31 failures are in the new cases: new-domain static and DHCP refresh, the foreign orphan lease and its retry hint, the reserved live holder, unreadable leases, and unreadable reservations for a foreign lease. The own-lease and no-lease cases pass on both trees, because the unmodified code never stops on a lease. The updated proxy injection (204/204) and IOC bake provenance (158/158) tests pass on `a29f477`; the worktree needed a sibling `ansible-provision` link because the bake resolves that directory next to the repository. `tests/check-epics-env-inventory.bash` was left unchanged: its controlled libvirt reports every domain as existing, so it never reaches the lease query. Bash syntax, ShellCheck at warning severity with `-x` on the five changed Bash files, and `git diff --check` passed. No real VM was created or changed by these checks. |
+| T2 | Not run | This host | Pending | none |
+
+##### Closure Evidence
+
+- None.
 
 <a id="m13"></a>
 #### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites

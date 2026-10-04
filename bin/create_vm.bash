@@ -127,8 +127,9 @@ function print_usage {
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
     printf "  -S             Graceful shutdown of running VM (ACPI, polls until shut off)\n"
     printf "  -F             Require a new domain and disk (provisioning only)\n"
-    printf "  -R             Refresh the resolved IP's stored SSH key before readiness\n"
-    printf "                 (explicit bake opt-in; provisioning only)\n"
+    printf "  -R             Refresh the resolved IP's stored SSH key on stopped restart\n"
+    printf "                 or running reuse (a new domain always refreshes;\n"
+    printf "                 provisioning only)\n"
     printf "  -h             Show this help message\n"
     printf "\n"
     printf "Examples:\n"
@@ -1239,8 +1240,9 @@ function wait_for_vm {
     return 1
 }
 
-# Explicit bake opt-in removes only this address's stored identity. The first
-# readiness connection accepts its new key through the normal SSH contract.
+# Removes only this address's stored identity, for every new domain and for an
+# existing domain under -R. The first readiness connection accepts the new key
+# through the normal SSH contract.
 function refresh_host_key {
     local ip_addr="$1"
     local known_hosts="${HOME}/.ssh/known_hosts"
@@ -1491,12 +1493,16 @@ BASE_IMAGE_FULL_PATH="${IMAGE_DIR}/${BASE_IMAGE_NAME}"
 
 printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
 
+check_dhcp_lease || exit 1
 discover_proxy_configuration
 verify_base_image
 prepare_disk
 generate_seed
 register_dhcp || exit 1
 provision_vm
+# A new guest generates new host keys, so a key stored for its address belongs
+# to a removed VM and is refreshed without -R.
+DO_REFRESH_HOST_KEY=true
 wait_for_vm "retry" || exit 1
 
 printf "%s\n" "------------------------------------------------------------"

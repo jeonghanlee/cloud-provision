@@ -114,27 +114,66 @@ publishes nothing.
 
 ## Build VM SSH host keys
 
-Both bake entry points pass `-R` to `create_vm.bash` for the build VM. After
-resolving its static or DHCP address, the provisioner removes that address's
-stored key from `~/.ssh/known_hosts` before the first SSH readiness check. The
-first connection accepts the new key. Other stored addresses are preserved.
-Comma-separated host lists retain their other addresses. Refresh runs on a
-temporary copy and replaces the original only after successful removal.
-Matching shared patterns, non-regular files and symlinks stop the bake without
-replacing the original. A missing file needs no removal; a removal failure
-stops the bake.
+A new build VM is a new domain, so `create_vm.bash` removes the stored key of
+its resolved static or DHCP address from `~/.ssh/known_hosts` before the first
+SSH readiness check. The first connection accepts the new key. Other stored
+addresses are preserved. Comma-separated host lists retain their other
+addresses. Refresh runs on a temporary copy and replaces the original only
+after successful removal. Matching shared patterns, non-regular files and
+symlinks stop the bake without replacing the original. A missing file needs
+no removal; a removal failure stops the bake.
 
-This opt-in also applies if the build VM is already running or is restarted.
-Ordinary VM probes use `StrictHostKeyChecking=accept-new` to accept previously
-unknown keys and reject changed stored keys. `-R` is valid only for
-provisioning; status, stop and cleanup reject it. Bake step 2 does not refresh
-the key again.
+Both bake entry points also pass `-R` to `create_vm.bash`, so the refresh
+also applies if the build VM is already running or is restarted. Ordinary VM
+probes use `StrictHostKeyChecking=accept-new` to accept previously unknown
+keys and reject changed stored keys. `-R` is valid only for provisioning;
+status, stop and cleanup reject it. Bake step 2 does not refresh the key
+again.
+
+## Build VM address lease
+
+Each bake's build VM has a new name and MAC at the same build address. Both
+bake entry points remove the build VM after a successful bake unless `-k` is
+given. The previous build VM's DHCP lease stays active for up to one hour
+after it is removed. A bake of the same OS started within that time stops at
+Step 1 before creating any disk, seed or reservation:
+
+```text
+Error: <address> is leased to MAC <mac> until <date> <time>; nothing was created.
+```
+
+Retry after the printed expiry. Nothing needs cleanup.
+
+When the previous build VM still exists, kept with `-k` or left by a failed
+bake, it keeps its reservation and renews its lease, so waiting does not help.
+Step 1 then reports the VM instead:
+
+```text
+Error: <address> is in use by the VM with MAC <mac>, which holds its reservation and an active lease; nothing was created.
+```
+
+Remove that VM, then retry after its lease expires. A failed bake printed
+the exact cleanup command (see "Failed bake mid-way"). A bake kept with `-k`
+prints no complete command, so build it from the VM's name, which
+`virsh list --all` shows as `lab-<os>-build-<run-id>`:
+
+```bash
+IMAGE_WORKFLOW_RUN_ID=<run-id> bin/create_vm.bash -o <os> -n build -d <IMAGE_DIR> -p lab -c
+```
+
+Take `<os>` and `<run-id>` from the name, not from the bake command line. The
+EtherCAT build VM runs the `<os>-rtbase` selector, so its name reads
+`lab-debian13-rtbase-build-<run-id>` and `<os>` is `debian13-rtbase`.
 
 ## Fresh consumer SSH host keys
 
-Fresh consumer VMs reuse deterministic lab IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.
-
-For the default ioc-runner consumers:
+Fresh consumer VMs reuse deterministic lab IP addresses. After a VM is deleted
+and recreated from a new golden image, the SSH server host key changes.
+`create_vm.bash` removes the stored key for the address of every new domain
+before its first SSH readiness check, so a consumer created through it needs
+no manual removal. A consumer recreated by any other means still needs the
+old key removed before the first SSH connection, for example for the default
+ioc-runner consumers:
 
 ```bash
 ssh-keygen -f ~/.ssh/known_hosts -R 192.168.123.150
@@ -148,7 +187,7 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150
 ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50
 ```
 
-Do not disable host-key checking for final acceptance. The expected workflow is to remove the stale deterministic-IP entry, accept the new key for the freshly provisioned VM, and then read `/etc/iocrunner-bake.manifest` or run the provenance validator.
+Do not disable host-key checking for final acceptance. The expected workflow is that the stale deterministic-IP entry is gone (removed by `create_vm.bash` or by hand), the new key of the freshly provisioned VM is accepted, and then `/etc/iocrunner-bake.manifest` is read or the provenance validator is run.
 
 Use this SSH command contract for post-bake final acceptance. Run the command
 on the remote VM and let the result print to the terminal. Do not wrap these
