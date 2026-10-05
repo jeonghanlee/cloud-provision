@@ -1064,6 +1064,12 @@ any existing guest (D1).
      both rows are marked not yet implemented.
   4. M19 closes only after ansible-provision lands the matching roles,
      species and group variables, as M11 waits on its landing conditions.
+  5. (2026-10-05) ansible-provision's owner accepted the names, starts after
+     its running 24-hour soak observations end, and keeps `archiver-dev` /
+     `archiver_dev` as a deprecated alias until epicsarchiverap-env moves.
+     M19 closes when T4 confirms ansible-provision's landing commit carries
+     the new names; removing the alias is tracked by ansible-provision and is
+     not a condition for closing M19.
 - Landing hold: on 2026-10-05 epicsarchiverap-env asked that the species and
   group rename not land while its current VM acceptance run (node series
   test-e441d59) uses the current names. Implementation and the local commit
@@ -1136,7 +1142,13 @@ Superseded Plan Artifacts: none
 
 ##### Closure Evidence
 
-- None.
+- cloud-provision definition commit `796682c`. Landing observed
+  2026-10-05T15:06Z: after `git fetch`, local `HEAD` and
+  `origin/m11-middleware-operators` were both
+  `796682ce94b119abb0c51e9da4a9fb9b836f45e9`. The alignment request went to
+  ansible-provision and notices went to epicsarchiverap-env and
+  LAB-ansible-provision the same day.
+- Remaining before Complete: ansible-provision's landing commit and T4.
 
 <a id="m4"></a>
 #### M4 - Validate EtherCAT use of the shared image workflow and proxy seal
