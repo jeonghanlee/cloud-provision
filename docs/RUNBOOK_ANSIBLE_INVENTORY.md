@@ -34,8 +34,9 @@ assignment is defined in `docs/OPERATOR_MODEL.md`.
 | `nfs-sim` | Vacuum group and `nfs_sim` |
 | `rtbase` | Vacuum group and `rtbase` |
 | `ethercat` | Vacuum group and `ethercat` |
-| `archiver` | Vacuum group and `archiver` |
-| `archiver-dev` | Vacuum group and `archiver_dev` |
+| `archiver` | Vacuum group and `archiver` (species not yet implemented) |
+| `archiver-dev-uds` | Vacuum group and `archiver_dev_uds` |
+| `archiver-dev-tcp` | Vacuum group and `archiver_dev_tcp` |
 | `archiver-dev-sqlite` | Vacuum group and `archiver_dev_sqlite` |
 
 The maintained group relationships make every generated host reachable

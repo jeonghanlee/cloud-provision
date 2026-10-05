@@ -35,6 +35,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | In progress | No | D2, D3, D4, D5 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
 | Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
 | Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
+| Middleware | M19 | Split the Archiver configuration-database operator into MariaDB over a Unix domain socket, MariaDB over loopback TCP, and SQLite | Milestone | In progress | No | D8 | `docs/OPERATOR_MODEL.md` defines three configuration-database operators and the Archiver operators and species select exactly one; the inventory generator, its tests and the related documents follow; ansible-provision has landed roles and species with the same names; [M19 detail](#m19). |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
 | VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Complete | No | D1, D6 | Both guests passed uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; verification recorded in `3517a23` and #45 closed; [M14 detail](#m14). |
 | VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Complete | No | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; T1-T3 recorded in `68d047c` and #46 closed; [M15 detail](#m15). |
@@ -50,6 +51,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | D5 | Separate Phoebus source-build tool confirmation and prerequisite reconciliation from M11 into independent M13. M11 retains the operator/species structure and Archiver Appliance baseline and verification. M13 does not gate M11 closure or M12 distribution-install verification. | 2026-09-29 |
 | D6 | Assign two independent milestones to the dedicated Debian 13 and Rocky 8.10 IOC-runner documentation-verification guests: add per-user `verifypw=any` for `vmadmin` on both, and move the Rocky sudoers includedir after the existing active rules while preserving the `rocky` grant. Templates, golden images, other guests, and application setup are outside this scope. | 2026-09-29 |
 | D7 | Consolidate pending Phoebus build-tool and documentation reconciliation in M13 under Backlog. Defer execution until the Archiver work, including M11 master landing, is complete; resume as Not started upon assignment. | 2026-10-01 |
+| D8 | The Archiver configuration database is chosen from three separate operators: MariaDB over a Unix domain socket, MariaDB over loopback TCP, and SQLite. An Archiver host carries exactly one of them, and the cloud-provision definition and the related ansible-provision roles and documents follow that split. | 2026-10-05 |
 
 ### Assignment History
 
@@ -981,6 +983,160 @@ Superseded Plan Artifacts: none
 | --- | --- | --- | --- | --- |
 | T1 | pending | middleware VM | Not run | |
 | T2 | pending | middleware VM | Not run | |
+
+<a id="m19"></a>
+#### M19 - Split the Archiver configuration-database operator into MariaDB UDS, MariaDB TCP and SQLite
+
+Origin: e260630 / M19
+Identity History: none
+GitHub Issue: none
+Status: In progress
+
+##### Summary
+
+The Archiver Appliance configuration database is realized three ways today,
+but the definition names only two. `docs/OPERATOR_MODEL.md` defines `P_mariadb`
+as socket-only since `8c9b6ba` (2026-09-28), which replaced the earlier
+loopback-TCP definition, and `P_sqlite`. ansible-provision implements both
+MariaDB transports in one `mariadb` role selected by `mariadb_skip_networking`
+(socket-only by default; loopback TCP with `skip-name-resolve` when false), and
+`archiver_build` selects `archiver_db_backend` (`mariadb` or `sqlite`) and the
+socket or host and port. The epicsarchiverap-env acceptance runs exercise all
+three as separate cases (socket, tcp, sqlite). Under D8 each becomes its own
+operator so a species names exactly the database it carries.
+
+##### Scope
+
+- Define three configuration-database operators in `docs/OPERATOR_MODEL.md`:
+  MariaDB over a Unix domain socket (the current `P_mariadb` content), MariaDB
+  over loopback TCP (the loopback contract that `8c9b6ba` replaced, aligned with
+  the current ansible-provision TCP mode), and SQLite (`P_sqlite`, unchanged).
+- Make `P_archiver` and `P_archiver-build` require exactly one of the three,
+  and update the order-dependency text.
+- Define the three source-build Archiver species by database, renaming
+  `archiver-dev` to `archiver-dev-uds`.
+- In the `archiver` (distribution path) and `middleware` species rows, change
+  only the database operator name from `P_mariadb` to `P_mariadb-uds`, and
+  mark both rows as not yet implemented while `G1` is Open.
+- Update `bin/generate_ansible_inventory.bash`, its test, and every document
+  that names the MariaDB operator or the Archiver species.
+- Keep the VM OS selectors `rocky8-archiver-dev` and `debian13-archiver-dev`
+  unchanged: one Archiver host profile carries any of the three databases, so
+  their base addresses, `configure/CONFIG_SITE` `OS_TYPES`, `create_vm.bash`
+  help and the ARCHITECTURE selector tables stay as they are.
+- Ask ansible-provision, the single writer of its repository, to align its
+  roles, species playbooks and group variables to the new names.
+
+Out of scope: renaming the `*-archiver-dev` OS selectors; implementing the
+distribution path (`M12`); implementing Phoebus or the middleware species
+(`M13`, `G1`); changing the Archiver application or epicsarchiverap-env; and
+any existing guest (D1).
+
+##### Completion Criteria
+
+- `docs/OPERATOR_MODEL.md` defines exactly three configuration-database
+  operators; every Archiver species product contains exactly one of them; the
+  order dependencies state that P_archiver and P_archiver-build each need
+  exactly one.
+- The inventory generator accepts `archiver-dev-uds`, `archiver-dev-tcp` and
+  `archiver-dev-sqlite` with their groups, and rejects the removed
+  `archiver-dev` name; its test covers each.
+- No document in this repository still treats one MariaDB operator as the
+  only MariaDB realization.
+- ansible-provision has landed roles, species playbooks and group variables
+  that match the three operators and three species names, observed on its
+  upstream; until then M19 stays In progress after the cloud-provision change
+  lands.
+
+##### Dependencies And Decisions
+
+- D8 (2026-10-05): three configuration-database operators.
+- Owner decisions (2026-10-05):
+  1. Operator names: `P_mariadb-uds` (role `mariadb_uds`), `P_mariadb-tcp`
+     (role `mariadb_tcp`) and `P_sqlite` (role `sqlite`).
+  2. Species names state the database exactly: `archiver-dev-uds`,
+     `archiver-dev-tcp` and `archiver-dev-sqlite`. `archiver-dev` is renamed
+     to `archiver-dev-uds`, so its inventory group becomes `archiver_dev_uds`.
+  3. The existing distribution-path `archiver` species stays as one species
+     and is marked not yet implemented; splitting it by database is defined
+     after `G1`. Because `P_mariadb` no longer exists, its product and the
+     `middleware` product name `P_mariadb-uds`, today's MariaDB contract, and
+     both rows are marked not yet implemented.
+  4. M19 closes only after ansible-provision lands the matching roles,
+     species and group variables, as M11 waits on its landing conditions.
+- Landing hold: on 2026-10-05 epicsarchiverap-env asked that the species and
+  group rename not land while its current VM acceptance run (node series
+  test-e441d59) uses the current names. Implementation and the local commit
+  may proceed; the push, and the alignment request and notices of plan item 4,
+  wait until that session reports the run's end. Released on 2026-10-05: epicsarchiverap-env
+  reported that run finished (verdict PASS, its guests removed); its driver
+  still uses `archiver-dev`/`archiver_dev` and will be moved to the new names
+  with a matching ansible-provision pin when it plans its next run.
+- D1 applies to any existing guest; this work changes no guest.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-10-05; owner accepted this plan after one third-person and three second-person reviews.
+Implementation Authorization: 2026-10-05; explicit owner direction to implement the accepted plan.
+Superseded Plan Artifacts: none
+
+1. `docs/OPERATOR_MODEL.md`: replace the `P_mariadb` row with the UDS and TCP
+   rows (role, order, content). The UDS row keeps the current `P_mariadb`
+   content. The TCP row restores the loopback contract from
+   `git show 8c9b6ba^:docs/OPERATOR_MODEL.md` (IPv4 loopback 127.0.0.1:3306
+   only, application account authenticating over that connection) and aligns
+   it with the current ansible-provision TCP mode (`skip-name-resolve`). Keep
+   `P_sqlite`. Change the `P_archiver` and `P_archiver-build` order cells and
+   the order-dependency paragraph to "exactly one of the three". Rename
+   `archiver-dev` to `archiver-dev-uds`, add `archiver-dev-tcp`, and keep
+   `archiver-dev-sqlite`. In the `archiver` and `middleware` rows replace
+   `P_mariadb` with `P_mariadb-uds` and mark both not yet implemented.
+2. `bin/generate_ansible_inventory.bash`: species `archiver-dev-uds` (group
+   `archiver_dev_uds`), `archiver-dev-tcp` (group `archiver_dev_tcp`) and
+   `archiver-dev-sqlite`; remove `archiver-dev`; usage text;
+   `tests/check-generated-ansible-inventory.bash` cases for each and for the
+   rejected old name.
+3. Every other file naming the MariaDB operator or the Archiver species, as
+   found by `grep -n -i 'mariadb\|archiver-dev\|archiver_dev'`:
+   `docs/RUNBOOK_ANSIBLE_INVENTORY.md` (species table),
+   `configure/middleware-packages` and `tests/check-middleware-packages.bash`
+   (comments naming `P_mariadb`). The `mariadb-server` package stays in the
+   middleware baseline as the package of both MariaDB operators; the comments
+   name both, and state that the SQLite species does not need it. Change only
+   what the split makes wrong; leave `docs/CLOSED_DOORS.md` rows and earlier
+   register records unchanged as historical records, and leave the OS-selector
+   mentions in `docs/ARCHITECTURE.md` and `bin/create_vm.bash` as they are.
+4. After the definition commit lands, send ansible-provision the alignment
+   request (roles `mariadb_uds`, `mariadb_tcp`, `sqlite`; species playbooks
+   and group variables for the three species), and send epicsarchiverap-env
+   and LAB-ansible-provision a notice of the renamed species and group. Record
+   ansible-provision's landing commit, observed on its upstream, in Closure
+   Evidence.
+5. Run `make check-runtime-inventory check-docs check-middleware-packages`,
+   Bash syntax and ShellCheck on changed scripts, and `git diff --check`.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Definition | Read the changed `docs/OPERATOR_MODEL.md` against the completion criteria; `grep` the repository for remaining single-operator MariaDB wording | Control host | Three database operators; each Archiver species carries exactly one; no contradicting wording remains. |
+| T2 | Inventory | Run the updated generated-inventory test against the unmodified generator and against the change. For the unmodified run, create a separate `git worktree` at the commit the change is based on (8308105 unless the branch moves first), copy only the changed test into it, and run it there; do not check out that commit in the shared checkout | Control host; real generator, shipped fixtures | The new `archiver-dev-uds` and `archiver-dev-tcp` cases and the rejection of the old `archiver-dev` name fail on the unmodified generator and pass after the change; the two former `archiver-dev` cases now expect rejection; every other case keeps passing. |
+| T3 | Checks | Run the checks in plan item 5 | Control host | All pass. |
+| T4 | Cross-repository | Clone ansible-provision into a scratch directory (never fetch in the checkout another session uses) and read its roles, species playbooks and group variables at its landing commit | Control host, read-only | Role, species and group names match the definition one to one. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-05T07:46Z | Control host; uncommitted change on `8308105` | Passed | `docs/OPERATOR_MODEL.md` defines P_mariadb-uds, P_mariadb-tcp and P_sqlite; P_archiver and P_archiver-build each take exactly one, in their Order cells and in the order-dependency paragraph; archiver-dev-uds, archiver-dev-tcp and archiver-dev-sqlite carry one each, and the `archiver` and `middleware` rows carry P_mariadb-uds marked not yet implemented. A repository `grep` for `P_mariadb` without a suffix finds no hit outside `docs/CLOSED_DOORS.md` and the register, which keep their historical records. |
+| T2 | 2026-10-05T07:46Z | Control host; change on `8308105`, and a separate `git worktree` at `8308105` with only the changed test copied in and a scratch sibling link to ansible-provision for the maintained inventory | Passed | After the change: generated inventory 255/255, including the four archiver-dev-uds/-tcp cases and the old-name rejection. Against `8308105` the updated test exited 1 at its first new case with `Error: unsupported species: archiver-dev-uds` (the test stops on the first generator failure); run directly, the unmodified generator accepted `--species archiver-dev` and emitted an `archiver_dev` group (exit 0), which the new rejection case refuses, while the changed generator rejects it with `Error: unsupported species: archiver-dev` (exit 1). |
+| T3 | 2026-10-05T07:46Z | Control host; change on `8308105` | Passed | `make check-runtime-inventory check-docs check-middleware-packages` exited 0 (generated inventory 255/255, EPICS-env driver 9/9, documentation 14/14 plus 8/8, middleware packages 2/2); Bash syntax and ShellCheck at warning severity with `-x` on the three changed scripts passed; `git diff --check` passed. |
+| T4 | Not run | Control host | Pending | none |
+
+##### Closure Evidence
+
+- None.
 
 <a id="m4"></a>
 #### M4 - Validate EtherCAT use of the shared image workflow and proxy seal

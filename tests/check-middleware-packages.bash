@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # Verifies the integrity of configure/middleware-packages, the single source for
-# the middleware server's OS package baseline (the P_java runtime, the P_mariadb
-# server, and the source-build ssh client).
+# the middleware server's OS package baseline (the P_java runtime, the MariaDB
+# server shared by P_mariadb-uds and P_mariadb-tcp, and the source-build ssh
+# client).
 #
 # These packages install post-boot through the ansible-provision middleware
 # roles (planned as its M14), never through cloud-init, so no user-data template

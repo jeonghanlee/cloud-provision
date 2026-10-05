@@ -1,6 +1,7 @@
 # Middleware OS packages - the single source for the middleware server's OS
-# package baseline: the P_java runtime, the P_mariadb server, and the ssh
-# client the source-build path needs for scp. Installed post-boot through the
+# package baseline: the P_java runtime, the MariaDB server shared by
+# P_mariadb-uds and P_mariadb-tcp, and the ssh client the source-build path
+# needs for scp. A species built on P_sqlite does not need mariadb-server. Installed post-boot through the
 # ansible-provision middleware roles (planned as its M14), never through
 # cloud-init, so no user-data
 # template holds them and no template-subset check applies (contrast
@@ -24,8 +25,8 @@
 # remains unverified.
 #
 # Rocky MariaDB: mariadb-server is a RHEL8 AppStream module; its default stream
-# installs out of the box, but the P_mariadb operator enables a specific stream
-# when a pinned version is needed.
+# installs out of the box, but the P_mariadb-uds or P_mariadb-tcp operator
+# enables a specific stream when a pinned version is needed.
 
 debian13: openjdk-21-jdk-headless mariadb-server openssh-client
 rocky8: java-21-openjdk java-21-openjdk-devel mariadb-server openssh-clients

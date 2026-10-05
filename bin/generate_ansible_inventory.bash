@@ -33,7 +33,8 @@ function print_usage {
     printf "  --species <species>                bare, iocrunner, iocserver,\n"
     printf "                                       iocrunner-nfs, epics-dev,\n"
     printf "                                       nfs-sim, rtbase, ethercat,\n"
-    printf "                                       archiver, archiver-dev, or\n"
+    printf "                                       archiver, archiver-dev-uds,\n"
+    printf "                                       archiver-dev-tcp, or\n"
     printf "                                       archiver-dev-sqlite\n"
     printf "\n"
     printf "Optional:\n"
@@ -164,7 +165,8 @@ case "${SPECIES}" in
     rtbase)        INVENTORY_GROUPS=("${VACUUM}" rtbase) ;;
     ethercat)      INVENTORY_GROUPS=("${VACUUM}" ethercat) ;;
     archiver)      INVENTORY_GROUPS=("${VACUUM}" archiver) ;;
-    archiver-dev)  INVENTORY_GROUPS=("${VACUUM}" archiver_dev) ;;
+    archiver-dev-uds) INVENTORY_GROUPS=("${VACUUM}" archiver_dev_uds) ;;
+    archiver-dev-tcp) INVENTORY_GROUPS=("${VACUUM}" archiver_dev_tcp) ;;
     archiver-dev-sqlite) INVENTORY_GROUPS=("${VACUUM}" archiver_dev_sqlite) ;;
     *) die "unsupported species: ${SPECIES}" ;;
 esac
