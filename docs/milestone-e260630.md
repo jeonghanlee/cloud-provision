@@ -35,7 +35,7 @@ and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Defer
 | Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | In progress | No | D2, D3, D4, D5 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
 | Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
 | Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
-| Middleware | M19 | Split the Archiver configuration-database operator into MariaDB over a Unix domain socket, MariaDB over loopback TCP, and SQLite | Milestone | In progress | No | D8 | `docs/OPERATOR_MODEL.md` defines three configuration-database operators and the Archiver operators and species select exactly one; the inventory generator, its tests and the related documents follow; ansible-provision has landed roles and species with the same names; [M19 detail](#m19). |
+| Middleware | M19 | Split the Archiver configuration-database operator into MariaDB over a Unix domain socket, MariaDB over loopback TCP, and SQLite | Milestone | Complete | No | D8 | `docs/OPERATOR_MODEL.md` defines three configuration-database operators and the Archiver operators and species select exactly one; the inventory generator, its tests and the related documents follow; ansible-provision has landed roles and species with the same names; [M19 detail](#m19). |
 | EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
 | VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Complete | No | D1, D6 | Both guests passed uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; verification recorded in `3517a23` and #45 closed; [M14 detail](#m14). |
 | VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Complete | No | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; T1-T3 recorded in `68d047c` and #46 closed; [M15 detail](#m15). |
@@ -990,7 +990,7 @@ Superseded Plan Artifacts: none
 Origin: e260630 / M19
 Identity History: none
 GitHub Issue: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
@@ -1138,7 +1138,7 @@ Superseded Plan Artifacts: none
 | T1 | 2026-10-05T07:46Z | Control host; uncommitted change on `8308105` | Passed | `docs/OPERATOR_MODEL.md` defines P_mariadb-uds, P_mariadb-tcp and P_sqlite; P_archiver and P_archiver-build each take exactly one, in their Order cells and in the order-dependency paragraph; archiver-dev-uds, archiver-dev-tcp and archiver-dev-sqlite carry one each, and the `archiver` and `middleware` rows carry P_mariadb-uds marked not yet implemented. A repository `grep` for `P_mariadb` without a suffix finds no hit outside `docs/CLOSED_DOORS.md` and the register, which keep their historical records. |
 | T2 | 2026-10-05T07:46Z | Control host; change on `8308105`, and a separate `git worktree` at `8308105` with only the changed test copied in and a scratch sibling link to ansible-provision for the maintained inventory | Passed | After the change: generated inventory 255/255, including the four archiver-dev-uds/-tcp cases and the old-name rejection. Against `8308105` the updated test exited 1 at its first new case with `Error: unsupported species: archiver-dev-uds` (the test stops on the first generator failure); run directly, the unmodified generator accepted `--species archiver-dev` and emitted an `archiver_dev` group (exit 0), which the new rejection case refuses, while the changed generator rejects it with `Error: unsupported species: archiver-dev` (exit 1). |
 | T3 | 2026-10-05T07:46Z | Control host; change on `8308105` | Passed | `make check-runtime-inventory check-docs check-middleware-packages` exited 0 (generated inventory 255/255, EPICS-env driver 9/9, documentation 14/14 plus 8/8, middleware packages 2/2); Bash syntax and ShellCheck at warning severity with `-x` on the three changed scripts passed; `git diff --check` passed. |
-| T4 | Not run | Control host | Pending | none |
+| T4 | 2026-10-06T05:26Z | Control host; scratch clone of ansible-provision branch `m14-middleware-reconcile` at `3b697e1`, read-only | Passed | Roles `mariadb_uds`, `mariadb_tcp` and `sqlite`, operator playbooks, species playbooks `archiver_dev_uds`, `archiver_dev_tcp` and `archiver_dev_sqlite`, and group variables for uds and tcp match the definition one to one; `archiver_dev` and `mariadb` remain as deprecated aliases. With the maintained inventory plus the inventories this repository's generator produced for three guests, `ansible-inventory` resolved the three groups under `vacua`, the tcp host received `mariadb_skip_networking: false` and an empty `archiver_db_socket`, and `ansible-playbook --syntax-check` passed for the three species and both aliases. Re-run: `git clone --branch m14-middleware-reconcile` the ansible-provision repository, then the same commands. |
 
 ##### Closure Evidence
 
@@ -1148,7 +1148,8 @@ Superseded Plan Artifacts: none
   `796682ce94b119abb0c51e9da4a9fb9b836f45e9`. The alignment request went to
   ansible-provision and notices went to epicsarchiverap-env and
   LAB-ansible-provision the same day.
-- Remaining before Complete: ansible-provision's landing commit and T4.
+- ansible-provision landing commit `3b697e1` on its branch `m14-middleware-reconcile`. Observed 2026-10-06T05:26Z with `git ls-remote origin`: the branch head was `3b697e1d18617d22372557cfbe31ea4ce92e7f2b` and `master` was `087a89789767aeb7d1d499381da0ef5cd8713c38`, so the commit is on the pushed branch, not yet on master (the master merge belongs to M11's landing conditions). ansible-provision reported each species applied on a fresh Rocky 8.10 guest with `failed=0`, listeners and account hosts as specified, and a re-apply with `changed=0`.
+- T4 passed (see Verification Results). M19 is Complete.
 
 <a id="m4"></a>
 #### M4 - Validate EtherCAT use of the shared image workflow and proxy seal
