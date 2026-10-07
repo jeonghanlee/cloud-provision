@@ -42,6 +42,7 @@ declare -g PROXY_CONTRACT_SYSTEMCTL=""
 declare -g PROXY_CONTRACT_WORK_DIR=""
 declare -g PROXY_CONTRACT_INPUT_URL=""
 declare -g PROXY_CONTRACT_INPUT_HASH=""
+declare -g PROXY_CONTRACT_INTERRUPTED=false
 declare -ag PROXY_CONTRACT_CLEAN_ARGS=()
 declare -ag PROXY_CONTRACT_CREATED_IDENTITIES=()
 declare -ag PROXY_CONTRACT_TEMP_PATHS=()
@@ -164,7 +165,8 @@ function proxy_contract_validate_parent {
     local path="$2"
     local owner="$3"
     local group="$4"
-    local parent uid gid mode expected_uid expected_gid
+    local parent directory vmadmin_home uid gid mode expected_uid expected_gid
+    local directory_uid directory_gid
 
     parent="${path%/*}"
     proxy_contract_validate_rooted_path "${identity}" "${parent}" false || return 1
@@ -173,17 +175,31 @@ function proxy_contract_validate_parent {
         return 1
     fi
     proxy_contract_owner_ids "${owner}" "${group}" expected_uid expected_gid || return 1
-    uid="$(stat -Lc '%u' "${parent}")" || return 1
-    gid="$(stat -Lc '%g' "${parent}")" || return 1
-    mode="$(stat -Lc '%a' "${parent}")" || return 1
-    if [[ "${uid}" != "${expected_uid}" || "${gid}" != "${expected_gid}" ]]; then
-        proxy_contract_die "identity ${identity} parent has an ownership conflict"
-        return 1
-    fi
-    if (( (8#${mode} & 8#022) != 0 )); then
-        proxy_contract_die "identity ${identity} parent is group or world writable"
-        return 1
-    fi
+    vmadmin_home="$(proxy_contract_root_path "${PROXY_CONTRACT_SSH_ENVIRONMENT%/.ssh/environment}")"
+    directory="${parent}"
+    while :; do
+        directory_uid="${PROXY_CONTRACT_ROOT_UID}"
+        directory_gid="${PROXY_CONTRACT_ROOT_GID}"
+        if [[ "${directory}" == "${parent}" ]] ||
+           [[ "${owner}" == vmadmin && "${directory}" == "${vmadmin_home}" ]]; then
+            directory_uid="${expected_uid}"
+            directory_gid="${expected_gid}"
+        fi
+        uid="$(stat -Lc '%u' "${directory}")" || return 1
+        gid="$(stat -Lc '%g' "${directory}")" || return 1
+        mode="$(stat -Lc '%a' "${directory}")" || return 1
+        if [[ "${uid}" != "${directory_uid}" || "${gid}" != "${directory_gid}" ]]; then
+            proxy_contract_die "identity ${identity} parent has an ownership conflict"
+            return 1
+        fi
+        if (( (8#${mode} & 8#022) != 0 )); then
+            proxy_contract_die "identity ${identity} parent is group or world writable"
+            return 1
+        fi
+        [[ "${directory}" != "${PROXY_CONTRACT_ROOT}" ]] || break
+        directory="${directory%/*}"
+        [[ -n "${directory}" ]] || directory="/"
+    done
 }
 
 function proxy_contract_validate_regular_file {
@@ -1512,6 +1528,333 @@ function proxy_contract_apply {
         "${os_family}" "${#identities[@]}"
 }
 
+function proxy_contract_preflight_reconcile_identity {
+    local os_family="$1" identity="$2" path="$3"
+    local owner="$4" group="$5" form="$6" format="$7"
+
+    proxy_contract_validate_parent "${identity}" "${path}" "${owner}" "${group}" || return 1
+    proxy_contract_validate_rooted_path "${identity}" "${path}" true || return 1
+    if [[ -e "${path}" ]]; then
+        if [[ ! -f "${path}" || "$(stat -Lc '%h' "${path}")" != 1 ]]; then
+            proxy_contract_die "identity ${identity} is not a single-link regular file"
+            return 1
+        fi
+        if [[ "${format}" == hash-comment ]]; then
+            if [[ "${form}" == dedicated ]] ||
+               grep -Fq 'CLOUD-PROVISION PROXY CONTRACT' "${path}"; then
+                proxy_contract_validate_marker_shape "${identity}" "${path}" "${form}" "${format}" || return 1
+            fi
+            proxy_contract_validate_unowned_keys "${identity}" "${path}" || return 1
+        fi
+        if [[ "${form}" == shared ]]; then
+            proxy_contract_validate_shared_newline "${identity}" "${path}" || return 1
+        fi
+    elif [[ "${identity}" == dnf || ( "${identity}" == sshd && "${form}" == shared ) ]]; then
+        proxy_contract_die "identity ${identity} requires an existing shared file"
+        return 1
+    fi
+    if [[ "${identity}" == dnf ]] &&
+       [[ "$(grep -Ec '^[[:space:]]*\[main\][[:space:]]*$' "${path}" || true)" != 1 ]]; then
+        proxy_contract_die "identity dnf requires exactly one main section"
+        return 1
+    fi
+    if [[ "${identity}" == sshd && "${os_family}" != rocky ]]; then
+        proxy_contract_require_sshd_include || return 1
+    fi
+}
+
+function proxy_contract_replace_file {
+    local identity="$1" source_path="$2" path="$3"
+    local uid="$4" gid="$5" mode="$6" temporary security_context=""
+
+    proxy_contract_validate_rooted_path "${identity}" "${path}" true || return 1
+    temporary="$(mktemp "${path%/*}/.proxy-contract.XXXXXX")" || return 1
+    PROXY_CONTRACT_TEMP_PATHS+=("${temporary}")
+    install -o "${uid}" -g "${gid}" -m "${mode}" "${source_path}" "${temporary}" || return 1
+    touch -r "${source_path}" "${temporary}" || return 1
+    if [[ -e "${path}" ]]; then
+        security_context="$(stat -Lc '%C' "${path}" 2>/dev/null)" || security_context=""
+        if [[ -n "${security_context}" && "${security_context}" != '?' ]]; then
+            cp --attributes-only --preserve=context -- "${path}" "${temporary}" || return 1
+        fi
+    fi
+    proxy_contract_validate_rooted_path "${identity}" "${path}" true || return 1
+    mv -fT -- "${temporary}" "${path}"
+}
+
+function proxy_contract_file_state {
+    local path="$1"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf '%s\n' absent
+        return 0
+    fi
+    proxy_contract_validate_rooted_path snapshot "${path}" false || return 1
+    [[ -f "${path}" && "$(stat -Lc '%h' "${path}")" == 1 ]] || return 1
+    stat -Lc '%d:%i:%h:%u:%g:%a:%s:%y:%z' "${path}"
+}
+
+function proxy_contract_matches_snapshot {
+    local path="$1" expected_state="$2" expected_content="$3" current_state
+
+    current_state="$(proxy_contract_file_state "${path}")" || return 1
+    [[ "${current_state}" == "${expected_state}" ]] || return 1
+    [[ "${expected_state}" == absent ]] || cmp -s -- "${expected_content}" "${path}"
+}
+
+# Each backup retains the original bytes and metadata, including metadata
+# drift. Concurrent changes are preserved and reported as rollback failures.
+function proxy_contract_restore_reconciled {
+    local -n restore_indices="$1" restore_paths="$2"
+    local -n restore_backups="$3" restore_existed="$4"
+    local -n restore_states="$5" restore_candidates="$6"
+    local index position uid gid mode rc=0
+
+    for ((position=${#restore_indices[@]} - 1; position >= 0; position--)); do
+        index="${restore_indices[position]}"
+        if ! proxy_contract_matches_snapshot "${restore_paths[index]}" \
+            "${restore_states[index]:-}" "${restore_candidates[index]}"; then
+            proxy_contract_die "rollback preserved a concurrent change"
+            rc=1
+            continue
+        fi
+        if [[ "${restore_existed[index]}" == true ]]; then
+            uid="$(stat -Lc '%u' "${restore_backups[index]}")" || return 1
+            gid="$(stat -Lc '%g' "${restore_backups[index]}")" || return 1
+            mode="$(stat -Lc '%a' "${restore_backups[index]}")" || return 1
+            proxy_contract_replace_file rollback "${restore_backups[index]}" \
+                "${restore_paths[index]}" "${uid}" "${gid}" "${mode}" || rc=1
+        else
+            rm -f -- "${restore_paths[index]}" || rc=1
+        fi
+    done
+    return "${rc}"
+}
+
+function proxy_contract_reconcile {
+    local os_family="$1" identity path candidate base index uid gid mode
+    local lock_path lock_candidate created_csv="" current_identity changed=false
+    local lock_present=false rc=0 runtime_path reconcile_fd lock_index flock_path
+    local -a identities=() paths=() owners=() groups=() modes=() forms=()
+    local -a markers=() cleanups=() remnants=() formats=()
+    local -a rooted_paths=() candidates=() backups=() existed=()
+    local -a install_uids=() install_gids=() install_modes=() changes=() installed=()
+    local -a source_states=() installed_states=()
+
+    runtime_path="$(proxy_contract_root_path "${PROXY_CONTRACT_RUNTIME_DIR}")" || return 1
+    proxy_contract_validate_parent contract-lock "${runtime_path}/proxy-contract.lock" root root || return 1
+    if ! flock_path="$(command -v flock)" || [[ ! -x "${flock_path}" ]]; then
+        proxy_contract_die "reconcile requires flock"
+        return 1
+    fi
+    exec {reconcile_fd}<"${runtime_path}" || return 1
+    if ! "${flock_path}" -n "${reconcile_fd}"; then
+        proxy_contract_die "another reconciliation is running"
+        return 1
+    fi
+    proxy_contract_parse_input || return 1
+    proxy_contract_validate_staged_script || return 1
+    proxy_contract_inventory "${os_family}" identities paths owners groups modes forms \
+        markers cleanups remnants formats || return 1
+    for index in "${!identities[@]}"; do
+        proxy_contract_validate_inventory_entry "${os_family}" "${identities[index]}" \
+            "${paths[index]}" "${owners[index]}" "${groups[index]}" "${modes[index]}" \
+            "${forms[index]}" "${markers[index]}" "${cleanups[index]}" \
+            "${remnants[index]}" "${formats[index]}" || return 1
+        path="$(proxy_contract_root_path "${paths[index]}")" || return 1
+        source_states[index]="$(proxy_contract_file_state "${path}")" || return 1
+        proxy_contract_preflight_reconcile_identity "${os_family}" "${identities[index]}" \
+            "${path}" "${owners[index]}" "${groups[index]}" "${forms[index]}" "${formats[index]}" || return 1
+        if [[ "$(proxy_contract_file_state "${path}")" != "${source_states[index]}" ]]; then
+            proxy_contract_die "reconcile detected a concurrent change during preflight"
+            return 1
+        fi
+        rooted_paths[index]="${path}"
+    done
+    lock_path="$(proxy_contract_root_path "${PROXY_CONTRACT_LOCK}")" || return 1
+    proxy_contract_validate_parent contract-lock "${lock_path}" root root || return 1
+    proxy_contract_validate_rooted_path contract-lock "${lock_path}" true || return 1
+    lock_index="${#rooted_paths[@]}"
+    source_states[lock_index]="$(proxy_contract_file_state "${lock_path}")" || return 1
+    if [[ -e "${lock_path}" ]]; then
+        proxy_contract_parse_lock || return 1
+        lock_present=true
+    else
+        PROXY_CONTRACT_CREATED_IDENTITIES=()
+    fi
+    proxy_contract_preflight_apply_commands "${os_family}" || return 1
+    proxy_contract_create_work_dir || return 1
+    rooted_paths[lock_index]="${lock_path}"
+    backups[lock_index]="${PROXY_CONTRACT_WORK_DIR}/backup-lock"
+    existed[lock_index]="${lock_present}"
+    if [[ "${lock_present}" == true ]]; then
+        cp -p -- "${lock_path}" "${backups[lock_index]}" || return 1
+        if ! proxy_contract_matches_snapshot "${lock_path}" "${source_states[lock_index]}" \
+            "${backups[lock_index]}"; then
+            proxy_contract_die "reconcile detected a concurrent change during rendering"
+            return 1
+        fi
+    fi
+    for index in "${!identities[@]}"; do
+        if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+            proxy_contract_die "reconcile interrupted before installation"
+            return 1
+        fi
+        identity="${identities[index]}"
+        path="${rooted_paths[index]}"
+        candidate="${PROXY_CONTRACT_WORK_DIR}/candidate-${identity}"
+        candidates[index]="${candidate}"
+        backups[index]="${PROXY_CONTRACT_WORK_DIR}/backup-${identity}"
+        base="${path}"
+        mode="${modes[index]#0}"
+        proxy_contract_owner_ids "${owners[index]}" "${groups[index]}" uid gid || return 1
+        install_uids[index]="${uid}"
+        install_gids[index]="${gid}"
+        if [[ -e "${path}" ]]; then
+            existed[index]=true
+            cp -p -- "${path}" "${backups[index]}" || return 1
+            if ! proxy_contract_matches_snapshot "${path}" "${source_states[index]}" \
+                "${backups[index]}"; then
+                proxy_contract_die "reconcile detected a concurrent change during rendering"
+                return 1
+            fi
+            base="${backups[index]}"
+            if [[ "${forms[index]}" == shared ]]; then
+                mode="$(stat -Lc '%a' "${backups[index]}")" || return 1
+                # Safe shared-file permissions belong to the existing site
+                # configuration. Unsafe permissions return to the baseline.
+                if (( (8#${mode} & 8#7022) != 0 )); then
+                    mode="${modes[index]#0}"
+                fi
+                if grep -Fq -- "${PROXY_CONTRACT_BEGIN}" "${backups[index]}"; then
+                    base="${PROXY_CONTRACT_WORK_DIR}/base-${identity}"
+                    proxy_contract_remove_block "${identity}" "${backups[index]}" "${base}" || return 1
+                fi
+            fi
+        else
+            existed[index]=false
+            base=""
+            if [[ "${forms[index]}" == shared ]] &&
+               ! proxy_contract_identity_was_created "${identity}"; then
+                PROXY_CONTRACT_CREATED_IDENTITIES+=("${identity}")
+            fi
+        fi
+        install_modes[index]="${mode}"
+        proxy_contract_render_candidate "${os_family}" "${identity}" "${forms[index]}" \
+            "${PROXY_CONTRACT_INPUT_URL}" "${base}" "${candidate}" || return 1
+        proxy_contract_validate_marker_shape "${identity}" "${candidate}" \
+            "${forms[index]}" "${formats[index]}" || return 1
+        if [[ "${forms[index]}" == shared ]]; then
+            proxy_contract_validate_shared_placement "${os_family}" "${identity}" "${candidate}" || return 1
+        fi
+        proxy_contract_validate_exact_content "${identity}" "${candidate}" \
+            "${forms[index]}" "${PROXY_CONTRACT_INPUT_URL}" || return 1
+        if [[ "${identity}" == sudo ]] && ! "${PROXY_CONTRACT_VISUDO}" -cf "${candidate}" 1>&2; then
+            proxy_contract_die "sudo candidate validation failed"
+            return 1
+        fi
+        if [[ "${existed[index]}" == false ]] || ! cmp -s -- "${path}" "${candidate}" ||
+           [[ "$(stat -Lc '%u:%g:%a' "${path}")" != "${uid}:${gid}:${mode}" ]]; then
+            changes+=("${index}")
+            changed=true
+        fi
+    done
+    for current_identity in "${PROXY_CONTRACT_CREATED_IDENTITIES[@]}"; do
+        [[ -z "${created_csv}" ]] || created_csv+=","
+        created_csv+="${current_identity}"
+    done
+    lock_candidate="${PROXY_CONTRACT_WORK_DIR}/lock-candidate"
+    candidates[lock_index]="${lock_candidate}"
+    printf 'schema=1\nstate=applied\ncreated=%s\n' "${created_csv}" > "${lock_candidate}" || return 1
+    for index in "${!rooted_paths[@]}"; do
+        if ! proxy_contract_matches_snapshot "${rooted_paths[index]}" \
+            "${source_states[index]}" "${backups[index]}"; then
+            proxy_contract_die "reconcile detected a concurrent change before installation"
+            return 1
+        fi
+    done
+    for index in "${changes[@]}"; do
+        if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]] ||
+           ! proxy_contract_matches_snapshot "${rooted_paths[index]}" \
+               "${source_states[index]}" "${backups[index]}"; then
+            rc=1
+            break
+        fi
+        if ! proxy_contract_replace_file "${identities[index]}" "${candidates[index]}" \
+            "${rooted_paths[index]}" "${install_uids[index]}" \
+            "${install_gids[index]}" "${install_modes[index]}"; then
+            rc=1
+            break
+        fi
+        installed+=("${index}")
+        installed_states[index]="$(proxy_contract_file_state "${rooted_paths[index]}")" || { rc=1; break; }
+    done
+    if [[ "${rc}" == 0 ]]; then
+        for index in "${!identities[@]}"; do
+            if ! proxy_contract_validate_regular_file "${identities[index]}" "${rooted_paths[index]}" \
+                "${owners[index]}" "${groups[index]}" "${install_modes[index]}" ||
+               ! proxy_contract_validate_exact_content "${identities[index]}" "${rooted_paths[index]}" \
+                "${forms[index]}" "${PROXY_CONTRACT_INPUT_URL}"; then
+                rc=1
+                break
+            fi
+        done
+    fi
+    if [[ "${rc}" == 0 ]] && ! proxy_contract_sshd_effective; then
+        rc=1
+    fi
+    if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+        rc=1
+    fi
+    if [[ "${rc}" == 0 && "${changed}" == true ]] && ! proxy_contract_reload_sshd "${os_family}" 1>&2; then
+        rc=1
+    fi
+    if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+        rc=1
+    fi
+    if [[ "${rc}" == 0 ]]; then
+        for index in "${!identities[@]}"; do
+            if [[ -n "${installed_states[index]:-}" ]]; then
+                proxy_contract_matches_snapshot "${rooted_paths[index]}" \
+                    "${installed_states[index]}" "${candidates[index]}" || { rc=1; break; }
+            else
+                proxy_contract_matches_snapshot "${rooted_paths[index]}" \
+                    "${source_states[index]}" "${backups[index]}" || { rc=1; break; }
+            fi
+        done
+        proxy_contract_matches_snapshot "${lock_path}" "${source_states[lock_index]}" \
+            "${backups[lock_index]}" || rc=1
+    fi
+    if [[ "${rc}" == 0 ]] &&
+       { [[ "${lock_present}" == false ]] || ! cmp -s -- "${lock_path}" "${lock_candidate}"; }; then
+        if proxy_contract_replace_file contract-lock "${lock_candidate}" "${lock_path}" \
+            "${PROXY_CONTRACT_ROOT_UID}" "${PROXY_CONTRACT_ROOT_GID}" 600; then
+            installed+=("${lock_index}")
+            installed_states[lock_index]="$(proxy_contract_file_state "${lock_path}")" || rc=1
+        else
+            rc=1
+        fi
+    fi
+    if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+        rc=1
+    fi
+    trap '' HUP INT TERM
+    if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+        rc=1
+    fi
+    if [[ "${rc}" != 0 ]]; then
+        proxy_contract_restore_reconciled installed rooted_paths backups existed installed_states candidates ||
+            proxy_contract_die "reconcile rollback failed"
+        if [[ "${#installed[@]}" != 0 ]]; then
+            proxy_contract_reload_sshd "${os_family}" >/dev/null 2>&1 || true
+        fi
+        proxy_contract_die "reconcile failed; no successful change result"
+        return 1
+    fi
+    printf 'proxy_contract schema=1 mode=reconcile os=%s identities=%s changed=%s\n' \
+        "${os_family}" "${#identities[@]}" "${changed}"
+}
+
 function proxy_contract_any_artifact_present {
     local os_family="$1"
     local path index
@@ -1700,7 +2043,7 @@ function proxy_contract_configure_root {
 
     if [[ -z "${test_root}" ]]; then
         if [[ "${EUID}" != 0 ]]; then
-            proxy_contract_die "apply, seal, and verify clean require root"
+            proxy_contract_die "apply, reconcile, seal, and verify clean require root"
             return 1
         fi
         if [[ ! -o privileged ]]; then
@@ -1752,11 +2095,11 @@ function proxy_contract_main {
         esac
     done
     if ! { [[ "${#operands[@]}" == 1 &&
-              ( "${operands[0]}" == apply || "${operands[0]}" == seal ) ]] ||
+              ( "${operands[0]}" == apply || "${operands[0]}" == reconcile || "${operands[0]}" == seal ) ]] ||
            [[ "${#operands[@]}" == 2 && "${operands[0]}" == verify &&
               "${operands[1]}" == clean ]]; }; then
         proxy_contract_die \
-            "usage: proxy_contract.bash [--test-root <absolute-path>] {apply|seal|verify clean}"
+            "usage: proxy_contract.bash [--test-root <absolute-path>] {apply|reconcile|seal|verify clean}"
         return 1
     fi
 
@@ -1765,11 +2108,15 @@ function proxy_contract_main {
     proxy_contract_configure_root "${test_root}" || return 1
     trap proxy_contract_cleanup_temps EXIT
     trap 'exit 1' HUP INT TERM
+    if [[ "${operands[0]}" == reconcile ]]; then
+        trap 'PROXY_CONTRACT_INTERRUPTED=true' HUP INT TERM
+    fi
     if ! os_family="$(proxy_contract_parse_os_release)"; then
         return 1
     fi
     case "${operands[0]}" in
         apply) proxy_contract_apply "${os_family}" ;;
+        reconcile) proxy_contract_reconcile "${os_family}" ;;
         seal) proxy_contract_seal "${os_family}" ;;
         verify) proxy_contract_verify_clean "${os_family}" ;;
     esac

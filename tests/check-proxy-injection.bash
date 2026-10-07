@@ -374,6 +374,14 @@ fi
 [[ "$1" == "-cf" && -f "$2" ]]
 grep -Fq 'Defaults env_keep += "http_proxy https_proxy ftp_proxy no_proxy HTTP_PROXY HTTPS_PROXY FTP_PROXY NO_PROXY"' "$2"
 printf 'visudo %s\n' "$2" >> "${PROXY_GUEST_COMMAND_LOG}"
+if [[ "${PROXY_GUEST_VERBOSE:-0}" == 1 ]]; then
+    printf '%s\n' 'candidate: parsed OK'
+fi
+if [[ "${PROXY_GUEST_EDIT_DURING_RENDER:-0}" == 1 ]]; then
+    printf 'SITE_VALUE=preserve\n' >> "${PROXY_GUEST_ROOT}/etc/environment"
+elif [[ "${PROXY_GUEST_EDIT_DURING_RENDER:-0}" == 2 ]]; then
+    printf 'proxy=http://unowned.invalid/\n' >> "${PROXY_GUEST_ROOT}/etc/gitconfig"
+fi
 EOF
 
     cat > "${guest_root}/usr/sbin/sshd" <<'EOF'
@@ -388,6 +396,9 @@ for argument in "$@"; do
     previous="${argument}"
 done
 [[ -n "${config}" && -f "${config}" ]]
+if [[ "${PROXY_GUEST_EDIT_AFTER_INSTALL:-0}" == 1 ]]; then
+    printf 'SITE_VALUE=preserve\n' >> "${PROXY_GUEST_ROOT}/etc/environment"
+fi
 if grep -Fq 'PermitUserEnvironment yes' "${config}" ||
    grep -Fq 'PermitUserEnvironment yes' "${PROXY_GUEST_ROOT}/etc/ssh/sshd_config.d/95cloud-provision-proxy.conf"; then
     printf '%s\n' 'permituserenvironment yes'
@@ -406,8 +417,24 @@ case "$2" in
     *) exit 2 ;;
 esac
 printf 'systemctl %s\n' "$*" >> "${PROXY_GUEST_COMMAND_LOG}"
+if [[ -n "${PROXY_GUEST_SIGNAL:-}" ]]; then
+    kill -s "${PROXY_GUEST_SIGNAL}" "${PPID}"
+    exit 1
+fi
+if [[ "${PROXY_GUEST_HOLD_RELOAD:-0}" == 1 ]]; then
+    : > "${PROXY_GUEST_ROOT}/reload-ready"
+    attempts=0
+    while [[ ! -e "${PROXY_GUEST_ROOT}/reload-release" ]]; do
+        (( attempts < 200 )) || exit 1
+        sleep 0.05
+        attempts=$((attempts + 1))
+    done
+fi
 if [[ "${PROXY_GUEST_SYSTEMCTL_FAIL:-0}" == 1 ]]; then
     exit 1
+fi
+if [[ "${PROXY_GUEST_VERBOSE:-0}" == 1 ]]; then
+    printf '%s\n' 'service reloaded'
 fi
 EOF
 
@@ -656,13 +683,17 @@ function run_staged_apply {
         "${guest_root}/usr/bin" \
         "${guest_root}/usr/sbin"
     chmod 0755 \
+        "${guest_root}" \
         "${guest_root}/etc" \
         "${guest_root}/etc/profile.d" \
+        "${guest_root}/etc/apt" \
         "${guest_root}/etc/apt/apt.conf.d" \
         "${guest_root}/etc/dnf" \
         "${guest_root}/etc/sudoers.d" \
         "${guest_root}/etc/ssh" \
         "${guest_root}/etc/ssh/sshd_config.d" \
+        "${guest_root}/home" \
+        "${guest_root}/home/vmadmin" \
         "${guest_root}/run" \
         "${guest_root}/run/cloud-provision"
     chmod 0700 "${guest_root}/home/vmadmin/.ssh"
@@ -694,9 +725,7 @@ function run_staged_apply {
     chmod 0700 "${guest_root}/run/cloud-provision/proxy_contract.bash"
     chmod 0600 "${guest_root}/run/cloud-provision/proxy-contract.input"
     write_guest_commands "${guest_root}"
-    if [[ "${name}" == debian-proxy ]]; then
-        cp -a -- "${guest_root}" "${guest_root}.before-apply"
-    fi
+    cp -a -- "${guest_root}" "${guest_root}.before-apply"
 
     env \
         "PROXY_GUEST_ROOT=${guest_root}" \
@@ -733,6 +762,362 @@ function run_staged_apply {
                 "the contract block is not in the global sshd scope"
         fi
     fi
+}
+
+function snapshot_reconcile_artifacts {
+    local root="$1" os_family="$2" destination="$3" path
+
+    : > "${destination}"
+    while IFS= read -r path; do
+        printf '%s\n' "${path}" >> "${destination}"
+        if [[ -f "${root}${path}" && ! -L "${root}${path}" ]]; then
+            sha256sum "${root}${path}" | cut -d' ' -f1 >> "${destination}"
+            stat -Lc '%u:%g:%a:%y' "${root}${path}" >> "${destination}"
+        else
+            printf '%s\n' absent >> "${destination}"
+        fi
+    done < <(awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os {print $3}' "${CONTRACT_FIXTURE}")
+    if [[ -f "${root}/run/cloud-provision/proxy-contract.lock" ]]; then
+        cat "${root}/run/cloud-provision/proxy-contract.lock" >> "${destination}"
+    fi
+}
+
+function expect_reconcile {
+    local name="$1" root="$2" expected_rc="$3" changed="$4" fail_reload="${5:-0}"
+    local signal="${6:-}" edit_before="${7:-0}" edit_after="${8:-0}"
+    local output="${root}/reconcile-output.log" commands="${root}/reconcile-commands.log" rc=0
+
+    : > "${commands}"
+    env "PROXY_GUEST_ROOT=${root}" "PROXY_GUEST_COMMAND_LOG=${commands}" \
+        "PROXY_GUEST_SYSTEMCTL_FAIL=${fail_reload}" PROXY_GUEST_VERBOSE=1 \
+        "PROXY_GUEST_SIGNAL=${signal}" "PROXY_GUEST_EDIT_DURING_RENDER=${edit_before}" \
+        "PROXY_GUEST_EDIT_AFTER_INSTALL=${edit_after}" \
+        "${root}/run/cloud-provision/proxy_contract.bash" --test-root "${root}" reconcile \
+        > "${output}" 2> "${output}.stderr" || rc=$?
+    expect_exit "${name} reconcile exit" "${expected_rc}" "${rc}"
+    if [[ "${expected_rc}" == 0 ]]; then
+        expect_contains "${name} reports change state" "${output}" "changed=${changed}"
+        if [[ "$(wc -l < "${output}")" == 1 ]] &&
+           grep -Eq '^proxy_contract schema=1 mode=reconcile os=(debian|ubuntu|rocky) identities=[89] changed=(true|false)$' "${output}"; then
+            record_pass "${name} stdout contains exactly one result"
+        else
+            record_fail "${name} stdout contains exactly one result" "diagnostics or malformed result on stdout"
+        fi
+    else
+        expect_not_contains "${name} omits successful change state" "${output}" 'mode=reconcile'
+    fi
+    expect_not_contains "${name} keeps the endpoint private" "${output}" 'proxy.example.test'
+    expect_not_contains "${name} stderr keeps the endpoint private" "${output}.stderr" 'proxy.example.test'
+    expect_not_contains "${name} never runs cloud-init clean" "${commands}" 'cloud-init'
+    if [[ "${expected_rc}" == 0 && "${changed}" == false ]]; then
+        expect_not_contains "${name} skips reload without changes" "${commands}" 'systemctl reload'
+    fi
+}
+
+function expect_reconcile_snapshot {
+    local name="$1" root="$2" os_family="$3" expected="$4"
+    local actual="${root}/reconcile-snapshot"
+
+    snapshot_reconcile_artifacts "${root}" "${os_family}" "${actual}"
+    if cmp -s -- "${expected}" "${actual}"; then
+        record_pass "${name} preserves artifact bytes and metadata"
+    else
+        record_fail "${name} preserves artifact bytes and metadata" "snapshot differs"
+    fi
+}
+
+function run_parent_permission_cases {
+    local name="$1" os_family="$2" baseline="${WORKSPACE}/${1}.guest-root"
+    local operation relative_path mode root source rc
+    local snapshot="${WORKSPACE}/${name}.parent-before"
+
+    for operation in apply reconcile seal; do
+        source="${baseline}"
+        [[ "${operation}" != apply ]] || source="${baseline}.before-apply"
+        for relative_path in home home/vmadmin etc run; do
+            for mode in 0775 0777; do
+                root="${WORKSPACE}/${name}.${operation}-parent-${relative_path//\//-}-${mode}"
+                cp -a -- "${source}" "${root}"
+                [[ "${operation}" != seal ]] || write_guest_cloud_init "${root}"
+                chmod "${mode}" "${root}/${relative_path}"
+                snapshot_reconcile_artifacts "${root}" "${os_family}" "${snapshot}"
+                : > "${root}/parent-commands.log"
+                rc=0
+                env "PROXY_GUEST_ROOT=${root}" \
+                    "PROXY_GUEST_COMMAND_LOG=${root}/parent-commands.log" \
+                    "${root}/run/cloud-provision/proxy_contract.bash" \
+                    --test-root "${root}" "${operation}" \
+                    > "${root}/parent-stdout.log" 2> "${root}/parent-stderr.log" || rc=$?
+                expect_exit "${name} ${operation} refuses ${relative_path} ${mode}" 1 "${rc}"
+                expect_contains "${name} ${operation} identifies unsafe ${relative_path}" \
+                    "${root}/parent-stderr.log" 'parent is group or world writable'
+                expect_not_contains "${name} ${operation} omits success on unsafe ${relative_path}" \
+                    "${root}/parent-stdout.log" 'proxy_contract schema='
+                expect_reconcile_snapshot "${name} ${operation} refuses ${relative_path} before mutation" \
+                    "${root}" "${os_family}" "${snapshot}"
+                expect_not_contains "${name} ${operation} skips reload for unsafe ${relative_path}" \
+                    "${root}/parent-commands.log" 'systemctl'
+                expect_not_contains "${name} ${operation} skips clean for unsafe ${relative_path}" \
+                    "${root}/parent-commands.log" 'cloud-init clean --logs'
+            done
+        done
+    done
+}
+
+function run_reconcile_cases {
+    local name="$1" os_family="$2" baseline="${WORKSPACE}/${1}.guest-root"
+    local root identity path mode form format alternate_gid="" group_id expected_mode
+    local snapshot="${WORKSPACE}/${name}.reconcile-before"
+    local baseline_file inode_before
+
+    for group_id in $(id -G); do
+        if [[ "${group_id}" != "$(id -g)" ]]; then
+            alternate_gid="${group_id}"
+            break
+        fi
+    done
+    root="${WORKSPACE}/${name}.reconcile-noop"
+    cp -a -- "${baseline}" "${root}"
+    snapshot_reconcile_artifacts "${root}" "${os_family}" "${snapshot}"
+    inode_before="$(stat -Lc '%i:%y' "${root}/etc/profile.d/95cloud-provision-proxy.sh")"
+    expect_reconcile "${name} unchanged" "${root}" 0 false
+    expect_reconcile_snapshot "${name} unchanged" "${root}" "${os_family}" "${snapshot}"
+    if [[ "$(stat -Lc '%i:%y' "${root}/etc/profile.d/95cloud-provision-proxy.sh")" == "${inode_before}" ]]; then
+        record_pass "${name} unchanged retains the profile inode"
+    else
+        record_fail "${name} unchanged retains the profile inode" "file was replaced"
+    fi
+
+    root="${WORKSPACE}/${name}.reconcile-fresh"
+    cp -a -- "${baseline}.before-apply" "${root}"
+    expect_reconcile "${name} fresh installation" "${root}" 0 true
+    verify_applied_artifacts "${name} fresh reconciliation" "${os_family}" "${root}"
+
+    root="${WORKSPACE}/${name}.reconcile-rotate"
+    cp -a -- "${baseline}" "${root}"
+    sed -i 's/3128/9999/g' "${root}/run/cloud-provision/proxy-contract.input"
+    expect_reconcile "${name} proxy rotation" "${root}" 0 true
+    snapshot_reconcile_artifacts "${root}" "${os_family}" "${snapshot}"
+    expect_reconcile "${name} proxy rotation repeated" "${root}" 0 false
+    expect_reconcile_snapshot "${name} proxy rotation repeated" "${root}" "${os_family}" "${snapshot}"
+    while IFS=$'\t' read -r identity path; do
+        baseline_file="${WORKSPACE}/${name}.${identity}.rotated-expected"
+        sed 's/3128/9999/g' "${baseline}${path}" > "${baseline_file}"
+        if cmp -s -- "${baseline_file}" "${root}${path}"; then
+            record_pass "${name} rotates exact ${identity} content"
+        else
+            record_fail "${name} rotates exact ${identity} content" "content differs"
+        fi
+    done < <(awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os {print $2 "\t" $3}' "${CONTRACT_FIXTURE}")
+
+    while IFS=$'\t' read -r identity path mode form format; do
+        root="${WORKSPACE}/${name}.reconcile-${identity}"
+        cp -a -- "${baseline}" "${root}"
+        if [[ "${format}" == xml ]]; then
+            sed -i 's/3128/9999/g' "${root}${path}"
+        else
+            sed -i '/^# BEGIN CLOUD-PROVISION PROXY CONTRACT$/a# content drift' "${root}${path}"
+        fi
+        chmod 0666 "${root}${path}"
+        if [[ -n "${alternate_gid}" ]]; then
+            chgrp "${alternate_gid}" "${root}${path}"
+        fi
+        expect_reconcile "${name} repairs ${identity}" "${root}" 0 true
+        expected_mode="${mode#0}"
+        if cmp -s -- "${baseline}${path}" "${root}${path}" &&
+           [[ "$(stat -Lc '%u:%g:%a' "${root}${path}")" == "$(id -u):$(id -g):${expected_mode}" ]]; then
+            record_pass "${name} repairs ${identity} content and metadata"
+        else
+            record_fail "${name} repairs ${identity} content and metadata" "fixture content or metadata differs"
+        fi
+        snapshot_reconcile_artifacts "${root}" "${os_family}" "${snapshot}"
+        expect_reconcile "${name} repaired ${identity} repeated" "${root}" 0 false
+        expect_reconcile_snapshot "${name} repaired ${identity} repeated" "${root}" "${os_family}" "${snapshot}"
+
+        root="${WORKSPACE}/${name}.reconcile-missing-${identity}"
+        cp -a -- "${baseline}" "${root}"
+        rm -f -- "${root}${path}"
+        if [[ "${form}" == shared && ( "${identity}" == dnf || "${identity}" == sshd ) ]]; then
+            snapshot_reconcile_artifacts "${root}" "${os_family}" "${snapshot}"
+            expect_reconcile "${name} refuses missing ${identity} baseline" "${root}" 1 false
+            expect_reconcile_snapshot "${name} refuses missing ${identity} baseline" "${root}" "${os_family}" "${snapshot}"
+        else
+            expect_reconcile "${name} restores missing ${identity}" "${root}" 0 true
+            if [[ "${form}" == dedicated ]] && cmp -s -- "${baseline}${path}" "${root}${path}"; then
+                record_pass "${name} restores exact ${identity} content"
+            elif [[ "${form}" == shared ]] && [[ -s "${root}${path}" ]] &&
+                 grep -Fq '# BEGIN CLOUD-PROVISION PROXY CONTRACT' "${root}${path}"; then
+                record_pass "${name} recreates ${identity} contract block"
+            else
+                record_fail "${name} restores missing ${identity}" "content differs or is missing"
+            fi
+        fi
+    done < <(awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os {print $2 "\t" $3 "\t" $6 "\t" $7 "\t" $11}' "${CONTRACT_FIXTURE}")
+
+    root="${WORKSPACE}/${name}.reconcile-reboot"
+    cp -a -- "${baseline}" "${root}"
+    rm -f -- "${root}/run/cloud-provision/proxy-contract.lock"
+    expect_reconcile "${name} recovers missing runtime lock" "${root}" 0 false
+    if [[ -s "${root}/run/cloud-provision/proxy-contract.lock" ]]; then
+        record_pass "${name} recreates runtime lock"
+    else
+        record_fail "${name} recreates runtime lock" "lock absent"
+    fi
+
+    root="${WORKSPACE}/${name}.reconcile-rollback"
+    cp -a -- "${baseline}" "${root}"
+    sed -i '/^# BEGIN CLOUD-PROVISION PROXY CONTRACT$/a# rollback drift' "${root}/etc/environment"
+    chmod 0666 "${root}/etc/environment"
+    if [[ -n "${alternate_gid}" ]]; then
+        chgrp "${alternate_gid}" "${root}/etc/environment"
+    fi
+    rm -f -- "${root}/etc/maven-proxy-settings.xml"
+    snapshot_reconcile_artifacts "${root}" "${os_family}" "${snapshot}"
+    expect_reconcile "${name} reload failure" "${root}" 1 false 1
+    expect_reconcile_snapshot "${name} reload failure rollback" "${root}" "${os_family}" "${snapshot}"
+
+    for identity in symlink hardlink malformed unowned lock input script; do
+        root="${WORKSPACE}/${name}.reconcile-reject-${identity}"
+        cp -a -- "${baseline}" "${root}"
+        case "${identity}" in
+            symlink)
+                mv "${root}/etc/pip.conf" "${root}/unrelated-pip.conf"
+                ln -s "${root}/unrelated-pip.conf" "${root}/etc/pip.conf"
+                ;;
+            hardlink) ln "${root}/etc/pip.conf" "${root}/unrelated-pip.conf" ;;
+            malformed) printf '# BEGIN CLOUD-PROVISION PROXY CONTRACT\n' >> "${root}/etc/pip.conf" ;;
+            unowned) printf 'https_proxy=http://unowned.invalid/\n' >> "${root}/etc/environment" ;;
+            lock) printf 'invalid=1\n' >> "${root}/run/cloud-provision/proxy-contract.lock" ;;
+            input) printf 'invalid=1\n' >> "${root}/run/cloud-provision/proxy-contract.input" ;;
+            script) printf '\n# checksum drift\n' >> "${root}/run/cloud-provision/proxy_contract.bash" ;;
+        esac
+        snapshot_reconcile_artifacts "${root}" "${os_family}" "${snapshot}"
+        expect_reconcile "${name} rejects ${identity}" "${root}" 1 false
+        expect_reconcile_snapshot "${name} rejects ${identity} before mutation" "${root}" "${os_family}" "${snapshot}"
+    done
+
+    root="${WORKSPACE}/${name}.reconcile-unrelated"
+    cp -a -- "${baseline}" "${root}"
+    while IFS=$'\t' read -r identity path; do
+        baseline_file="${WORKSPACE}/${name}.${identity}.outside-before"
+        printf '# unrelated trailing bytes\n' >> "${root}${path}"
+        awk '/^# BEGIN CLOUD-PROVISION PROXY CONTRACT$/ {inside=1; next} /^# END CLOUD-PROVISION PROXY CONTRACT$/ {inside=0; next} !inside' \
+            "${root}${path}" > "${baseline_file}"
+    done < <(awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os && $7 == "shared" {print $2 "\t" $3}' "${CONTRACT_FIXTURE}")
+    expect_reconcile "${name} unrelated content" "${root}" 0 true
+    while IFS=$'\t' read -r identity path; do
+        baseline_file="${WORKSPACE}/${name}.${identity}.outside-before"
+        awk '/^# BEGIN CLOUD-PROVISION PROXY CONTRACT$/ {inside=1; next} /^# END CLOUD-PROVISION PROXY CONTRACT$/ {inside=0; next} !inside' \
+            "${root}${path}" > "${root}/outside-after"
+        if cmp -s -- "${baseline_file}" "${root}/outside-after"; then
+            record_pass "${name} preserves unrelated ${identity} bytes"
+        else
+            record_fail "${name} preserves unrelated ${identity} bytes" "outside block differs"
+        fi
+    done < <(awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os && $7 == "shared" {print $2 "\t" $3}' "${CONTRACT_FIXTURE}")
+}
+
+function expect_concurrent_edit_preserved {
+    local name="$1" root="$2" baseline="$3" os_family="$4"
+    local changed_identity="${5:-environment}" changed_path="${6:-/etc/environment}"
+    local external_line="${7:-SITE_VALUE=preserve}"
+    local identity path expected="${root}/expected-environment" failures=0
+
+    cat "${baseline}${changed_path}" > "${expected}"
+    printf '%s\n' "${external_line}" >> "${expected}"
+    while IFS=$'\t' read -r identity path; do
+        if [[ "${identity}" == "${changed_identity}" ]]; then
+            cmp -s -- "${expected}" "${root}${path}" || failures=$((failures + 1))
+        elif ! cmp -s -- "${baseline}${path}" "${root}${path}" ||
+             [[ "$(stat -Lc '%u:%g:%a:%y' "${baseline}${path}")" != "$(stat -Lc '%u:%g:%a:%y' "${root}${path}")" ]]; then
+            failures=$((failures + 1))
+        fi
+    done < <(awk -F '\t' -v os="${os_family}" 'NR > 1 && $1 == os {print $2 "\t" $3}' "${CONTRACT_FIXTURE}")
+    expect_exit "${name} preserves the external edit and other artifact state" 0 "${failures}"
+}
+
+function run_reconcile_interruption_cases {
+    local name="$1" os_family="$2" baseline="${WORKSPACE}/${1}.guest-root"
+    local root signal snapshot="${WORKSPACE}/${name}.interrupt-before"
+    local first_pid attempts=0 rc=0
+
+    for signal in HUP INT TERM; do
+        root="${WORKSPACE}/${name}.interrupted-${signal}"
+        cp -a -- "${baseline}" "${root}"
+        sed -i '/^# BEGIN CLOUD-PROVISION PROXY CONTRACT$/a# cancellation drift' "${root}/etc/environment"
+        chmod 0666 "${root}/etc/environment"
+        rm -f -- "${root}/etc/maven-proxy-settings.xml"
+        snapshot_reconcile_artifacts "${root}" "${os_family}" "${snapshot}"
+        expect_reconcile "${name} ${signal} interruption" "${root}" 1 false 0 "${signal}"
+        expect_reconcile_snapshot "${name} ${signal} rollback" "${root}" "${os_family}" "${snapshot}"
+        if [[ -z "$(find "${root}" -name '.proxy-contract.*' -print -quit)" ]]; then
+            record_pass "${name} ${signal} removes transaction temporary files"
+        else
+            record_fail "${name} ${signal} removes transaction temporary files" "temporary state remains"
+        fi
+    done
+
+    if [[ "${os_family}" != rocky ]]; then
+        root="${WORKSPACE}/${name}.concurrent-before-install"
+        cp -a -- "${baseline}" "${root}"
+        sed -i 's/3128/9999/g' "${root}/run/cloud-provision/proxy-contract.input"
+        expect_reconcile "${name} concurrent edit before install" "${root}" 1 false 0 '' 1
+        expect_contains "${name} names concurrent edit rejection" "${root}/reconcile-output.log.stderr" 'concurrent change before installation'
+        expect_concurrent_edit_preserved "${name} before-install refusal" "${root}" "${baseline}" "${os_family}"
+
+        root="${WORKSPACE}/${name}.concurrent-before-candidate"
+        cp -a -- "${baseline}" "${root}"
+        sed -i 's/3128/9999/g' "${root}/run/cloud-provision/proxy-contract.input"
+        expect_reconcile "${name} concurrent edit before candidate" "${root}" 1 false 0 '' 2
+        expect_contains "${name} names candidate source conflict" "${root}/reconcile-output.log.stderr" 'concurrent change during rendering'
+        expect_concurrent_edit_preserved "${name} candidate refusal" "${root}" "${baseline}" "${os_family}" \
+            git /etc/gitconfig 'proxy=http://unowned.invalid/'
+    fi
+
+    root="${WORKSPACE}/${name}.concurrent-after-install"
+    cp -a -- "${baseline}" "${root}"
+    sed -i '/^# BEGIN CLOUD-PROVISION PROXY CONTRACT$/a# concurrent repair drift' "${root}/etc/pip.conf"
+    expect_reconcile "${name} concurrent edit after install" "${root}" 1 false 0 '' 0 1
+    expect_contains "${name} retains concurrent environment setting" "${root}/etc/environment" 'SITE_VALUE=preserve'
+    if grep -Fq '# concurrent repair drift' "${root}/etc/pip.conf"; then
+        record_pass "${name} rolls back its own change after the external edit"
+    else
+        record_fail "${name} rolls back its own change after the external edit" "dedicated drift was not restored"
+    fi
+    expect_reconcile "${name} external edit recovery" "${root}" 0 true
+    expect_contains "${name} recovery retains external setting" "${root}/etc/environment" 'SITE_VALUE=preserve'
+    expect_reconcile "${name} external edit recovery repeated" "${root}" 0 false
+
+    root="${WORKSPACE}/${name}.concurrent-rollback"
+    cp -a -- "${baseline}" "${root}"
+    sed -i 's/3128/9999/g' "${root}/run/cloud-provision/proxy-contract.input"
+    expect_reconcile "${name} external edit of replaced artifact" "${root}" 1 false 0 '' 0 1
+    expect_contains "${name} rollback reports preserved external change" "${root}/reconcile-output.log.stderr" 'rollback preserved a concurrent change'
+    expect_contains "${name} rollback keeps external setting" "${root}/etc/environment" 'SITE_VALUE=preserve'
+    expect_reconcile "${name} preserved rollback recovery" "${root}" 0 true
+    expect_reconcile "${name} preserved rollback recovery repeated" "${root}" 0 false
+
+    root="${WORKSPACE}/${name}.serialized-reconcile"
+    cp -a -- "${baseline}" "${root}"
+    sed -i 's/3128/9999/g' "${root}/run/cloud-provision/proxy-contract.input"
+    env "PROXY_GUEST_ROOT=${root}" "PROXY_GUEST_COMMAND_LOG=${root}/first-commands.log" \
+        PROXY_GUEST_HOLD_RELOAD=1 "${root}/run/cloud-provision/proxy_contract.bash" \
+        --test-root "${root}" reconcile > "${root}/first-output.log" 2> "${root}/first-output.stderr" &
+    first_pid=$!
+    while [[ ! -e "${root}/reload-ready" ]] && (( attempts < 200 )); do
+        sleep 0.05
+        attempts=$((attempts + 1))
+    done
+    if [[ -e "${root}/reload-ready" ]]; then
+        expect_reconcile "${name} rejects simultaneous reconciliation" "${root}" 1 false
+        expect_contains "${name} reports the active reconciliation" "${root}/reconcile-output.log.stderr" 'another reconciliation is running'
+    else
+        record_fail "${name} reaches the serialized reload boundary" "first run did not reach reload"
+    fi
+    : > "${root}/reload-release"
+    wait "${first_pid}" || rc=$?
+    expect_exit "${name} first serialized reconciliation completes" 0 "${rc}"
+    expect_reconcile "${name} serialized reconciliation repeated" "${root}" 0 false
 }
 
 function run_shared_newline_boundary_case {
@@ -1134,6 +1519,7 @@ function run_case {
     case "${label}" in
         debian-proxy) run_staged_apply "${label}" debian "${capture_file}" ;;
         rocky-proxy) run_staged_apply "${label}" rocky "${capture_file}" ;;
+        ubuntu-proxy) run_staged_apply "${label}" ubuntu "${capture_file}" ;;
     esac
 
     if grep -Fq -- "proxy.example.test:3128" "${output_file}"; then
@@ -1224,6 +1610,16 @@ run_case debian12-proxy debian12 one
 run_case ubuntu26-proxy ubuntu26 one
 run_case multiple-proxy debian13 multiple
 run_case shell-active-proxy debian13 shell-active
+
+run_parent_permission_cases debian-proxy debian
+run_parent_permission_cases rocky-proxy rocky
+run_parent_permission_cases ubuntu-proxy ubuntu
+run_reconcile_cases debian-proxy debian
+run_reconcile_cases rocky-proxy rocky
+run_reconcile_cases ubuntu-proxy ubuntu
+run_reconcile_interruption_cases debian-proxy debian
+run_reconcile_interruption_cases rocky-proxy rocky
+run_reconcile_interruption_cases ubuntu-proxy ubuntu
 
 run_missing_guest_command_case debian-proxy
 run_identity_symlink_cases identity-symlink

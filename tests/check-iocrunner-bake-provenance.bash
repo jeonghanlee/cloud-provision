@@ -236,13 +236,17 @@ function prepare_proxy_guest_root {
         "${root}/var/lib/cloud/seed/nocloud" \
         "${root}/var/log"
     chmod 0755 \
+        "${root}" \
         "${root}/etc" \
         "${root}/etc/profile.d" \
+        "${root}/etc/apt" \
         "${root}/etc/apt/apt.conf.d" \
         "${root}/etc/dnf" \
         "${root}/etc/sudoers.d" \
         "${root}/etc/ssh" \
         "${root}/etc/ssh/sshd_config.d" \
+        "${root}/home" \
+        "${root}/home/vmadmin" \
         "${root}/run" \
         "${root}/run/cloud-provision"
     chmod 0700 "${root}/home/vmadmin/.ssh"

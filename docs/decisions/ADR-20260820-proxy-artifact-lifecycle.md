@@ -89,6 +89,97 @@ supported `cloud-init clean` as the terminal guest mutation, and verifies the
 selected cloud-init state and logs are absent. Publication begins only after
 the exact sealed VM is stopped and its exact source disk is confirmed.
 
+### Live proxy reconciliation
+
+`apply` is the initial-install operation and refuses an existing owned path or
+marker. `reconcile` is the Live/Instant operation for an initial install or a
+re-apply. Both use the same inventory, schema-1 input, staged-script checksum,
+root requirement and privileged Bash execution. After staging the script as
+`root:root`, `0700`, the caller stages `proxy-contract.input` as `root:root`,
+`0600`, with exactly these fields (values are parsed as data, not shell):
+
+```text
+schema=1
+proxy_url=<site-proxy-url>
+script_sha256=<sha256-of-the-staged-script>
+```
+
+The caller then runs:
+
+```bash
+/bin/bash -p /run/cloud-provision/proxy_contract.bash reconcile
+```
+
+Reconcile preflights the complete applicable set and renders every candidate
+before installing any artifact. It restores missing dedicated artifacts and
+the shared `environment` and `git` files, corrects the owned content and owner
+and group, and sets dedicated-file modes to their inventory values. A safe
+shared-file mode is preserved; a mode carrying special bits or group or world
+write permission returns to its inventory baseline. Shared-file bytes outside
+the owned block remain intact. A valid block in the wrong dnf or sshd scope is
+relocated into `[main]` or the global scope. Dedicated files belong wholly to
+the contract; hash-comment files must retain a valid enclosing marker pair,
+and the XML Maven artifact has no markers.
+
+Symlinks, multiple hard links, non-regular artifacts, unsafe parents,
+malformed markers and competing unowned proxy keys fail before installation.
+Every parent directory through the selected root must have the expected owner
+and group and no group or world write permission. System ancestors are owned
+by root; the vmadmin home and its SSH directory are owned by vmadmin.
+Missing dnf or Rocky sshd shared files also fail: reconcile does not reconstruct
+the site's package-manager or SSH baseline. Debian and Ubuntu still require
+the global sshd include. Input, staged script and an existing runtime lock
+must retain valid metadata and schema; artifact repair does not repair these
+control files.
+
+Only artifacts whose content or required metadata differ are replaced, using
+a temporary file in the destination directory followed by rename. Installed
+content, metadata and effective sshd settings are checked. Changed runs reload
+sshd; unchanged runs do not reload it or replace correct artifacts. If an
+installation, installed-state check, reload or lock update fails, already
+replaced artifacts are restored from backups, including their original bytes,
+owner, group, mode and modification time. A rollback failure is reported as an
+error. Neither reconcile nor its rollback runs seal or cloud-init cleanup.
+
+Reconcile requires `flock` and holds an exclusive, nonblocking lock on the
+existing runtime directory until the process exits. A second reconcile call
+fails without installing artifacts; no additional lock file is created.
+Source snapshots are bound to the initial preflight, and candidates are
+rendered from checked backups. A source change during candidate preparation
+fails before installation.
+Before installation, before each replacement, and before the runtime-lock
+commit, reconcile compares source or installed snapshots using bytes, inode,
+link count, owner, group, mode, size, mtime and ctime. An external change causes
+failure. Rollback restores only files that still match this run's installed
+snapshot; it preserves external changes and reports an incomplete rollback.
+The caller must exclude unrelated configuration writers while reconciliation
+runs. Directory locking serializes reconcile calls; snapshot checks are not an
+atomic compare-and-rename against arbitrary writers that ignore that lock.
+
+HUP, INT and TERM request cancellation. The current file replacement finishes,
+then replaced artifacts and any replaced runtime lock are rolled back before
+temporary backups are removed. Rollback ignores further cancellation signals
+so it can finish. The commit boundary precedes the success result; signals
+after that boundary do not undo the completed operation. SIGKILL, host failure
+and power loss cannot run rollback.
+
+Diagnostic command output goes to stderr. On success stdout has one
+value-free result line:
+
+```text
+proxy_contract schema=1 mode=reconcile os=rocky identities=8 changed=false
+```
+
+`changed=true` means at least one final artifact needed installation or repair;
+`changed=false` means no final artifact changed. Recreating a missing transient
+runtime lock alone does not count as a change. An existing lock preserves its
+shared-file creation history, and newly created shared files are added to that
+history. After a reboot removes the lock, its reconstruction records only files
+created during the current run; it does not infer earlier creation history.
+Failure returns nonzero and prints no successful change result. Callers use the
+exit status and the exact `changed` field, rather than a profile marker, to
+determine the outcome.
+
 The independent fixture under `tests/fixtures/` is not a production input. Its
 eleven-field tuples must equal the production inventory. Public local tests run
 the shipped producer and IOC bake caller with only outer command, SSH transport,

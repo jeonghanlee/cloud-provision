@@ -21,7 +21,7 @@ SC_TOP="${SC_RPATH%/*}/.."
 SC_TOP="$(realpath "${SC_TOP}")"
 
 readonly PROXY_CONTRACT="${SC_TOP}/bin/proxy_contract.bash"
-readonly PROXY_CONTRACT_SHA256="2215e3fc4e93dde0f28d5086d384c13f1811c5d75e3b73925536c17ac6c753da"
+readonly PROXY_CONTRACT_SHA256="5ffa8b3078460577a47b880f25b179dcd3f0803432290b5408a5c574da94b16b"
 
 # The verifier mirrors only value-free paths, markers, and key names from the
 # shipped proxy contract. The pinned digest makes inventory drift fail closed
