@@ -10,6 +10,8 @@ declare -gr PROXY_CONTRACT_NO_PROXY="localhost,127.0.0.1,192.168.0.0/16"
 # Maven nonProxyHosts is a "|"-separated wildcard list and cannot express CIDR.
 declare -gr PROXY_CONTRACT_NO_PROXY_MAVEN="localhost|127.0.0.1|192.168.*"
 declare -gr PROXY_CONTRACT_EXEC_PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+declare -gr PROXY_CONTRACT_GENERAL_SERVER_ID="rocky"
+declare -gr PROXY_CONTRACT_GENERAL_SERVER_VERSION="8.10"
 
 declare -gr PROXY_CONTRACT_PROFILE="/etc/profile.d/95cloud-provision-proxy.sh"
 declare -gr PROXY_CONTRACT_ENVIRONMENT="/etc/environment"
@@ -42,6 +44,10 @@ declare -g PROXY_CONTRACT_SYSTEMCTL=""
 declare -g PROXY_CONTRACT_WORK_DIR=""
 declare -g PROXY_CONTRACT_INPUT_URL=""
 declare -g PROXY_CONTRACT_INPUT_HASH=""
+declare -g PROXY_CONTRACT_INPUT_SCHEMA=1
+declare -g PROXY_CONTRACT_SCOPE="cloud"
+declare -g PROXY_CONTRACT_INPUT_LOADED=false
+declare -g PROXY_CONTRACT_OPERATION=""
 declare -g PROXY_CONTRACT_INTERRUPTED=false
 declare -ag PROXY_CONTRACT_CLEAN_ARGS=()
 declare -ag PROXY_CONTRACT_CREATED_IDENTITIES=()
@@ -376,8 +382,8 @@ function proxy_contract_resolve_os_release {
 }
 
 function proxy_contract_parse_os_release {
-    local path line value=""
-    local id_count=0
+    local path line value="" version=""
+    local id_count=0 version_count=0
 
     if ! path="$(proxy_contract_resolve_os_release)"; then
         return 1
@@ -386,6 +392,9 @@ function proxy_contract_parse_os_release {
         if [[ "${line}" =~ ^ID=(.*)$ ]]; then
             value="${BASH_REMATCH[1]}"
             id_count=$((id_count + 1))
+        elif [[ "${line}" =~ ^VERSION_ID=(.*)$ ]]; then
+            version="${BASH_REMATCH[1]}"
+            version_count=$((version_count + 1))
         fi
     done < "${path}"
     if [[ "${id_count}" != 1 ]]; then
@@ -399,6 +408,17 @@ function proxy_contract_parse_os_release {
     if [[ ! "${value}" =~ ^[a-z0-9._-]+$ ]]; then
         proxy_contract_die "/etc/os-release contains an invalid ID field"
         return 1
+    fi
+    if [[ "${PROXY_CONTRACT_SCOPE}" == general-server ]]; then
+        case "${version}" in
+            \"*\") version="${version#\"}"; version="${version%\"}" ;;
+            \'*\') version="${version#\'}"; version="${version%\'}" ;;
+        esac
+        if [[ "${value}" != "${PROXY_CONTRACT_GENERAL_SERVER_ID}" ||
+              "${version_count}" != 1 || "${version}" != "${PROXY_CONTRACT_GENERAL_SERVER_VERSION}" ]]; then
+            proxy_contract_die "general-server requires ID=rocky and exactly one VERSION_ID=8.10"
+            return 1
+        fi
     fi
     proxy_contract_os_family "${value}"
 }
@@ -416,6 +436,10 @@ function proxy_contract_inventory_add {
     local -n formats_ref="${10}"
     shift 10
 
+    if [[ "${PROXY_CONTRACT_SCOPE}" == general-server &&
+          ( "$1" == sshd || "$1" == ssh-environment ) ]]; then
+        return 0
+    fi
     identities_ref+=("$1")
     paths_ref+=("$2")
     owners_ref+=("$3")
@@ -458,6 +482,11 @@ function proxy_contract_inventory {
     remnants_ref=()
     formats_ref=()
 
+    case "${PROXY_CONTRACT_SCOPE}:${os_family}" in
+        cloud:debian|cloud:ubuntu|cloud:rocky|general-server:rocky) ;;
+        *) proxy_contract_die "contains an unsupported inventory scope"; return 1 ;;
+    esac
+
     proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" profile "${PROXY_CONTRACT_PROFILE}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:profile
     proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" environment "${PROXY_CONTRACT_ENVIRONMENT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:environment
     case "${os_family}" in
@@ -487,6 +516,11 @@ function proxy_contract_validate_inventory_entry {
     local format="${11}"
     local expected=""
 
+    if [[ "${PROXY_CONTRACT_SCOPE}" == general-server &&
+          ( "${os_family}" != rocky || "${identity}" == sshd || "${identity}" == ssh-environment ) ]]; then
+        proxy_contract_die "contains an identity outside the general-server scope"
+        return 1
+    fi
     case "${os_family}:${identity}" in
         debian:profile|ubuntu:profile|rocky:profile) expected="${PROXY_CONTRACT_PROFILE}|root|root|0644|dedicated|hash-comment" ;;
         debian:environment|ubuntu:environment|rocky:environment) expected="${PROXY_CONTRACT_ENVIRONMENT}|root|root|0644|shared|hash-comment" ;;
@@ -514,6 +548,7 @@ function proxy_contract_validate_inventory_entry {
 
 function proxy_contract_print_inventory {
     local os_family="$1" index
+    local PROXY_CONTRACT_SCOPE="${2:-${PROXY_CONTRACT_SCOPE}}"
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
     local -a markers=() cleanups=() remnants=() formats=()
 
@@ -1124,8 +1159,8 @@ function proxy_contract_validate_transient_file {
 
 function proxy_contract_parse_input {
     local path line
-    local schema="" proxy_url="" script_hash=""
-    local schema_count=0 proxy_count=0 hash_count=0
+    local schema="" proxy_url="" script_hash="" scope=""
+    local schema_count=0 proxy_count=0 hash_count=0 scope_count=0
 
     proxy_contract_validate_transient_file \
         contract-input "${PROXY_CONTRACT_INPUT}" 0600 || return 1
@@ -1144,6 +1179,10 @@ function proxy_contract_parse_input {
                 script_hash="${line#script_sha256=}"
                 hash_count=$((hash_count + 1))
                 ;;
+            scope=*)
+                scope="${line#scope=}"
+                scope_count=$((scope_count + 1))
+                ;;
             *)
                 proxy_contract_die "contract input contains an unknown field"
                 return 1
@@ -1151,12 +1190,30 @@ function proxy_contract_parse_input {
         esac
     done < "${path}"
     if [[ "${schema_count}" != 1 || "${proxy_count}" != 1 ||
-          "${hash_count}" != 1 || "${schema}" != 1 ||
+          "${hash_count}" != 1 ||
           ! "${script_hash}" =~ ^[0-9a-f]{64}$ ]]; then
-        proxy_contract_die "contract input does not match schema 1"
+        proxy_contract_die "contract input has invalid required fields"
+        return 1
+    fi
+    case "${schema}:${scope_count}:${scope}" in
+        1:0:) scope=cloud ;;
+        2:1:general-server)
+            if [[ "${PROXY_CONTRACT_OPERATION}" != reconcile ]]; then
+                proxy_contract_die "schema 2 general-server supports reconcile only"
+                return 1
+            fi
+            ;;
+        *) proxy_contract_die "contract input has an unsupported schema or scope"; return 1 ;;
+    esac
+    if [[ "${PROXY_CONTRACT_INPUT_LOADED}" == true &&
+          ( "${schema}" != "${PROXY_CONTRACT_INPUT_SCHEMA}" || "${scope}" != "${PROXY_CONTRACT_SCOPE}" ) ]]; then
+        proxy_contract_die "contract input scope changed during execution"
         return 1
     fi
     proxy_contract_validate_url "${proxy_url}" || return 1
+    PROXY_CONTRACT_INPUT_SCHEMA="${schema}"
+    PROXY_CONTRACT_SCOPE="${scope}"
+    PROXY_CONTRACT_INPUT_LOADED=true
     PROXY_CONTRACT_INPUT_URL="${proxy_url}"
     PROXY_CONTRACT_INPUT_HASH="${script_hash}"
 }
@@ -1175,6 +1232,16 @@ function proxy_contract_validate_staged_script {
     fi
 }
 
+function proxy_contract_print_lock {
+    local created_csv="$1"
+
+    printf 'schema=%s\n' "${PROXY_CONTRACT_INPUT_SCHEMA}"
+    if [[ "${PROXY_CONTRACT_INPUT_SCHEMA}" == 2 ]]; then
+        printf 'scope=%s\n' "${PROXY_CONTRACT_SCOPE}"
+    fi
+    printf 'state=applied\ncreated=%s\n' "${created_csv}"
+}
+
 function proxy_contract_write_lock {
     local path="$1"
     local created_csv="$2"
@@ -1185,12 +1252,12 @@ function proxy_contract_write_lock {
     fi
     chown "${PROXY_CONTRACT_ROOT_UID}:${PROXY_CONTRACT_ROOT_GID}" "${path}" || return 1
     chmod 0600 "${path}" || return 1
-    printf 'schema=1\nstate=applied\ncreated=%s\n' "${created_csv}" > "${path}"
+    proxy_contract_print_lock "${created_csv}" > "${path}"
 }
 
 function proxy_contract_parse_lock {
-    local path line schema="" state="" created="" identity
-    local schema_count=0 state_count=0 created_count=0
+    local path line schema="" state="" created="" identity scope=""
+    local schema_count=0 state_count=0 created_count=0 scope_count=0
     local -a values=()
 
     proxy_contract_validate_transient_file \
@@ -1210,6 +1277,10 @@ function proxy_contract_parse_lock {
                 created="${line#created=}"
                 created_count=$((created_count + 1))
                 ;;
+            scope=*)
+                scope="${line#scope=}"
+                scope_count=$((scope_count + 1))
+                ;;
             *)
                 proxy_contract_die "contract-lock contains an unknown field"
                 return 1
@@ -1217,10 +1288,14 @@ function proxy_contract_parse_lock {
         esac
     done < "${path}"
     if [[ "${schema_count}" != 1 || "${state_count}" != 1 ||
-          "${created_count}" != 1 || "${schema}" != 1 || "${state}" != applied ]]; then
-        proxy_contract_die "contract-lock does not match schema 1"
+          "${created_count}" != 1 || "${schema}" != "${PROXY_CONTRACT_INPUT_SCHEMA}" || "${state}" != applied ]]; then
+        proxy_contract_die "contract-lock does not match the selected schema"
         return 1
     fi
+    case "${schema}:${scope_count}:${scope}:${PROXY_CONTRACT_SCOPE}" in
+        1:0::cloud|2:1:general-server:general-server) ;;
+        *) proxy_contract_die "contract-lock does not match the selected scope"; return 1 ;;
+    esac
     PROXY_CONTRACT_CREATED_IDENTITIES=()
     if [[ -n "${created}" ]]; then
         IFS=',' read -r -a values <<< "${created}"
@@ -1338,6 +1413,7 @@ function proxy_contract_preflight_cloud_init {
 function proxy_contract_preflight_apply_commands {
     local os_family="$1"
 
+    [[ "${PROXY_CONTRACT_SCOPE}" != general-server ]] || return 0
     proxy_contract_resolve_guest_command sshd PROXY_CONTRACT_SSHD || return 1
     proxy_contract_resolve_guest_command \
         systemctl PROXY_CONTRACT_SYSTEMCTL || return 1
@@ -1350,6 +1426,7 @@ function proxy_contract_preflight_apply_commands {
 function proxy_contract_sshd_effective {
     local output config_path
 
+    [[ "${PROXY_CONTRACT_SCOPE}" != general-server ]] || return 0
     config_path="$(proxy_contract_root_path "${PROXY_CONTRACT_SSHD_MAIN}")"
     if ! output="$("${PROXY_CONTRACT_SSHD}" -T -f "${config_path}" \
         -C user=vmadmin,host=localhost,addr=127.0.0.1 2>&1)"; then
@@ -1369,6 +1446,7 @@ function proxy_contract_reload_sshd {
     local os_family="$1"
     local service
 
+    [[ "${PROXY_CONTRACT_SCOPE}" != general-server ]] || return 0
     if [[ "${os_family}" == rocky ]]; then
         service=sshd
     else
@@ -1765,7 +1843,7 @@ function proxy_contract_reconcile {
     done
     lock_candidate="${PROXY_CONTRACT_WORK_DIR}/lock-candidate"
     candidates[lock_index]="${lock_candidate}"
-    printf 'schema=1\nstate=applied\ncreated=%s\n' "${created_csv}" > "${lock_candidate}" || return 1
+    proxy_contract_print_lock "${created_csv}" > "${lock_candidate}" || return 1
     for index in "${!rooted_paths[@]}"; do
         if ! proxy_contract_matches_snapshot "${rooted_paths[index]}" \
             "${source_states[index]}" "${backups[index]}"; then
@@ -1851,8 +1929,13 @@ function proxy_contract_reconcile {
         proxy_contract_die "reconcile failed; no successful change result"
         return 1
     fi
-    printf 'proxy_contract schema=1 mode=reconcile os=%s identities=%s changed=%s\n' \
-        "${os_family}" "${#identities[@]}" "${changed}"
+    if [[ "${PROXY_CONTRACT_SCOPE}" == general-server ]]; then
+        printf 'proxy_contract schema=2 mode=reconcile scope=general-server os=%s identities=%s changed=%s\n' \
+            "${os_family}" "${#identities[@]}" "${changed}"
+    else
+        printf 'proxy_contract schema=1 mode=reconcile os=%s identities=%s changed=%s\n' \
+            "${os_family}" "${#identities[@]}" "${changed}"
+    fi
 }
 
 function proxy_contract_any_artifact_present {
@@ -2069,11 +2152,11 @@ function proxy_contract_configure_root {
         PROXY_CONTRACT_ROOT_UID="${EUID}"
         PROXY_CONTRACT_ROOT_GID="$(id -g)"
     fi
-    proxy_contract_parse_passwd
+    return 0
 }
 
 function proxy_contract_main {
-    local test_root="" os_family
+    local test_root="" os_family input_path
     local -a operands=()
 
     umask 077
@@ -2105,7 +2188,21 @@ function proxy_contract_main {
 
     unset BASH_ENV ENV CDPATH TMPDIR TMP TEMP
     export LC_ALL=C
+    PROXY_CONTRACT_OPERATION="${operands[0]}"
+    PROXY_CONTRACT_SCOPE=cloud
+    PROXY_CONTRACT_INPUT_SCHEMA=1
+    PROXY_CONTRACT_INPUT_LOADED=false
     proxy_contract_configure_root "${test_root}" || return 1
+    input_path="$(proxy_contract_root_path "${PROXY_CONTRACT_INPUT}")"
+    # Select the input scope before account lookup or guest command preflight.
+    # Cloud cleanup also permits an absent input after transient state removal.
+    if [[ "${PROXY_CONTRACT_OPERATION}" == apply || "${PROXY_CONTRACT_OPERATION}" == reconcile ||
+          -e "${input_path}" || -L "${input_path}" ]]; then
+        proxy_contract_parse_input || return 1
+    fi
+    if [[ "${PROXY_CONTRACT_SCOPE}" == cloud ]]; then
+        proxy_contract_parse_passwd || return 1
+    fi
     trap proxy_contract_cleanup_temps EXIT
     trap 'exit 1' HUP INT TERM
     if [[ "${operands[0]}" == reconcile ]]; then

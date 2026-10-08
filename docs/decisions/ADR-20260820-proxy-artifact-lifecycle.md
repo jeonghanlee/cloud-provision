@@ -21,12 +21,12 @@ use, seal, and value-free clean verification. It accepts a regular
 selected root. Absolute, dangling, escaping, parent-link, duplicate-ID,
 invalid-ID, and unsupported-family inputs fail closed. A test root must be an
 existing absolute directory, may not be the selected link itself, and may not
-resolve to `/`. In test mode, `cloud-init`, `visudo`, `sshd`, and `systemctl`
-must each be, at their exact guest paths below that root, an executable regular
+resolve to `/`. In cloud test mode, required `cloud-init`, `visudo`, `sshd`, and
+`systemctl` commands must each be, at their exact guest paths below that root, an executable regular
 file or a symbolic link that resolves within that root to one; a link that
 leaves the root fails and there is no host fallback.
 
-The production inventory is exact:
+The cloud production inventory is exact:
 
 | Identity | Families | Path | Owner | Mode | Form |
 | --- | --- | --- | --- | --- | --- |
@@ -91,7 +91,7 @@ the exact sealed VM is stopped and its exact source disk is confirmed.
 
 ### Live proxy reconciliation
 
-`apply` is the initial-install operation and refuses an existing owned path or
+In the cloud scope, `apply` is the initial-install operation and refuses an existing owned path or
 marker. `reconcile` is the Live/Instant operation for an initial install or a
 re-apply. Both use the same inventory, schema-1 input, staged-script checksum,
 root requirement and privileged Bash execution. After staging the script as
@@ -179,6 +179,78 @@ created during the current run; it does not infer earlier creation history.
 Failure returns nonzero and prints no successful change result. Callers use the
 exit status and the exact `changed` field, rather than a profile marker, to
 determine the outcome.
+
+### General-server reconciliation
+
+General-server reconciliation supports Rocky Linux 8.10. The same safe
+`/etc/os-release` resolver is used, with exactly one `ID=rocky` and exactly one
+`VERSION_ID=8.10` required. Unquoted, single-quoted and double-quoted values
+are accepted. Other identities, versions, missing or duplicate fields, and
+malformed values fail before artifact installation. Values are parsed as data.
+The version requirement applies only to the general-server scope; cloud
+schema-1 inputs and their existing OS-family rules remain unchanged.
+
+Callers explicitly select this scope through a schema-2 input file, staged at
+the same root-owned control paths and modes used by cloud callers:
+
+```text
+schema=2
+scope=general-server
+proxy_url=<site-proxy-url>
+script_sha256=<sha256-of-the-staged-script>
+```
+
+The four fields are required exactly once; unknown fields and unsupported
+schema/scope combinations fail. Schema 1 accepts its original three fields
+without a scope field. General-server schema 2 supports `reconcile` only.
+The command remains:
+
+```bash
+/bin/bash -p /run/cloud-provision/proxy_contract.bash reconcile
+```
+
+The general-server inventory contains exactly six root-owned artifacts:
+`profile`, `environment`, `dnf`, `pip`, `git`, and `maven`, at the paths and
+metadata defined in the cloud inventory table. It does not require a
+`vmadmin` passwd entry, create an account or home directory, or read or modify
+account credentials and user SSH environment files. SSH configuration and
+service settings are outside this scope; success, rejection and rollback do
+not resolve or execute `sshd`, `systemctl`, or `cloud-init` commands.
+
+The shared-file preservation, dedicated-file rendering, ownership and mode
+repair, safe-parent validation, checksum binding, directory lock, snapshot
+checks, cancellation and rollback rules remain the same. Missing dedicated
+files and shared environment/Git files are created. The site's existing
+`/etc/dnf/dnf.conf` and its single `[main]` section remain required; the
+contract does not reconstruct a missing package-manager baseline. Maven's
+dedicated XML is produced here and consumed through `mvn -gs`.
+
+The runtime lock is root-owned mode `0600` and records `schema=2`,
+`scope=general-server`, `state=applied` and `created`. An existing lock must
+match the selected schema and scope before any artifact is replaced. There
+is no automatic conversion of an existing lock or removal of files outside
+the selected scope. Reconstructing a missing runtime lock retains the same
+change-state and creation-history rules as cloud reconciliation.
+
+Success has exactly one value-free stdout line:
+
+```text
+proxy_contract schema=2 mode=reconcile scope=general-server os=rocky identities=6 changed=false
+```
+
+Callers must validate the schema and scope corresponding to their input as
+well as the exit status and exact change field. The cloud schema-1 result
+format remains unchanged. A profile marker never substitutes for inspecting
+the complete selected inventory.
+
+`tests/fixtures/proxy-general-server-artifacts.tsv` independently specifies
+the six general-server tuples. Local tests execute the shipped CLI without a
+VM account or SSH tools, compare its artifacts with the real cloud-produced
+files, and cover restoration, unchanged application, malformed inputs,
+version/scope rejection, file safety, and rollback after a real filesystem
+installation failure. These local checks do not establish real-target Ansible
+acceptance, which requires a separately authorized Rocky 8.10 target without
+`vmadmin` and execution of the shipped role and producer.
 
 The independent fixture under `tests/fixtures/` is not a production input. Its
 eleven-field tuples must equal the production inventory. Public local tests run
