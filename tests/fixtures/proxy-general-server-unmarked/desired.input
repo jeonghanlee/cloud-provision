@@ -1,0 +1,7 @@
+schema=3
+scope=general-server
+existing_keys=reconcile
+proxy_url=http://proxy.example.org:3128
+no_proxy=localhost,127.0.0.1,.example.org
+maven_non_proxy_hosts=localhost|127.0.0.1|*.example.org
+script_sha256=@SCRIPT_SHA256@

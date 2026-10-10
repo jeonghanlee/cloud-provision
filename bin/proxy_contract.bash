@@ -2155,8 +2155,542 @@ function proxy_contract_configure_root {
     return 0
 }
 
+function proxy_contract_check {
+    local test_root="$1" input_fd="$2" source_path="$3"
+    local python="" candidate index
+    local -a identities=() paths=() owners=() groups=() modes=() forms=()
+    local -a markers=() cleanups=() remnants=() formats=() inventory=()
+
+    if [[ ! "${input_fd}" =~ ^[1-9][0-9]?$ ]] ||
+       (( 10#${input_fd} < 3 || 10#${input_fd} > 63 )); then
+        printf '%s\n' 'proxy_contract identity=input key=fd reason=invalid-fd' >&2
+        return 1
+    fi
+    if [[ -z "${test_root}" ]]; then
+        if (( EUID != 0 )) || [[ ! -o privileged ]]; then
+            printf '%s\n' 'proxy_contract identity=runtime key=execution reason=privileged-root-required' >&2
+            return 1
+        fi
+    elif [[ "${test_root}" == / ]]; then
+        printf '%s\n' 'proxy_contract identity=runtime key=root reason=unsafe-test-root' >&2
+        return 1
+    fi
+    for candidate in /usr/bin/python3 /usr/libexec/platform-python; do
+        if [[ -x "${candidate}" ]]; then
+            python="${candidate}"
+            break
+        fi
+    done
+    if [[ -z "${python}" ]]; then
+        printf '%s\n' 'proxy_contract identity=runtime key=python reason=missing-interpreter' >&2
+        return 1
+    fi
+    PROXY_CONTRACT_SCOPE=general-server
+    proxy_contract_inventory rocky identities paths owners groups modes forms \
+        markers cleanups remnants formats || return 1
+    for index in "${!identities[@]}"; do
+        inventory+=("${identities[index]}" "${paths[index]}")
+    done
+    # The parser is part of this source artifact; -I -B avoids inherited Python
+    # configuration and bytecode writes. Configuration is always data, never code.
+    "${python}" -I -B -c '
+import errno
+import fcntl
+import hashlib
+import os
+import re
+import stat
+import sys
+import urllib.parse
+import xml.etree.ElementTree as ET
+
+MAX_INPUT = 65536
+MAX_FILE = 1048576
+MAX_SOURCE = 4194304
+OWNER_UID = os.geteuid() if sys.argv[1] else 0
+OWNER_GID = os.getegid() if sys.argv[1] else 0
+FIELDS = {"schema", "scope", "existing_keys", "proxy_url", "no_proxy",
+          "maven_non_proxy_hosts", "script_sha256"}
+IDENTITIES = {"profile", "environment", "dnf", "pip", "git", "maven"}
+PROXY_KEYS = ("http_proxy", "https_proxy", "ftp_proxy", "no_proxy",
+              "HTTP_PROXY", "HTTPS_PROXY", "FTP_PROXY", "NO_PROXY")
+MAVEN_NAMESPACE = "http://maven.apache.org/SETTINGS/1.0.0"
+SEALS = getattr(fcntl, "F_GET_SEALS", 1034)
+ALL_SEALS = 15
+READ_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOATIME
+DIR_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_NOATIME
+
+
+class Refusal(Exception):
+    def __init__(self, identity, key, reason):
+        self.identity, self.key, self.reason = identity, key, reason
+
+
+def refuse(identity, key, reason):
+    raise Refusal(identity, key, reason)
+
+
+def diagnostic(identity, key, reason):
+    print("proxy_contract identity={} key={} reason={}".format(identity, key, reason),
+          file=sys.stderr)
+
+
+def signature(value):
+    return (value.st_dev, value.st_ino, value.st_uid, value.st_gid, value.st_mode,
+            value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def metadata(identity, value, directory=False):
+    if value.st_uid != OWNER_UID or value.st_gid != OWNER_GID:
+        refuse(identity, "metadata", "ownership-conflict")
+    if value.st_mode & 0o7022:
+        refuse(identity, "metadata", "unsafe-mode")
+    required = 0o500 if directory else 0o400
+    if value.st_mode & required != required:
+        refuse(identity, "metadata", "unreadable-mode")
+    if directory:
+        if not stat.S_ISDIR(value.st_mode):
+            refuse(identity, "path", "not-directory")
+    elif not stat.S_ISREG(value.st_mode) or value.st_nlink != 1:
+        refuse(identity, "path", "not-single-regular-file")
+
+
+def read_fd(fd, limit, identity):
+    chunks = []
+    size = 0
+    while size <= limit:
+        part = os.read(fd, min(65536, limit + 1 - size))
+        if not part:
+            return b"".join(chunks)
+        chunks.append(part)
+        size += len(part)
+    refuse(identity, "content", "too-large")
+
+
+def source_state(path):
+    match = re.fullmatch("/(?:proc/self/fd|dev/fd)/([0-9]+)", path)
+    fd = os.open("/proc/self/fd/" + match.group(1), os.O_RDONLY | os.O_CLOEXEC | os.O_NOATIME) \
+        if match else os.open(path, READ_FLAGS)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            refuse("source", "script_sha256", "not-regular")
+        if before.st_nlink == 0 and match:
+            if fcntl.fcntl(fd, SEALS) & ALL_SEALS != ALL_SEALS:
+                refuse("source", "script_sha256", "unsealed-source")
+        else:
+            metadata("source", before)
+        data = read_fd(fd, MAX_SOURCE, "source")
+        if signature(before) != signature(os.fstat(fd)):
+            refuse("source", "script_sha256", "concurrent-change")
+        return signature(before), hashlib.sha256(data).hexdigest()
+    finally:
+        os.close(fd)
+
+
+def input_data(fd):
+    value = os.fstat(fd)
+    if fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE != os.O_RDONLY:
+        refuse("input", "fd", "not-read-only")
+    if value.st_uid != OWNER_UID or value.st_gid != OWNER_GID \
+            or stat.S_IMODE(value.st_mode) != 0o600:
+        refuse("input", "fd", "not-private")
+    if not stat.S_ISREG(value.st_mode):
+        refuse("input", "fd", "unsupported-fd")
+    if value.st_nlink not in (0, 1):
+        refuse("input", "fd", "unsafe-links")
+    reader = os.open("/proc/self/fd/" + str(fd), os.O_RDONLY | os.O_CLOEXEC | os.O_NOATIME)
+    try:
+        if signature(value) != signature(os.fstat(reader)):
+            refuse("input", "fd", "concurrent-change")
+        data = read_fd(reader, MAX_INPUT, "input").decode("ascii")
+        if signature(value) != signature(os.fstat(reader)):
+            refuse("input", "fd", "concurrent-change")
+    finally:
+        os.close(reader)
+    if any(ord(char) < 32 and char != "\n" or ord(char) == 127 for char in data):
+        refuse("input", "fields", "invalid-field")
+    lines = data.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    result = {}
+    for line in lines:
+        if "=" not in line:
+            refuse("input", "fields", "invalid-field")
+        key, text = line.split("=", 1)
+        if key not in FIELDS or key in result:
+            refuse("input", "fields", "unknown-or-duplicate-field")
+        result[key] = text
+    if set(result) != FIELDS:
+        refuse("input", "fields", "missing-field")
+    if result["schema"] != "3" or result["scope"] != "general-server" \
+            or result["existing_keys"] != "reconcile":
+        refuse("input", "schema", "unsupported-policy")
+    if not re.fullmatch("[0-9a-f]{64}", result["script_sha256"]):
+        refuse("input", "script_sha256", "invalid-hash")
+    if not re.fullmatch("[A-Za-z0-9.,:/_*+-]*", result["no_proxy"]):
+        refuse("input", "no_proxy", "unsupported-value")
+    if not re.fullmatch("[A-Za-z0-9.*|:_-]*", result["maven_non_proxy_hosts"]):
+        refuse("input", "maven_non_proxy_hosts", "unsupported-value")
+    url = result["proxy_url"]
+    if not re.fullmatch("https?://[A-Za-z0-9.-]+(?::(?:0|[1-9][0-9]*))?/?", url):
+        refuse("input", "proxy_url", "unsupported-url")
+    parsed = urllib.parse.urlsplit(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        refuse("input", "proxy_url", "invalid-port")
+    if port is not None and not 1 <= port <= 65535:
+        refuse("input", "proxy_url", "invalid-port")
+    return result, parsed, signature(value)
+
+
+class Files:
+    def __init__(self, root):
+        if root != "/" and (not os.path.isabs(root) or os.path.realpath(root) != root):
+            refuse("runtime", "root", "unsafe-test-root")
+        self.path = root
+        self.fd = os.open(root, DIR_FLAGS)
+        metadata("runtime", os.fstat(self.fd), True)
+        self.root_state = signature(os.fstat(self.fd))
+        self.directories = {}
+        self.observed = {}
+        self.os_entry_state = None
+
+    def os_release(self):
+        directory = os.open("etc", DIR_FLAGS, dir_fd=self.fd)
+        try:
+            current = os.fstat(directory)
+            metadata("runtime", current, True)
+            self.directories["etc"] = signature(current)
+            entry = os.stat("os-release", dir_fd=directory, follow_symlinks=False)
+            self.os_entry_state = signature(entry)
+            if not stat.S_ISLNK(entry.st_mode):
+                return "/etc/os-release"
+            if entry.st_uid != OWNER_UID or entry.st_gid != OWNER_GID:
+                refuse("runtime", "os", "ownership-conflict")
+            target = os.readlink("os-release", dir_fd=directory)
+        finally:
+            os.close(directory)
+        if target.startswith("/"):
+            refuse("runtime", "os", "unsafe-path")
+        parts = ["etc"]
+        for part in target.split("/"):
+            if part == "..":
+                if not parts:
+                    refuse("runtime", "os", "unsafe-path")
+                parts.pop()
+            elif part not in ("", "."):
+                parts.append(part)
+        if not parts:
+            refuse("runtime", "os", "unsafe-path")
+        return "/" + "/".join(parts)
+
+    def read(self, identity, path, observe=True):
+        parts = path.split("/")[1:]
+        if not path.startswith("/") or any(part in ("", ".", "..") for part in parts):
+            refuse(identity, "path", "unsafe-path")
+        directory = os.dup(self.fd)
+        try:
+            for index, part in enumerate(parts[:-1]):
+                child = os.open(part, DIR_FLAGS, dir_fd=directory)
+                os.close(directory)
+                directory = child
+                current = os.fstat(directory)
+                metadata(identity, current, True)
+                name = "/".join(parts[:index + 1])
+                state = signature(current)
+                if name in self.directories and self.directories[name] != state:
+                    refuse(identity, "path", "concurrent-change")
+                self.directories[name] = state
+            fd = os.open(parts[-1], READ_FLAGS, dir_fd=directory)
+            try:
+                before = os.fstat(fd)
+                metadata(identity, before)
+                data = read_fd(fd, MAX_FILE, identity)
+                if signature(before) != signature(os.fstat(fd)):
+                    refuse(identity, "content", "concurrent-change")
+                value = (signature(before), hashlib.sha256(data).digest())
+            finally:
+                os.close(fd)
+        except FileNotFoundError:
+            data, value = None, None
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                refuse(identity, "path", "unsafe-path")
+            refuse(identity, "path", "unreadable")
+        finally:
+            os.close(directory)
+        if observe:
+            self.observed[(identity, path)] = value
+        elif self.observed[(identity, path)] != value:
+            refuse(identity, "content", "concurrent-change")
+        if data is not None and b"\x00" in data:
+            refuse(identity, "content", "invalid-text")
+        return data
+
+    def verify(self):
+        for identity, path in self.observed:
+            self.read(identity, path, False)
+        directory = os.open("etc", DIR_FLAGS, dir_fd=self.fd)
+        try:
+            entry = os.stat("os-release", dir_fd=directory, follow_symlinks=False)
+            if self.os_entry_state != signature(entry):
+                refuse("runtime", "os", "concurrent-change")
+        finally:
+            os.close(directory)
+        if self.root_state != signature(os.stat(self.path, follow_symlinks=False)):
+            refuse("runtime", "root", "concurrent-change")
+
+
+def literal(identity, key, value):
+    match = re.fullmatch(
+        "(?:\"([^\"$`\\\\]*)\"|\x27([^\x27]*)\x27|([^\\s\"\x27$`\\\\;&|<>(){}#]*))(?:[ \\t]+#.*)?", value.strip())
+    if not match:
+        refuse(identity, key, "unsupported-syntax")
+    return next(part for part in match.groups() if part is not None)
+
+
+def assignments(identity, text):
+    values = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pattern = "(export[ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)" if identity == "profile" \
+            else "(export[ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*)"
+        match = re.fullmatch(pattern, line)
+        if not match or (identity == "environment" and match.group(1)):
+            refuse(identity, "content", "unsupported-syntax")
+        exported, key, value = match.groups()
+        if identity == "profile" and value[:1].isspace():
+            if value.lstrip().startswith("#"):
+                value = ""
+            else:
+                refuse(identity, "content", "unsupported-syntax")
+        relevant = key in PROXY_KEYS
+        diagnostic_key = key if relevant else "content"
+        if identity == "profile" and relevant and not exported:
+            refuse(identity, key, "not-exported")
+        alias = re.fullmatch(
+            "\"\\$(?:([A-Za-z_][A-Za-z0-9_]*)|\\{([A-Za-z_][A-Za-z0-9_]*)\\})\"(?:[ \\t]+#.*)?", value)
+        if identity == "profile" and relevant and alias:
+            reference = alias.group(1) or alias.group(2)
+            if reference not in values:
+                refuse(identity, key, "unsupported-reference")
+            value = values[reference]
+        else:
+            value = literal(identity, diagnostic_key, value)
+        if relevant:
+            if key in values:
+                refuse(identity, key, "duplicate-key")
+            values[key] = value
+    return values
+
+
+def git_literal(value):
+    # Accept complete literal values and comments without evaluating expressions.
+    if "\\" in value:
+        refuse("git", "content", "unsupported-syntax")
+    if value.startswith("\""):
+        match = re.fullmatch("\"([^\"\\\\]*)\"[ \\t]*(?:[#;].*)?", value)
+        if not match:
+            refuse("git", "content", "unsupported-syntax")
+        return match.group(1)
+    value = re.split("[#;]", value, maxsplit=1)[0].rstrip()
+    if "\"" in value:
+        refuse("git", "content", "unsupported-syntax")
+    return value
+
+
+def ini_values(identity, text):
+    values = {}
+    section = ""
+    sections = set()
+    seen = set()
+    for line in text.splitlines():
+        indented = line.startswith((" ", "\t"))
+        line = line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if identity != "git" and indented:
+            refuse(identity, "content", "unsupported-continuation")
+        if line.startswith("["):
+            match = re.fullmatch("\\[([A-Za-z0-9_.-]+)(?:\\s+\"([^\"\\\\]+)\")?\\]\\s*(?:[#;].*)?", line)
+            if not match:
+                refuse(identity, "content", "unsupported-section")
+            section = match.group(1)
+            if identity == "git":
+                section = section.lower()
+            elif match.group(2):
+                refuse(identity, "content", "unsupported-section")
+            if match.group(2):
+                section += ":" + match.group(2)
+            if section in sections:
+                refuse(identity, "content", "duplicate-section")
+            sections.add(section)
+            if identity == "git" and section.split(":")[0] in ("include", "includeif"):
+                refuse(identity, "content", "unsupported-include")
+            continue
+        match = re.fullmatch("([A-Za-z0-9_.-]+)\\s*=\\s*(.*)", line)
+        if not match or not section:
+            refuse(identity, "content", "unsupported-syntax")
+        key, value = match.groups()
+        if identity == "git":
+            if not re.fullmatch("[A-Za-z][A-Za-z0-9-]*", key):
+                refuse(identity, "content", "unsupported-syntax")
+            value = git_literal(value)
+        elif key.lower() == "proxy" and key != "proxy":
+            refuse(identity, "proxy", "unsupported-key-case")
+        key = key.lower()
+        if identity != "git" and (section, key) in seen:
+            refuse(identity, "content", "duplicate-key")
+        seen.add((section, key))
+        if key != "proxy":
+            continue
+        if (section, key) in values:
+            refuse(identity, "proxy", "duplicate-key")
+        required = {"dnf": ("main",), "pip": ("global",), "git": ("http", "https")}[identity]
+        if section not in required:
+            refuse(identity, "proxy", "unsupported-override")
+        if identity != "git" and ("$" in value or "%" in value or "\\" in value
+                                  or value.startswith(("\"", "\x27"))):
+            refuse(identity, "proxy", "unsupported-expression")
+        values[(section, key)] = value
+    return values
+
+
+def maven_values(text):
+    if re.search("<!\\s*(DOCTYPE|ENTITY)", text, re.I):
+        refuse("maven", "content", "unsupported-declaration")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        refuse("maven", "content", "invalid-xml")
+    namespace = "{" + MAVEN_NAMESPACE + "}" if root.tag.startswith("{") else ""
+    if root.tag != namespace + "settings":
+        refuse("maven", "content", "unsupported-namespace")
+    containers = root.findall(namespace + "proxies")
+    if len(containers) > 1:
+        refuse("maven", "proxy", "duplicate-container")
+    values = {}
+    ids = set()
+    for container in containers:
+        for proxy in container:
+            if proxy.tag != namespace + "proxy" or proxy.attrib:
+                refuse("maven", "proxy", "unsupported-syntax")
+            fields = {}
+            for child in proxy:
+                key = child.tag[len(namespace):] if child.tag.startswith(namespace) else ""
+                if not key or key in fields or child.attrib or len(child):
+                    refuse("maven", "proxy", "unsupported-syntax")
+                fields[key] = (child.text or "").strip()
+            if fields.get("active") == "false":
+                continue
+            if fields.get("active") != "true":
+                refuse("maven", "active", "explicit-active-required")
+            if fields.get("username") or fields.get("password"):
+                refuse("maven", "proxy", "unsupported-credentials")
+            protocol = fields.get("protocol")
+            if protocol not in ("http", "https"):
+                refuse("maven", "protocol", "unsupported-protocol")
+            if protocol in values or (fields.get("id") and fields["id"] in ids):
+                refuse("maven", "proxy", "duplicate-proxy")
+            ids.add(fields.get("id"))
+            values[protocol] = fields
+    return values
+
+
+def run():
+    root, fd, source = sys.argv[1:4]
+    arguments = sys.argv[4:]
+    inventory = list(zip(arguments[::2], arguments[1::2]))
+    if len(arguments) != 12 or {identity for identity, _ in inventory} != IDENTITIES:
+        refuse("runtime", "inventory", "invalid-inventory")
+    desired, proxy, input_state = input_data(int(fd))
+    initial_source = source_state(source)
+    if initial_source[1] != desired["script_sha256"]:
+        refuse("source", "script_sha256", "hash-mismatch")
+    files = Files(root or "/")
+    try:
+        # Resolve Rocky relative os-release link without crossing the root.
+        os_path = files.os_release()
+        os_data = files.read("runtime", os_path)
+        if os_data is None:
+            refuse("runtime", "os", "missing-os-release")
+        os_values = {}
+        for line in os_data.decode("utf-8").splitlines():
+            match = re.fullmatch("(ID|VERSION_ID)=(.*)", line)
+            if match:
+                if match.group(1) in os_values:
+                    refuse("runtime", "os", "duplicate-key")
+                os_values[match.group(1)] = literal("runtime", "os", match.group(2))
+        if os_values != {"ID": "rocky", "VERSION_ID": "8.10"}:
+            refuse("runtime", "os", "unsupported-platform")
+        changed = False
+
+        def compare(identity, key, actual, expected):
+            nonlocal changed
+            if actual != expected:
+                changed = True
+                diagnostic(identity, key, "missing-key" if actual is None else "value-mismatch")
+
+        for identity, path in inventory:
+            data = files.read(identity, path)
+            if data is None:
+                changed = True
+                diagnostic(identity, "content", "missing-file")
+                continue
+            text = data.decode("utf-8")
+            if any((ord(char) < 32 or 127 <= ord(char) <= 159 or char.isspace())
+                   and char not in " \t\n" for char in text):
+                refuse(identity, "content", "unsupported-whitespace")
+            if identity in ("profile", "environment"):
+                values = assignments(identity, text)
+                for key in PROXY_KEYS:
+                    compare(identity, key, values.get(key), desired["no_proxy"]
+                            if key.lower() == "no_proxy" else desired["proxy_url"])
+            elif identity in ("dnf", "pip", "git"):
+                values = ini_values(identity, text)
+                for section in {"dnf": ("main",), "pip": ("global",),
+                                "git": ("http", "https")}[identity]:
+                    compare(identity, "proxy", values.get((section, "proxy")), desired["proxy_url"])
+            else:
+                values = maven_values(text)
+                for protocol in ("http", "https"):
+                    fields = values.get(protocol, {})
+                    # The host is compared as written, like every other artifact.
+                    compare(identity, "host", fields.get("host"), proxy.netloc.partition(":")[0])
+                    compare(identity, "port", fields.get("port"), str(proxy.port or
+                            (443 if proxy.scheme == "https" else 80)))
+                    compare(identity, "nonProxyHosts", fields.get("nonProxyHosts"),
+                            desired["maven_non_proxy_hosts"])
+        files.verify()
+        if initial_source != source_state(source):
+            refuse("source", "script_sha256", "concurrent-change")
+        if input_state != signature(os.fstat(int(fd))):
+            refuse("input", "fd", "concurrent-change")
+        print("proxy_contract schema=3 mode=check scope=general-server os=rocky "
+              "identities=6 status=" + ("needs-change" if changed else "ready"))
+        return 2 if changed else 0
+    finally:
+        os.close(files.fd)
+
+
+try:
+    sys.exit(run())
+except Refusal as exc:
+    diagnostic(exc.identity, exc.key, exc.reason)
+except (OSError, ValueError, UnicodeError, OverflowError):
+    diagnostic("runtime", "content", "unreadable-or-invalid")
+except Exception:
+    diagnostic("runtime", "content", "internal-error")
+sys.exit(1)
+' "${test_root}" "${input_fd}" "${source_path}" "${inventory[@]}"
+}
+
 function proxy_contract_main {
-    local test_root="" os_family input_path
+    local test_root="" os_family input_path input_fd=""
     local -a operands=()
 
     umask 077
@@ -2171,23 +2705,39 @@ function proxy_contract_main {
                 test_root="$2"
                 shift 2
                 ;;
+            --input-fd)
+                if (( $# < 2 )) || [[ -n "${input_fd}" ]]; then
+                    printf '%s\n' 'proxy_contract identity=input key=fd reason=invalid-fd' >&2
+                    return 1
+                fi
+                input_fd="$2"
+                shift 2
+                ;;
             *)
                 operands+=("$1")
                 shift
                 ;;
         esac
     done
+    unset BASH_ENV ENV CDPATH TMPDIR TMP TEMP
+    export LC_ALL=C
+    if [[ "${#operands[@]}" == 1 && "${operands[0]}" == check ]]; then
+        proxy_contract_check "${test_root}" "${input_fd}" "${BASH_SOURCE[0]:-}"
+        return "$?"
+    fi
+    if [[ -n "${input_fd}" ]]; then
+        printf '%s\n' 'proxy_contract identity=input key=fd reason=check-only-option' >&2
+        return 1
+    fi
     if ! { [[ "${#operands[@]}" == 1 &&
               ( "${operands[0]}" == apply || "${operands[0]}" == reconcile || "${operands[0]}" == seal ) ]] ||
            [[ "${#operands[@]}" == 2 && "${operands[0]}" == verify &&
               "${operands[1]}" == clean ]]; }; then
         proxy_contract_die \
-            "usage: proxy_contract.bash [--test-root <absolute-path>] {apply|reconcile|seal|verify clean}"
+            "usage: proxy_contract.bash [--test-root <absolute-path>] {apply|reconcile|seal|verify clean|check --input-fd N}"
         return 1
     fi
 
-    unset BASH_ENV ENV CDPATH TMPDIR TMP TEMP
-    export LC_ALL=C
     PROXY_CONTRACT_OPERATION="${operands[0]}"
     PROXY_CONTRACT_SCOPE=cloud
     PROXY_CONTRACT_INPUT_SCHEMA=1

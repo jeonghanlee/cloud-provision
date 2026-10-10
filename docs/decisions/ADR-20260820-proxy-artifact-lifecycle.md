@@ -260,6 +260,11 @@ normal Debian 13 and Rocky 8 paths and exactly seventeen one-at-a-time
 inventory omissions. Dedicated EtherCAT tests are deferred; production
 EtherCAT behavior and generic image workflow tests remain unchanged.
 
+The read-only schema-3 check interface is specified in
+[General-server proxy check contract](../PROXY_CHECK_CONTRACT.md).
+It inspects actual general-server files with explicit site inputs and does
+not create or migrate the runtime state used by reconciliation.
+
 ## Scope Boundary
 
 This decision does not change Ansible, restore `-F`, expose proxy values,

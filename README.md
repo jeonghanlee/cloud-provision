@@ -4,6 +4,7 @@ Cloud-init based VM provisioner for libvirt/KVM.
 Provisions reproducible test VMs across the supported OS variants from official cloud images.
 
 * Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+* Proxy check contract: [docs/PROXY_CHECK_CONTRACT.md](docs/PROXY_CHECK_CONTRACT.md)
 * Image workflow: [docs/IMAGE_WORKFLOW.md](docs/IMAGE_WORKFLOW.md) — how images are made and used, from upstream base to VM disk
 * Bake runbook: [docs/RUNBOOK_BAKE.md](docs/RUNBOOK_BAKE.md) — running a golden image bake and accepting the result
 * Ansible inventory runbook: [docs/RUNBOOK_ANSIBLE_INVENTORY.md](docs/RUNBOOK_ANSIBLE_INVENTORY.md) — generating host inventory from a VM
