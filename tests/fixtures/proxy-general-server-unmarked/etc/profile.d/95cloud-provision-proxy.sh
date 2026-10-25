@@ -1,0 +1,10 @@
+# Site proxy configuration.
+export SITE_NAME="Example laboratory"
+export http_proxy="http://proxy.example.org:3128"
+export https_proxy="http://proxy.example.org:3128"
+export ftp_proxy="http://proxy.example.org:3128"
+export no_proxy="localhost,127.0.0.1,.example.org"
+export HTTP_PROXY="$http_proxy"
+export HTTPS_PROXY="$https_proxy"
+export FTP_PROXY="$ftp_proxy"
+export NO_PROXY="$no_proxy"

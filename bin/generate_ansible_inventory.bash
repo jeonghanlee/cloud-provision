@@ -30,9 +30,12 @@ function print_usage {
     printf "Required:\n"
     printf "  --os-type <selector>               cloud-provision OS selector; the\n"
     printf "                                       vacuum group is derived from it\n"
-    printf "  --species <species>                bare, iocrunner, iocrunner-nfs,\n"
-    printf "                                       epics-dev, nfs-sim, rtbase,\n"
-    printf "                                       or ethercat\n"
+    printf "  --species <species>                bare, iocrunner, iocserver,\n"
+    printf "                                       iocrunner-nfs, epics-dev,\n"
+    printf "                                       nfs-sim, rtbase, ethercat,\n"
+    printf "                                       archiver, archiver-dev-uds,\n"
+    printf "                                       archiver-dev-tcp, or\n"
+    printf "                                       archiver-dev-sqlite\n"
     printf "\n"
     printf "Optional:\n"
     printf "  --ansible-user <name>              SSH user (default: vmadmin)\n"
@@ -110,12 +113,16 @@ function validate_ipv4_address {
     local address="$1"
     local octet
     local -a octets=()
+    local octet_pattern='(0|[1-9][0-9]{0,2})'
+    local address_pattern="^${octet_pattern}(\.${octet_pattern}){3}\$"
 
+    # The pattern covers the complete value because the host line receives
+    # it whole, while read below stops at the first newline. A leading zero
+    # is refused: resolvers read such an octet as octal.
+    [[ "${address}" =~ ${address_pattern} ]] || return 1
     IFS='.' read -r -a octets <<< "${address}"
-    [[ "${#octets[@]}" -eq 4 ]] || return 1
     for octet in "${octets[@]}"; do
-        [[ "${octet}" =~ ^[0-9]{1,3}$ ]] || return 1
-        (( 10#${octet} <= 255 )) || return 1
+        (( octet <= 255 )) || return 1
     done
 }
 
@@ -125,7 +132,7 @@ validate_ipv4_address "${VM_ADDRESS}" \
 declare -ag INVENTORY_GROUPS=()
 
 # The vacuum is the OS selector with any species suffix removed. The
-# operator definition assigns every species to every vacuum, so the
+# generator does not restrict which species a vacuum may take, so the
 # selector constrains only the vacuum, never the species argument.
 case "${OS_TYPE}" in
     debian12|debian13|rocky8|rocky10|ubuntu24|ubuntu26)
@@ -133,9 +140,12 @@ case "${OS_TYPE}" in
         ;;
     *-iocrunner-nfs) VACUUM="${OS_TYPE%-iocrunner-nfs}" ;;
     *-iocrunner)     VACUUM="${OS_TYPE%-iocrunner}" ;;
+    *-iocserver)     VACUUM="${OS_TYPE%-iocserver}" ;;
     *-epics-dev)     VACUUM="${OS_TYPE%-epics-dev}" ;;
     *-ethercat)      VACUUM="${OS_TYPE%-ethercat}" ;;
     *-rtbase)        VACUUM="${OS_TYPE%-rtbase}" ;;
+    *-archiver-dev)  VACUUM="${OS_TYPE%-archiver-dev}" ;;
+    *-archiver)      VACUUM="${OS_TYPE%-archiver}" ;;
     *) die "unsupported OS selector: ${OS_TYPE}" ;;
 esac
 case "${VACUUM}" in
@@ -148,11 +158,16 @@ esac
 case "${SPECIES}" in
     bare)          INVENTORY_GROUPS=("${VACUUM}") ;;
     iocrunner)     INVENTORY_GROUPS=("${VACUUM}" iocrunner) ;;
+    iocserver)     INVENTORY_GROUPS=("${VACUUM}" iocserver) ;;
     iocrunner-nfs) INVENTORY_GROUPS=("${VACUUM}" iocrunner_nfs) ;;
     epics-dev)     INVENTORY_GROUPS=("${VACUUM}" epics_dev) ;;
     nfs-sim)       INVENTORY_GROUPS=("${VACUUM}" nfs_sim) ;;
     rtbase)        INVENTORY_GROUPS=("${VACUUM}" rtbase) ;;
     ethercat)      INVENTORY_GROUPS=("${VACUUM}" ethercat) ;;
+    archiver)      INVENTORY_GROUPS=("${VACUUM}" archiver) ;;
+    archiver-dev-uds) INVENTORY_GROUPS=("${VACUUM}" archiver_dev_uds) ;;
+    archiver-dev-tcp) INVENTORY_GROUPS=("${VACUUM}" archiver_dev_tcp) ;;
+    archiver-dev-sqlite) INVENTORY_GROUPS=("${VACUUM}" archiver_dev_sqlite) ;;
     *) die "unsupported species: ${SPECIES}" ;;
 esac
 

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+  <!-- Site Maven configuration. -->
+  <proxies>
+    <proxy>
+      <id>site-http</id>
+      <active>true</active>
+      <protocol>http</protocol>
+      <host>proxy.example.org</host>
+      <port>3128</port>
+      <nonProxyHosts>localhost|127.0.0.1|*.example.org</nonProxyHosts>
+    </proxy>
+    <proxy>
+      <id>site-https</id>
+      <active>true</active>
+      <protocol>https</protocol>
+      <host>proxy.example.org</host>
+      <port>3128</port>
+      <nonProxyHosts>localhost|127.0.0.1|*.example.org</nonProxyHosts>
+    </proxy>
+  </proxies>
+  <localRepository>/opt/example-maven-cache</localRepository>
+</settings>

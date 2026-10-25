@@ -50,6 +50,38 @@ Use the selector by the image you need to produce, not by the VM you will boot l
 
 To accept a production ioc-runner golden image, run the Rocky 8 and Debian 13 ioc-runner bakes from the current GitHub `origin/master`, then boot fresh `rocky8-iocrunner.main` and `debian13-iocrunner.main` consumers and compare the manifests against the running systems.
 
+## Baking from origin/master with a WIP working checkout
+
+A production golden bakes from each supplier's `origin/master` (above). When the
+working `cloud-provision` and `ansible-provision` checkouts are on WIP branches,
+do not switch the shared checkouts. Clone each supplier's `master` into a scratch
+directory and run the bake from there.
+
+The bake driver runs from whichever `cloud-provision` checkout holds the script
+(`SC_TOP`), resolves `ansible-provision` from the sibling `../ansible-provision`
+or from an explicit `ANSIBLE_PROVISION_DIR`, and publishes images to `${IMAGE_DIR}`.
+Clone the two suppliers as siblings so the default resolution finds them, and pass
+the site's real image directory with `-d`, because the scratch clone carries no
+`configure/CONFIG_SITE.local` override.
+
+```bash
+git clone --branch master git@github.com:jeonghanlee/cloud-provision.git /tmp/bake-master/cloud-provision
+git clone --branch master git@github.com:jeonghanlee/ansible-provision.git /tmp/bake-master/ansible-provision
+```
+
+```bash
+/tmp/bake-master/cloud-provision/bin/bake_iocrunner_image.bash -o rocky8 -d ~/libvirt/images
+/tmp/bake-master/cloud-provision/bin/bake_iocrunner_image.bash -o debian13 -d ~/libvirt/images
+```
+
+The golden images land in the image directory as usual; the scratch clones hold
+only the driver trees, and the bake manifest records each supplier's `master`
+HEAD. Remove the scratch directory once the goldens are accepted.
+
+```bash
+rm -rf /tmp/bake-master
+```
+
 ## Where a bake writes
 
 `make bake.<os>` creates a new independent golden pair in the image directory.
@@ -80,11 +112,68 @@ Without `-r` the bake takes whatever the inventory resolves to and the manifest
 record is unchanged. A ref that does not exist fails during the Ansible run and
 publishes nothing.
 
+## Build VM SSH host keys
+
+A new build VM is a new domain, so `create_vm.bash` removes the stored key of
+its resolved static or DHCP address from `~/.ssh/known_hosts` before the first
+SSH readiness check. The first connection accepts the new key. Other stored
+addresses are preserved. Comma-separated host lists retain their other
+addresses. Refresh runs on a temporary copy and replaces the original only
+after successful removal. Matching shared patterns, non-regular files and
+symlinks stop the bake without replacing the original. A missing file needs
+no removal; a removal failure stops the bake.
+
+Both bake entry points also pass `-R` to `create_vm.bash`, so the refresh
+also applies if the build VM is already running or is restarted. Ordinary VM
+probes use `StrictHostKeyChecking=accept-new` to accept previously unknown
+keys and reject changed stored keys. `-R` is valid only for provisioning;
+status, stop and cleanup reject it. Bake step 2 does not refresh the key
+again.
+
+## Build VM address lease
+
+Each bake's build VM has a new name and MAC at the same build address. Both
+bake entry points remove the build VM after a successful bake unless `-k` is
+given. The previous build VM's DHCP lease stays active for up to one hour
+after it is removed. A bake of the same OS started within that time stops at
+Step 1 before creating any disk, seed or reservation:
+
+```text
+Error: <address> is leased to MAC <mac> until <date> <time>; nothing was created.
+```
+
+Retry after the printed expiry. Nothing needs cleanup.
+
+When the previous build VM still exists, kept with `-k` or left by a failed
+bake, it keeps its reservation and renews its lease, so waiting does not help.
+Step 1 then reports the VM instead:
+
+```text
+Error: <address> is in use by the VM with MAC <mac>, which holds its reservation and an active lease; nothing was created.
+```
+
+Remove that VM, then retry after its lease expires. A failed bake printed
+the exact cleanup command (see "Failed bake mid-way"). A bake kept with `-k`
+prints no complete command, so build it from the VM's name, which
+`virsh list --all` shows as `lab-<os>-build-<run-id>`:
+
+```bash
+IMAGE_WORKFLOW_RUN_ID=<run-id> bin/create_vm.bash -o <os> -n build -d <IMAGE_DIR> -p lab -c
+```
+
+Take `<os>` and `<run-id>` from the name, not from the bake command line. The
+EtherCAT build VM runs the `<os>-rtbase` selector, so its name reads
+`lab-debian13-rtbase-build-<run-id>` and `<os>` is `debian13-rtbase`.
+
 ## Fresh consumer SSH host keys
 
-Fresh consumer VMs reuse deterministic lab IP addresses. After a VM is deleted and recreated from a new golden image, the SSH server host key changes while the client-side `known_hosts` entry may still contain the previous VM key. Remove the old key for the target IP before the first post-bake SSH connection.
-
-For the default ioc-runner consumers:
+Fresh consumer VMs reuse deterministic lab IP addresses. After a VM is deleted
+and recreated from a new golden image, the SSH server host key changes.
+`create_vm.bash` removes the stored key for the address of every new domain
+before its first SSH readiness check, so a consumer created through it needs
+no manual removal. A consumer recreated by any other means still needs the
+old key removed before the first SSH connection, for example for the default
+ioc-runner consumers:
 
 ```bash
 ssh-keygen -f ~/.ssh/known_hosts -R 192.168.123.150
@@ -98,7 +187,7 @@ ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.150
 ssh -o ControlMaster=no -o ControlPath=none vmadmin@192.168.123.50
 ```
 
-Do not disable host-key checking for final acceptance. The expected workflow is to remove the stale deterministic-IP entry, accept the new key for the freshly provisioned VM, and then read `/etc/iocrunner-bake.manifest` or run the provenance validator.
+Do not disable host-key checking for final acceptance. The expected workflow is that the stale deterministic-IP entry is gone (removed by `create_vm.bash` or by hand), the new key of the freshly provisioned VM is accepted, and then `/etc/iocrunner-bake.manifest` is read or the provenance validator is run.
 
 Use this SSH command contract for post-bake final acceptance. Run the command
 on the remote VM and let the result print to the terminal. Do not wrap these
@@ -427,7 +516,8 @@ requires exact clean 40-hex repository identities.
 
 ## Offline bake checks
 
-Run these checks after editing the bake scripts, validator, or bake tests:
+Run these checks after editing the bake scripts, validator, proxy contract,
+IOC image audit, or bake tests:
 
 ```
 make check-bake
@@ -438,10 +528,17 @@ The target expands to:
 - `make check-bake-fresh-inputs`
 - `make check-bake-provenance`
 - `make check-proxy-lifecycle`
+- `make check-package-parity`
+- `make check-epics-packages`
+- `make check-middleware-packages`
+- `make check-audit-inventory`
 
-These checks replace only the host boundary commands. The public bake
-scripts, producer, proxy contract, and validator still run through their normal
-entry points. The aggregate covers the IOC image workflow only and does not run
+The first three checks replace only the host boundary commands. The public
+bake scripts, producer, proxy contract, and validator still run through their
+normal entry points. The remaining four are consistency checks that read
+source files: the cloud-init templates against P_common, the EPICS and
+middleware package sources, and the IOC image audit against the shipped proxy
+contract. The aggregate covers the IOC image workflow only and does not run
 a dedicated EtherCAT image workflow test, while production `bake.ethercat`
 targets stay available. These local checks do not replace the supported
 Libvirt/KVM producer-consumer gates or an authorized existing-artifact audit.

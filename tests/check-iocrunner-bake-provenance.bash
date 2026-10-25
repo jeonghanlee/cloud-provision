@@ -9,6 +9,7 @@ declare -g TOP
 declare -g VALIDATOR
 declare -g BAKE
 declare -g WORKSPACE
+declare -g REAL_SSH_KEYGEN
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
 declare -g TEST_FAILED=0
@@ -18,6 +19,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VALIDATOR="${TOP}/bin/validate_iocrunner_bake.bash"
 BAKE="${TOP}/bin/bake_iocrunner_image.bash"
+REAL_SSH_KEYGEN="$(command -v ssh-keygen)"
+readonly REAL_SSH_KEYGEN
 
 function cleanup {
     local rc=$?
@@ -233,13 +236,17 @@ function prepare_proxy_guest_root {
         "${root}/var/lib/cloud/seed/nocloud" \
         "${root}/var/log"
     chmod 0755 \
+        "${root}" \
         "${root}/etc" \
         "${root}/etc/profile.d" \
+        "${root}/etc/apt" \
         "${root}/etc/apt/apt.conf.d" \
         "${root}/etc/dnf" \
         "${root}/etc/sudoers.d" \
         "${root}/etc/ssh" \
         "${root}/etc/ssh/sshd_config.d" \
+        "${root}/home" \
+        "${root}/home/vmadmin" \
         "${root}/run" \
         "${root}/run/cloud-provision"
     chmod 0700 "${root}/home/vmadmin/.ssh"
@@ -498,12 +505,13 @@ set -e
 command_name=""
 for argument in "$@"; do
     case "${argument}" in
-        list|dominfo|domblklist|domstate|net-update|shutdown|uri)
+        list|dominfo|domiflist|domblklist|domstate|net-dumpxml|net-dhcp-leases|net-update|shutdown|destroy|undefine|uri)
             command_name="${argument}"
             break
             ;;
     esac
 done
+printf '%s\n' "${command_name}" >> "${CASE_DIR}/lifecycle.log"
 case "${command_name}" in
     uri)
         # create_vm.bash asks the connection separately so it can tell an
@@ -516,6 +524,27 @@ case "${command_name}" in
     dominfo)
         [[ -f "${DOMAIN_STATE_FILE}" ]]
         ;;
+    domiflist)
+        printf 'Interface Type Source Model MAC\n'
+        printf 'vnet0 network lab virtio %s\n' "$(cat "${CASE_DIR}/domain.mac")"
+        ;;
+    net-dhcp-leases)
+        # No lease holds the build address, so the lease guard lets the bake on.
+        printf '%s\n' ' Expiry Time   MAC address   Protocol   IP address   Hostname   Client ID or DUID'
+        ;;
+    net-dumpxml)
+        if [[ "${PROMOTION_MODE}" == cleanup-read-fail && -f "${DOMAIN_STATE_FILE}" ]] && \
+           [[ "$(cat "${DOMAIN_STATE_FILE}")" == 'shut off' ]]; then
+            printf 'error: cleanup network lookup failed\n' >&2
+            exit 1
+        fi
+        scope=live
+        [[ "$*" != *--inactive* ]] || scope=config
+        host=""
+        [[ ! -f "${CASE_DIR}/reservation-${scope}.xml" ]] || \
+            host="$(cat "${CASE_DIR}/reservation-${scope}.xml")"
+        printf '<network><ip><dhcp>%s</dhcp></ip></network>\n' "${host}"
+        ;;
     domblklist)
         printf "%s\n" " Type   Device   Target   Source"
         ;;
@@ -527,6 +556,29 @@ case "${command_name}" in
         fi
         ;;
     net-update)
+        xml=""
+        for argument in "$@"; do
+            [[ "${argument}" != '<'* ]] || xml="${argument}"
+        done
+        if [[ "$*" == *' add ip-dhcp-host '* ]]; then
+            printf '%s\n' "${xml}" > "${CASE_DIR}/reservation-live.xml"
+            printf '%s\n' "${xml}" > "${CASE_DIR}/reservation-config.xml"
+        elif [[ "$*" == *' delete ip-dhcp-host '* ]]; then
+            if [[ "${PROMOTION_MODE}" == cleanup-delete-fail ]]; then
+                printf 'error: cleanup reservation deletion failed\n' >&2
+                exit 1
+            fi
+            scope=live
+            [[ "$*" != *--config* ]] || scope=config
+            [[ "$(cat "${CASE_DIR}/reservation-${scope}.xml")" == "${xml}" ]] || exit 7
+            rm -f "${CASE_DIR}/reservation-${scope}.xml"
+        fi
+        ;;
+    destroy)
+        printf '%s\n' 'shut off' > "${DOMAIN_STATE_FILE}"
+        ;;
+    undefine)
+        rm -f "${DOMAIN_STATE_FILE}"
         ;;
     shutdown)
         [[ -e "${FAKE_GUEST_ROOT}/.proxy-sealed" ]] || {
@@ -577,6 +629,13 @@ EOF
 #!/usr/bin/env bash
 set -e
 printf "%s\n" "running" > "${DOMAIN_STATE_FILE}"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --name) printf '%s\n' "$2" > "${CASE_DIR}/domain.name"; shift ;;
+        --network) printf '%s\n' "${2##*,mac=}" > "${CASE_DIR}/domain.mac"; shift ;;
+    esac
+    shift
+done
 EOF
 
     cat > "${fakebin}/genisoimage" <<'EOF'
@@ -600,7 +659,7 @@ EOF
 
     cat > "${fakebin}/ssh-keygen" <<'EOF'
 #!/usr/bin/env bash
-exit 0
+exec "${REAL_SSH_KEYGEN}" "$@"
 EOF
 
     cat > "${fakebin}/ssh-keyscan" <<'EOF'
@@ -683,7 +742,19 @@ if [[ -e "${FAKE_GUEST_ROOT:-/nonexistent}/.proxy-sealed" ]]; then
     exit 6
 fi
 remote_command="${@: -1}"
+host="${@: -2:1}"
+if "${REAL_SSH_KEYGEN}" -F "${host#*@}" -f "${HOME}/.ssh/known_hosts" \
+    >/dev/null 2>&1; then
+    printf '%s\n' 'REMOTE HOST IDENTIFICATION HAS CHANGED' >&2
+    exit 255
+fi
 case "${remote_command}" in
+    "sudo tee /etc/ethercat-bake.manifest >/dev/null")
+        # Stop at the outer SSH boundary after the real EtherCAT readiness
+        # and inventory paths; this case does not exercise image publication.
+        printf '%s\n' 'EtherCAT readiness boundary reached' >&2
+        exit 43
+        ;;
     exit)
         exit 0
         ;;
@@ -776,11 +847,9 @@ EOF
     chmod +x "${fakebin}"/*
 }
 
-# The promotion cases exercise the public bake through image publication. The
-# final VM teardown is intentionally not treated as a failure boundary because
-# create_vm.bash makes cleanup idempotent and reports teardown failures without
-# changing the bake result. The success cases still verify that the bake's
-# failure guidance is silent after a successful publication.
+# The public bake publishes an image pair before optional build VM cleanup.
+# Cleanup cases omit -k and verify removal or preservation on DHCP failure.
+# Other cases retain the build VM to isolate publication and sealing behavior.
 function run_promotion_case {
     local mode="$1"
     local os_type="$2"
@@ -803,6 +872,7 @@ function run_promotion_case {
     local image_stem=""
     local image_regex=""
     local epics_commit runner_commit fixture_commit
+    local key_type key_body address_suffix
     local rc=0
     local -a images=()
 
@@ -822,10 +892,18 @@ function run_promotion_case {
             ;;
     esac
     image_regex="^iocrunner-${os_type}-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}[.]qcow2$"
+    if [[ "${mode}" == ethercat-readiness ]]; then
+        base_image_name=debian-13-genericcloud-amd64-20260601-2496.qcow2
+    fi
 
     mkdir -p "${fakebin}" "${image_dir}" "${home_dir}/.ssh"
     printf "%s\n" "ssh-ed25519 AAAAC3NzaFixture test" > "${home_dir}/.ssh/id_ed25519.pub"
+    read -r key_type key_body _ < "${WORKSPACE}/host-key.pub"
     : > "${home_dir}/.ssh/known_hosts"
+    for ((address_suffix=160; address_suffix<=254; address_suffix++)); do
+        printf '192.168.123.%s %s %s\n' "${address_suffix}" "${key_type}" \
+            "${key_body}" >> "${home_dir}/.ssh/known_hosts"
+    done
     printf "%s\n" "base image" > "${image_dir}/${base_image_name}"
     init_checkout "${epics_checkout}" "https://github.com/jeonghanlee/EPICS-env-distribution"
     init_checkout "${runner_checkout}" "https://github.com/jeonghanlee/epics-ioc-runner"
@@ -837,6 +915,7 @@ function run_promotion_case {
     prepare_proxy_guest_root "${guest_root}" "${os_type}" "${mode}"
 
     local -a bake_env=(
+        "REAL_SSH_KEYGEN=${REAL_SSH_KEYGEN}"
         "ANSIBLE_ARG_LOG=${case_dir}/ansible-args.log"
         "RUNTIME_INVENTORY_ARG_LOG=${case_dir}/runtime-inventory-args.log"
         "RUNTIME_INVENTORY_SNAPSHOT=${case_dir}/runtime-inventory.ini"
@@ -869,18 +948,91 @@ function run_promotion_case {
     )
     local -a bake_command=(
         "${BAKE}" -o "${os_type}" -d "${image_dir}" \
-        -a "${TOP}/../ansible-provision" -k
+        -a "${TOP}/../ansible-provision"
     )
+    if [[ "${mode}" == ethercat-readiness ]]; then
+        bake_command[0]="${TOP}/bin/bake_ethercat_image.bash"
+    fi
+    [[ "${mode}" == cleanup-* ]] || bake_command+=(-k)
     if [[ -n "${CASE_RUNNER_REF:-}" ]]; then
         bake_command+=(-r "${CASE_RUNNER_REF}")
     fi
     env "${bake_env[@]}" "${bake_command[@]}" \
         > "${case_dir}/output.txt" 2>&1 || rc=$?
 
+    if [[ "${mode}" == ethercat-readiness ]]; then
+        expect_equal "EtherCAT reaches the post-readiness SSH boundary" 43 "${rc}"
+        if grep -q '^READY$' "${case_dir}/output.txt" && \
+           grep -q 'runtime inventory for .* \[OK\]' "${case_dir}/output.txt" && \
+           grep -q 'EtherCAT readiness boundary reached' "${case_dir}/output.txt"; then
+            record_pass 'EtherCAT clears the stale key before readiness and inventory'
+        else
+            record_fail 'EtherCAT clears the stale key before readiness and inventory' \
+                'the real entry point stopped before the expected boundary'
+        fi
+        assert_ssh_multiplexing_off "${label}" "${case_dir}/ssh-args.log"
+        return 0
+    fi
+
     assert_runtime_inventory "${label}" \
         "${case_dir}/runtime-inventory-args.log" \
         "${case_dir}/runtime-inventory.ini" "${os_type}"
     assert_ssh_multiplexing_off "${label}" "${case_dir}/ssh-args.log"
+
+    if [[ "${mode}" == cleanup-* ]]; then
+        local vm_name disk seed cleanup_command want_rc=1
+        vm_name="$(cat "${case_dir}/domain.name")"
+        disk="${image_dir}/${vm_name}.qcow2"
+        seed="${image_dir}/${vm_name}-seed.iso"
+        cleanup_command="IMAGE_WORKFLOW_RUN_ID=${vm_name#lab-${os_type}-build-} ${TOP}/bin/create_vm.bash"
+        cleanup_command+=" -o ${os_type} -n build -d ${image_dir} -p lab -c"
+        [[ "${mode}" != cleanup-success ]] || want_rc=0
+        expect_equal "${label} bake exit" "${want_rc}" "${rc}"
+        shopt -s nullglob
+        images=("${image_dir}"/iocrunner-"${os_type}"-*.qcow2)
+        shopt -u nullglob
+        if (( ${#images[@]} == 1 )) && \
+           [[ -f "${images[0]}.manifest" && -f "${images[0]}.creation-record" ]]; then
+            record_pass "${label} preserves the published image pair"
+        else
+            record_fail "${label} preserves the published image pair" 'publication did not complete'
+        fi
+        if [[ "${mode}" == cleanup-success ]]; then
+            if [[ ! -e "${case_dir}/domain.state" && ! -e "${disk}" && \
+                  ! -e "${disk}.creation-record" && ! -e "${seed}" && \
+                  ! -e "${case_dir}/reservation-live.xml" && \
+                  ! -e "${case_dir}/reservation-config.xml" ]]; then
+                record_pass "${label} removes build resources and both reservations"
+            else
+                record_fail "${label} removes build resources and both reservations" 'resources remain'
+            fi
+            if grep -q '^Bake complete:' "${case_dir}/output.txt" && \
+               ! grep -q 'was left for inspection' "${case_dir}/output.txt"; then
+                record_pass "${label} reports success without failure guidance"
+            else
+                record_fail "${label} reports success without failure guidance" 'incorrect completion output'
+            fi
+        else
+            if [[ -f "${case_dir}/domain.state" && -f "${disk}" && \
+                  -f "${disk}.creation-record" && -f "${seed}" && \
+                  -f "${case_dir}/reservation-live.xml" && \
+                  -f "${case_dir}/reservation-config.xml" ]] && \
+               ! grep -Eq '^(destroy|undefine)$' "${case_dir}/lifecycle.log"; then
+                record_pass "${label} preserves build resources and both reservations"
+            else
+                record_fail "${label} preserves build resources and both reservations" 'resources were removed'
+            fi
+            if grep -q 'DHCP cleanup failed' "${case_dir}/output.txt" && \
+               grep -Fq "Build VM ${vm_name} was left for inspection" "${case_dir}/output.txt" && \
+               grep -Fq "${cleanup_command}" "${case_dir}/output.txt" && \
+               ! grep -q '^Bake complete:' "${case_dir}/output.txt"; then
+                record_pass "${label} reports failure with the exact cleanup identity"
+            else
+                record_fail "${label} reports failure with the exact cleanup identity" 'incorrect failure output'
+            fi
+        fi
+        return 0
+    fi
 
     if [[ "${mode}" == seal-case ]]; then
         shopt -s nullglob
@@ -1190,6 +1342,7 @@ function run_ref_guard_tests {
 }
 
 WORKSPACE="$(mktemp -d /tmp/iocrunner-bake-provenance-test.XXXXXX)"
+"${REAL_SSH_KEYGEN}" -q -t ed25519 -N '' -f "${WORKSPACE}/host-key"
 
 case "${1:-all}" in
     validator)
@@ -1220,6 +1373,7 @@ case "${1:-all}" in
     all)
         run_validator_tests
         run_ref_guard_tests
+        run_promotion_case ethercat-readiness debian13
         run_promotion_case seal-case debian13
         run_promotion_case seal-case rocky8
         run_promotion_case placement-tamper rocky8
@@ -1228,6 +1382,11 @@ case "${1:-all}" in
         run_promotion_case publish-clean rocky8
         run_promotion_case publish-repeat rocky8
         CASE_RUNNER_REF=1.2.3 run_promotion_case publish-pinned rocky8
+        for cleanup_os in debian13 rocky8; do
+            run_promotion_case cleanup-success "${cleanup_os}"
+            run_promotion_case cleanup-read-fail "${cleanup_os}"
+            run_promotion_case cleanup-delete-fail "${cleanup_os}"
+        done
         ;;
     *)
         printf "Usage: %s [validator|promotion|seed-omission|seal-case|all]\n" \

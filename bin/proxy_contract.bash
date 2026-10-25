@@ -7,7 +7,11 @@ declare -gr PROXY_CONTRACT_BEGIN="# BEGIN CLOUD-PROVISION PROXY CONTRACT"
 declare -gr PROXY_CONTRACT_END="# END CLOUD-PROVISION PROXY CONTRACT"
 declare -gr PROXY_CONTRACT_MARKER="cloud-provision-proxy-v1"
 declare -gr PROXY_CONTRACT_NO_PROXY="localhost,127.0.0.1,192.168.0.0/16"
+# Maven nonProxyHosts is a "|"-separated wildcard list and cannot express CIDR.
+declare -gr PROXY_CONTRACT_NO_PROXY_MAVEN="localhost|127.0.0.1|192.168.*"
 declare -gr PROXY_CONTRACT_EXEC_PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+declare -gr PROXY_CONTRACT_GENERAL_SERVER_ID="rocky"
+declare -gr PROXY_CONTRACT_GENERAL_SERVER_VERSION="8.10"
 
 declare -gr PROXY_CONTRACT_PROFILE="/etc/profile.d/95cloud-provision-proxy.sh"
 declare -gr PROXY_CONTRACT_ENVIRONMENT="/etc/environment"
@@ -19,6 +23,9 @@ declare -gr PROXY_CONTRACT_SSHD_MAIN="/etc/ssh/sshd_config"
 declare -gr PROXY_CONTRACT_SSH_ENVIRONMENT="/home/vmadmin/.ssh/environment"
 declare -gr PROXY_CONTRACT_PIP="/etc/pip.conf"
 declare -gr PROXY_CONTRACT_GIT="/etc/gitconfig"
+# Selected explicitly with mvn -gs; it is not a Maven default location, so it
+# stays directly under /etc and never collides with a packaged /etc/maven.
+declare -gr PROXY_CONTRACT_MAVEN="/etc/maven-proxy-settings.xml"
 
 declare -gr PROXY_CONTRACT_RUNTIME_DIR="/run/cloud-provision"
 declare -gr PROXY_CONTRACT_SCRIPT="${PROXY_CONTRACT_RUNTIME_DIR}/proxy_contract.bash"
@@ -37,6 +44,11 @@ declare -g PROXY_CONTRACT_SYSTEMCTL=""
 declare -g PROXY_CONTRACT_WORK_DIR=""
 declare -g PROXY_CONTRACT_INPUT_URL=""
 declare -g PROXY_CONTRACT_INPUT_HASH=""
+declare -g PROXY_CONTRACT_INPUT_SCHEMA=1
+declare -g PROXY_CONTRACT_SCOPE="cloud"
+declare -g PROXY_CONTRACT_INPUT_LOADED=false
+declare -g PROXY_CONTRACT_OPERATION=""
+declare -g PROXY_CONTRACT_INTERRUPTED=false
 declare -ag PROXY_CONTRACT_CLEAN_ARGS=()
 declare -ag PROXY_CONTRACT_CREATED_IDENTITIES=()
 declare -ag PROXY_CONTRACT_TEMP_PATHS=()
@@ -159,7 +171,8 @@ function proxy_contract_validate_parent {
     local path="$2"
     local owner="$3"
     local group="$4"
-    local parent uid gid mode expected_uid expected_gid
+    local parent directory vmadmin_home uid gid mode expected_uid expected_gid
+    local directory_uid directory_gid
 
     parent="${path%/*}"
     proxy_contract_validate_rooted_path "${identity}" "${parent}" false || return 1
@@ -168,17 +181,31 @@ function proxy_contract_validate_parent {
         return 1
     fi
     proxy_contract_owner_ids "${owner}" "${group}" expected_uid expected_gid || return 1
-    uid="$(stat -Lc '%u' "${parent}")" || return 1
-    gid="$(stat -Lc '%g' "${parent}")" || return 1
-    mode="$(stat -Lc '%a' "${parent}")" || return 1
-    if [[ "${uid}" != "${expected_uid}" || "${gid}" != "${expected_gid}" ]]; then
-        proxy_contract_die "identity ${identity} parent has an ownership conflict"
-        return 1
-    fi
-    if (( (8#${mode} & 8#022) != 0 )); then
-        proxy_contract_die "identity ${identity} parent is group or world writable"
-        return 1
-    fi
+    vmadmin_home="$(proxy_contract_root_path "${PROXY_CONTRACT_SSH_ENVIRONMENT%/.ssh/environment}")"
+    directory="${parent}"
+    while :; do
+        directory_uid="${PROXY_CONTRACT_ROOT_UID}"
+        directory_gid="${PROXY_CONTRACT_ROOT_GID}"
+        if [[ "${directory}" == "${parent}" ]] ||
+           [[ "${owner}" == vmadmin && "${directory}" == "${vmadmin_home}" ]]; then
+            directory_uid="${expected_uid}"
+            directory_gid="${expected_gid}"
+        fi
+        uid="$(stat -Lc '%u' "${directory}")" || return 1
+        gid="$(stat -Lc '%g' "${directory}")" || return 1
+        mode="$(stat -Lc '%a' "${directory}")" || return 1
+        if [[ "${uid}" != "${directory_uid}" || "${gid}" != "${directory_gid}" ]]; then
+            proxy_contract_die "identity ${identity} parent has an ownership conflict"
+            return 1
+        fi
+        if (( (8#${mode} & 8#022) != 0 )); then
+            proxy_contract_die "identity ${identity} parent is group or world writable"
+            return 1
+        fi
+        [[ "${directory}" != "${PROXY_CONTRACT_ROOT}" ]] || break
+        directory="${directory%/*}"
+        [[ -n "${directory}" ]] || directory="/"
+    done
 }
 
 function proxy_contract_validate_regular_file {
@@ -355,8 +382,8 @@ function proxy_contract_resolve_os_release {
 }
 
 function proxy_contract_parse_os_release {
-    local path line value=""
-    local id_count=0
+    local path line value="" version=""
+    local id_count=0 version_count=0
 
     if ! path="$(proxy_contract_resolve_os_release)"; then
         return 1
@@ -365,6 +392,9 @@ function proxy_contract_parse_os_release {
         if [[ "${line}" =~ ^ID=(.*)$ ]]; then
             value="${BASH_REMATCH[1]}"
             id_count=$((id_count + 1))
+        elif [[ "${line}" =~ ^VERSION_ID=(.*)$ ]]; then
+            version="${BASH_REMATCH[1]}"
+            version_count=$((version_count + 1))
         fi
     done < "${path}"
     if [[ "${id_count}" != 1 ]]; then
@@ -379,6 +409,17 @@ function proxy_contract_parse_os_release {
         proxy_contract_die "/etc/os-release contains an invalid ID field"
         return 1
     fi
+    if [[ "${PROXY_CONTRACT_SCOPE}" == general-server ]]; then
+        case "${version}" in
+            \"*\") version="${version#\"}"; version="${version%\"}" ;;
+            \'*\') version="${version#\'}"; version="${version%\'}" ;;
+        esac
+        if [[ "${value}" != "${PROXY_CONTRACT_GENERAL_SERVER_ID}" ||
+              "${version_count}" != 1 || "${version}" != "${PROXY_CONTRACT_GENERAL_SERVER_VERSION}" ]]; then
+            proxy_contract_die "general-server requires ID=rocky and exactly one VERSION_ID=8.10"
+            return 1
+        fi
+    fi
     proxy_contract_os_family "${value}"
 }
 
@@ -392,8 +433,13 @@ function proxy_contract_inventory_add {
     local -n markers_ref="$7"
     local -n cleanups_ref="$8"
     local -n remnants_ref="$9"
-    shift 9
+    local -n formats_ref="${10}"
+    shift 10
 
+    if [[ "${PROXY_CONTRACT_SCOPE}" == general-server &&
+          ( "$1" == sshd || "$1" == ssh-environment ) ]]; then
+        return 0
+    fi
     identities_ref+=("$1")
     paths_ref+=("$2")
     owners_ref+=("$3")
@@ -403,6 +449,7 @@ function proxy_contract_inventory_add {
     markers_ref+=("$7")
     cleanups_ref+=("$8")
     remnants_ref+=("$9")
+    formats_ref+=("${10}")
 }
 
 # The output arrays are selected by caller-provided names.
@@ -412,6 +459,7 @@ function proxy_contract_inventory {
     local identities_name="$2" paths_name="$3" owners_name="$4"
     local groups_name="$5" modes_name="$6" forms_name="$7"
     local markers_name="$8" cleanups_name="$9" remnants_name="${10}"
+    local formats_name="${11}"
     local -n identities_ref="${identities_name}"
     local -n paths_ref="${paths_name}"
     local -n owners_ref="${owners_name}"
@@ -421,6 +469,7 @@ function proxy_contract_inventory {
     local -n markers_ref="${markers_name}"
     local -n cleanups_ref="${cleanups_name}"
     local -n remnants_ref="${remnants_name}"
+    local -n formats_ref="${formats_name}"
 
     identities_ref=()
     paths_ref=()
@@ -431,51 +480,65 @@ function proxy_contract_inventory {
     markers_ref=()
     cleanups_ref=()
     remnants_ref=()
+    formats_ref=()
 
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" profile "${PROXY_CONTRACT_PROFILE}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:profile
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" environment "${PROXY_CONTRACT_ENVIRONMENT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required # inventory:environment
+    case "${PROXY_CONTRACT_SCOPE}:${os_family}" in
+        cloud:debian|cloud:ubuntu|cloud:rocky|general-server:rocky) ;;
+        *) proxy_contract_die "contains an unsupported inventory scope"; return 1 ;;
+    esac
+
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" profile "${PROXY_CONTRACT_PROFILE}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:profile
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" environment "${PROXY_CONTRACT_ENVIRONMENT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:environment
     case "${os_family}" in
         debian|ubuntu)
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" apt "${PROXY_CONTRACT_APT}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:apt
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" sudo "${PROXY_CONTRACT_SUDO}" root root 0440 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:sudo
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" sshd "${PROXY_CONTRACT_SSHD_DROPIN}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:sshd
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" apt "${PROXY_CONTRACT_APT}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:apt
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" sudo "${PROXY_CONTRACT_SUDO}" root root 0440 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:sudo
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" sshd "${PROXY_CONTRACT_SSHD_DROPIN}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:sshd
             ;;
         rocky)
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" dnf "${PROXY_CONTRACT_DNF}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required # inventory:dnf
-            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" sshd "${PROXY_CONTRACT_SSHD_MAIN}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required # inventory:sshd
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" dnf "${PROXY_CONTRACT_DNF}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:dnf
+            proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" sshd "${PROXY_CONTRACT_SSHD_MAIN}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:sshd
             ;;
         *)
             proxy_contract_die "contains an unsupported inventory OS family"
             return 1
             ;;
     esac
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" ssh-environment "${PROXY_CONTRACT_SSH_ENVIRONMENT}" vmadmin vmadmin 0600 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:ssh-environment
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" pip "${PROXY_CONTRACT_PIP}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required # inventory:pip
-    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" git "${PROXY_CONTRACT_GIT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required # inventory:git
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" ssh-environment "${PROXY_CONTRACT_SSH_ENVIRONMENT}" vmadmin vmadmin 0600 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:ssh-environment
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" pip "${PROXY_CONTRACT_PIP}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:pip
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" git "${PROXY_CONTRACT_GIT}" root root 0644 shared "${PROXY_CONTRACT_MARKER}" required required hash-comment # inventory:git
+    proxy_contract_inventory_add "${identities_name}" "${paths_name}" "${owners_name}" "${groups_name}" "${modes_name}" "${forms_name}" "${markers_name}" "${cleanups_name}" "${remnants_name}" "${formats_name}" maven "${PROXY_CONTRACT_MAVEN}" root root 0644 dedicated "${PROXY_CONTRACT_MARKER}" required required xml # inventory:maven
 }
 
 function proxy_contract_validate_inventory_entry {
     local os_family="$1" identity="$2" path="$3" owner="$4" group="$5"
     local mode="$6" form="$7" marker="$8" cleanup="$9" remnant="${10}"
+    local format="${11}"
     local expected=""
 
+    if [[ "${PROXY_CONTRACT_SCOPE}" == general-server &&
+          ( "${os_family}" != rocky || "${identity}" == sshd || "${identity}" == ssh-environment ) ]]; then
+        proxy_contract_die "contains an identity outside the general-server scope"
+        return 1
+    fi
     case "${os_family}:${identity}" in
-        debian:profile|ubuntu:profile|rocky:profile) expected="${PROXY_CONTRACT_PROFILE}|root|root|0644|dedicated" ;;
-        debian:environment|ubuntu:environment|rocky:environment) expected="${PROXY_CONTRACT_ENVIRONMENT}|root|root|0644|shared" ;;
-        debian:apt|ubuntu:apt) expected="${PROXY_CONTRACT_APT}|root|root|0644|dedicated" ;;
-        rocky:dnf) expected="${PROXY_CONTRACT_DNF}|root|root|0644|shared" ;;
-        debian:sudo|ubuntu:sudo) expected="${PROXY_CONTRACT_SUDO}|root|root|0440|dedicated" ;;
-        debian:sshd|ubuntu:sshd) expected="${PROXY_CONTRACT_SSHD_DROPIN}|root|root|0644|dedicated" ;;
-        rocky:sshd) expected="${PROXY_CONTRACT_SSHD_MAIN}|root|root|0644|shared" ;;
-        debian:ssh-environment|ubuntu:ssh-environment|rocky:ssh-environment) expected="${PROXY_CONTRACT_SSH_ENVIRONMENT}|vmadmin|vmadmin|0600|dedicated" ;;
-        debian:pip|ubuntu:pip|rocky:pip) expected="${PROXY_CONTRACT_PIP}|root|root|0644|dedicated" ;;
-        debian:git|ubuntu:git|rocky:git) expected="${PROXY_CONTRACT_GIT}|root|root|0644|shared" ;;
+        debian:profile|ubuntu:profile|rocky:profile) expected="${PROXY_CONTRACT_PROFILE}|root|root|0644|dedicated|hash-comment" ;;
+        debian:environment|ubuntu:environment|rocky:environment) expected="${PROXY_CONTRACT_ENVIRONMENT}|root|root|0644|shared|hash-comment" ;;
+        debian:apt|ubuntu:apt) expected="${PROXY_CONTRACT_APT}|root|root|0644|dedicated|hash-comment" ;;
+        rocky:dnf) expected="${PROXY_CONTRACT_DNF}|root|root|0644|shared|hash-comment" ;;
+        debian:sudo|ubuntu:sudo) expected="${PROXY_CONTRACT_SUDO}|root|root|0440|dedicated|hash-comment" ;;
+        debian:sshd|ubuntu:sshd) expected="${PROXY_CONTRACT_SSHD_DROPIN}|root|root|0644|dedicated|hash-comment" ;;
+        rocky:sshd) expected="${PROXY_CONTRACT_SSHD_MAIN}|root|root|0644|shared|hash-comment" ;;
+        debian:ssh-environment|ubuntu:ssh-environment|rocky:ssh-environment) expected="${PROXY_CONTRACT_SSH_ENVIRONMENT}|vmadmin|vmadmin|0600|dedicated|hash-comment" ;;
+        debian:pip|ubuntu:pip|rocky:pip) expected="${PROXY_CONTRACT_PIP}|root|root|0644|dedicated|hash-comment" ;;
+        debian:git|ubuntu:git|rocky:git) expected="${PROXY_CONTRACT_GIT}|root|root|0644|shared|hash-comment" ;;
+        debian:maven|ubuntu:maven|rocky:maven) expected="${PROXY_CONTRACT_MAVEN}|root|root|0644|dedicated|xml" ;;
         *)
             proxy_contract_die "contains an unknown inventory identity ${identity}"
             return 1
             ;;
     esac
-    if [[ "${path}|${owner}|${group}|${mode}|${form}" != "${expected}" ||
+    if [[ "${path}|${owner}|${group}|${mode}|${form}|${format}" != "${expected}" ||
           "${marker}" != "${PROXY_CONTRACT_MARKER}" ||
           "${cleanup}" != required || "${remnant}" != required ]]; then
         proxy_contract_die "contains invalid inventory metadata for ${identity}"
@@ -485,24 +548,71 @@ function proxy_contract_validate_inventory_entry {
 
 function proxy_contract_print_inventory {
     local os_family="$1" index
+    local PROXY_CONTRACT_SCOPE="${2:-${PROXY_CONTRACT_SCOPE}}"
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
 
-    proxy_contract_inventory "${os_family}" identities paths owners groups modes forms markers cleanups remnants || return 1
+    proxy_contract_inventory "${os_family}" identities paths owners groups modes forms markers cleanups remnants formats || return 1
     for index in "${!identities[@]}"; do
-        proxy_contract_validate_inventory_entry "${os_family}" "${identities[index]}" "${paths[index]}" "${owners[index]}" "${groups[index]}" "${modes[index]}" "${forms[index]}" "${markers[index]}" "${cleanups[index]}" "${remnants[index]}" || return 1
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        proxy_contract_validate_inventory_entry "${os_family}" "${identities[index]}" "${paths[index]}" "${owners[index]}" "${groups[index]}" "${modes[index]}" "${forms[index]}" "${markers[index]}" "${cleanups[index]}" "${remnants[index]}" "${formats[index]}" || return 1
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
             "${os_family}" "${identities[index]}" "${paths[index]}" \
             "${owners[index]}" "${groups[index]}" "${modes[index]}" \
             "${forms[index]}" "${markers[index]}" "${cleanups[index]}" \
-            "${remnants[index]}"
+            "${remnants[index]}" "${formats[index]}"
     done
+}
+
+function proxy_contract_write_maven_settings {
+    local proxy_url="$1"
+    local authority host port
+
+    authority="${proxy_url#*://}"
+    authority="${authority%%/*}"
+    if [[ "${authority}" == *@* ]]; then
+        proxy_contract_die "identity maven cannot express proxy credentials"
+        return 1
+    fi
+    host="${authority%%:*}"
+    if [[ "${authority}" == *:* ]]; then
+        port="${authority##*:}"
+    elif [[ "${proxy_url}" == https://* ]]; then
+        port=443
+    else
+        port=80
+    fi
+    if [[ ! "${host}" =~ ^[A-Za-z0-9.-]+$ || ! "${port}" =~ ^[0-9]+$ ]]; then
+        proxy_contract_die "identity maven requires a plain proxy host and port"
+        return 1
+    fi
+    printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>'
+    printf '%s\n' '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">'
+    printf '%s\n' '  <proxies>'
+    local protocol
+    for protocol in http https; do
+        printf '%s\n' '    <proxy>'
+        printf '      <id>cloud-provision-proxy-%s</id>\n' "${protocol}"
+        printf '%s\n' '      <active>true</active>'
+        printf '      <protocol>%s</protocol>\n' "${protocol}"
+        printf '      <host>%s</host>\n' "${host}"
+        printf '      <port>%s</port>\n' "${port}"
+        printf '      <nonProxyHosts>%s</nonProxyHosts>\n' "${PROXY_CONTRACT_NO_PROXY_MAVEN}"
+        printf '%s\n' '    </proxy>'
+    done
+    printf '%s\n' '  </proxies>'
+    printf '%s\n' '</settings>'
 }
 
 function proxy_contract_write_block {
     local identity="$1"
     local proxy_url="$2"
 
+    # The xml artifact is rendered whole, without the hash-comment markers the
+    # other identities carry.
+    if [[ "${identity}" == maven ]]; then
+        proxy_contract_write_maven_settings "${proxy_url}"
+        return
+    fi
     printf '%s\n' "${PROXY_CONTRACT_BEGIN}"
     case "${identity}" in
         profile)
@@ -605,7 +715,14 @@ function proxy_contract_validate_marker_shape {
     local identity="$1"
     local path="$2"
     local form="$3"
+    local format="$4"
     local begin_count end_count first_line last_line
+
+    # An xml artifact carries no hash-comment markers. Its whole file is the
+    # contract's, and validate_exact_content compares it byte for byte.
+    if [[ "${format}" == xml ]]; then
+        return 0
+    fi
 
     begin_count="$(grep -Fxc -- "${PROXY_CONTRACT_BEGIN}" "${path}" || true)"
     end_count="$(grep -Fxc -- "${PROXY_CONTRACT_END}" "${path}" || true)"
@@ -1001,6 +1118,7 @@ function proxy_contract_preflight_seal_identity {
     local mode="$6"
     local form="$7"
     local proxy_url="$8"
+    local format="$9"
     local path
 
     path="$(proxy_contract_root_path "${contract_path}")"
@@ -1012,12 +1130,14 @@ function proxy_contract_preflight_seal_identity {
     else
         proxy_contract_validate_shared_file "${identity}" "${path}" || return 1
     fi
-    proxy_contract_validate_marker_shape "${identity}" "${path}" "${form}" || return 1
+    proxy_contract_validate_marker_shape "${identity}" "${path}" "${form}" "${format}" || return 1
     if [[ "${form}" == shared ]]; then
         proxy_contract_validate_shared_placement \
             "${os_family}" "${identity}" "${path}" || return 1
     fi
-    proxy_contract_validate_unowned_keys "${identity}" "${path}" || return 1
+    if [[ "${format}" != xml ]]; then
+        proxy_contract_validate_unowned_keys "${identity}" "${path}" || return 1
+    fi
     proxy_contract_validate_exact_content \
         "${identity}" "${path}" "${form}" "${proxy_url}" || return 1
     if [[ "${identity}" == sshd && "${os_family}" != rocky ]]; then
@@ -1039,8 +1159,8 @@ function proxy_contract_validate_transient_file {
 
 function proxy_contract_parse_input {
     local path line
-    local schema="" proxy_url="" script_hash=""
-    local schema_count=0 proxy_count=0 hash_count=0
+    local schema="" proxy_url="" script_hash="" scope=""
+    local schema_count=0 proxy_count=0 hash_count=0 scope_count=0
 
     proxy_contract_validate_transient_file \
         contract-input "${PROXY_CONTRACT_INPUT}" 0600 || return 1
@@ -1059,6 +1179,10 @@ function proxy_contract_parse_input {
                 script_hash="${line#script_sha256=}"
                 hash_count=$((hash_count + 1))
                 ;;
+            scope=*)
+                scope="${line#scope=}"
+                scope_count=$((scope_count + 1))
+                ;;
             *)
                 proxy_contract_die "contract input contains an unknown field"
                 return 1
@@ -1066,12 +1190,30 @@ function proxy_contract_parse_input {
         esac
     done < "${path}"
     if [[ "${schema_count}" != 1 || "${proxy_count}" != 1 ||
-          "${hash_count}" != 1 || "${schema}" != 1 ||
+          "${hash_count}" != 1 ||
           ! "${script_hash}" =~ ^[0-9a-f]{64}$ ]]; then
-        proxy_contract_die "contract input does not match schema 1"
+        proxy_contract_die "contract input has invalid required fields"
+        return 1
+    fi
+    case "${schema}:${scope_count}:${scope}" in
+        1:0:) scope=cloud ;;
+        2:1:general-server)
+            if [[ "${PROXY_CONTRACT_OPERATION}" != reconcile ]]; then
+                proxy_contract_die "schema 2 general-server supports reconcile only"
+                return 1
+            fi
+            ;;
+        *) proxy_contract_die "contract input has an unsupported schema or scope"; return 1 ;;
+    esac
+    if [[ "${PROXY_CONTRACT_INPUT_LOADED}" == true &&
+          ( "${schema}" != "${PROXY_CONTRACT_INPUT_SCHEMA}" || "${scope}" != "${PROXY_CONTRACT_SCOPE}" ) ]]; then
+        proxy_contract_die "contract input scope changed during execution"
         return 1
     fi
     proxy_contract_validate_url "${proxy_url}" || return 1
+    PROXY_CONTRACT_INPUT_SCHEMA="${schema}"
+    PROXY_CONTRACT_SCOPE="${scope}"
+    PROXY_CONTRACT_INPUT_LOADED=true
     PROXY_CONTRACT_INPUT_URL="${proxy_url}"
     PROXY_CONTRACT_INPUT_HASH="${script_hash}"
 }
@@ -1090,6 +1232,16 @@ function proxy_contract_validate_staged_script {
     fi
 }
 
+function proxy_contract_print_lock {
+    local created_csv="$1"
+
+    printf 'schema=%s\n' "${PROXY_CONTRACT_INPUT_SCHEMA}"
+    if [[ "${PROXY_CONTRACT_INPUT_SCHEMA}" == 2 ]]; then
+        printf 'scope=%s\n' "${PROXY_CONTRACT_SCOPE}"
+    fi
+    printf 'state=applied\ncreated=%s\n' "${created_csv}"
+}
+
 function proxy_contract_write_lock {
     local path="$1"
     local created_csv="$2"
@@ -1100,12 +1252,12 @@ function proxy_contract_write_lock {
     fi
     chown "${PROXY_CONTRACT_ROOT_UID}:${PROXY_CONTRACT_ROOT_GID}" "${path}" || return 1
     chmod 0600 "${path}" || return 1
-    printf 'schema=1\nstate=applied\ncreated=%s\n' "${created_csv}" > "${path}"
+    proxy_contract_print_lock "${created_csv}" > "${path}"
 }
 
 function proxy_contract_parse_lock {
-    local path line schema="" state="" created="" identity
-    local schema_count=0 state_count=0 created_count=0
+    local path line schema="" state="" created="" identity scope=""
+    local schema_count=0 state_count=0 created_count=0 scope_count=0
     local -a values=()
 
     proxy_contract_validate_transient_file \
@@ -1125,6 +1277,10 @@ function proxy_contract_parse_lock {
                 created="${line#created=}"
                 created_count=$((created_count + 1))
                 ;;
+            scope=*)
+                scope="${line#scope=}"
+                scope_count=$((scope_count + 1))
+                ;;
             *)
                 proxy_contract_die "contract-lock contains an unknown field"
                 return 1
@@ -1132,10 +1288,14 @@ function proxy_contract_parse_lock {
         esac
     done < "${path}"
     if [[ "${schema_count}" != 1 || "${state_count}" != 1 ||
-          "${created_count}" != 1 || "${schema}" != 1 || "${state}" != applied ]]; then
-        proxy_contract_die "contract-lock does not match schema 1"
+          "${created_count}" != 1 || "${schema}" != "${PROXY_CONTRACT_INPUT_SCHEMA}" || "${state}" != applied ]]; then
+        proxy_contract_die "contract-lock does not match the selected schema"
         return 1
     fi
+    case "${schema}:${scope_count}:${scope}:${PROXY_CONTRACT_SCOPE}" in
+        1:0::cloud|2:1:general-server:general-server) ;;
+        *) proxy_contract_die "contract-lock does not match the selected scope"; return 1 ;;
+    esac
     PROXY_CONTRACT_CREATED_IDENTITIES=()
     if [[ -n "${created}" ]]; then
         IFS=',' read -r -a values <<< "${created}"
@@ -1253,6 +1413,7 @@ function proxy_contract_preflight_cloud_init {
 function proxy_contract_preflight_apply_commands {
     local os_family="$1"
 
+    [[ "${PROXY_CONTRACT_SCOPE}" != general-server ]] || return 0
     proxy_contract_resolve_guest_command sshd PROXY_CONTRACT_SSHD || return 1
     proxy_contract_resolve_guest_command \
         systemctl PROXY_CONTRACT_SYSTEMCTL || return 1
@@ -1265,6 +1426,7 @@ function proxy_contract_preflight_apply_commands {
 function proxy_contract_sshd_effective {
     local output config_path
 
+    [[ "${PROXY_CONTRACT_SCOPE}" != general-server ]] || return 0
     config_path="$(proxy_contract_root_path "${PROXY_CONTRACT_SSHD_MAIN}")"
     if ! output="$("${PROXY_CONTRACT_SSHD}" -T -f "${config_path}" \
         -C user=vmadmin,host=localhost,addr=127.0.0.1 2>&1)"; then
@@ -1284,6 +1446,7 @@ function proxy_contract_reload_sshd {
     local os_family="$1"
     local service
 
+    [[ "${PROXY_CONTRACT_SCOPE}" != general-server ]] || return 0
     if [[ "${os_family}" == rocky ]]; then
         service=sshd
     else
@@ -1321,7 +1484,7 @@ function proxy_contract_apply {
     local proxy_url identity path candidate backup lock_path created_csv=""
     local index uid gid mode
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
     # These arrays are consumed through rollback namerefs.
     # shellcheck disable=SC2034
     local -a rooted_paths=() candidates=() backups=() existed=()
@@ -1332,13 +1495,13 @@ function proxy_contract_apply {
     proxy_url="${PROXY_CONTRACT_INPUT_URL}"
     proxy_contract_inventory \
         "${os_family}" identities paths owners groups modes forms \
-        markers cleanups remnants || return 1
+        markers cleanups remnants formats || return 1
     for index in "${!identities[@]}"; do
         proxy_contract_validate_inventory_entry \
             "${os_family}" "${identities[index]}" "${paths[index]}" \
             "${owners[index]}" "${groups[index]}" "${modes[index]}" \
             "${forms[index]}" "${markers[index]}" "${cleanups[index]}" \
-            "${remnants[index]}" || return 1
+            "${remnants[index]}" "${formats[index]}" || return 1
         proxy_contract_preflight_apply_identity \
             "${os_family}" "${identities[index]}" "${paths[index]}" \
             "${owners[index]}" "${groups[index]}" "${forms[index]}" || return 1
@@ -1390,7 +1553,7 @@ function proxy_contract_apply {
         install_gids[index]="${gid}"
         install_modes[index]="${mode}"
         proxy_contract_validate_marker_shape \
-            "${identity}" "${candidate}" "${forms[index]}" || return 1
+            "${identity}" "${candidate}" "${forms[index]}" "${formats[index]}" || return 1
         if [[ "${forms[index]}" == shared ]]; then
             proxy_contract_validate_shared_placement \
                 "${os_family}" "${identity}" "${candidate}" || return 1
@@ -1443,15 +1606,347 @@ function proxy_contract_apply {
         "${os_family}" "${#identities[@]}"
 }
 
+function proxy_contract_preflight_reconcile_identity {
+    local os_family="$1" identity="$2" path="$3"
+    local owner="$4" group="$5" form="$6" format="$7"
+
+    proxy_contract_validate_parent "${identity}" "${path}" "${owner}" "${group}" || return 1
+    proxy_contract_validate_rooted_path "${identity}" "${path}" true || return 1
+    if [[ -e "${path}" ]]; then
+        if [[ ! -f "${path}" || "$(stat -Lc '%h' "${path}")" != 1 ]]; then
+            proxy_contract_die "identity ${identity} is not a single-link regular file"
+            return 1
+        fi
+        if [[ "${format}" == hash-comment ]]; then
+            if [[ "${form}" == dedicated ]] ||
+               grep -Fq 'CLOUD-PROVISION PROXY CONTRACT' "${path}"; then
+                proxy_contract_validate_marker_shape "${identity}" "${path}" "${form}" "${format}" || return 1
+            fi
+            proxy_contract_validate_unowned_keys "${identity}" "${path}" || return 1
+        fi
+        if [[ "${form}" == shared ]]; then
+            proxy_contract_validate_shared_newline "${identity}" "${path}" || return 1
+        fi
+    elif [[ "${identity}" == dnf || ( "${identity}" == sshd && "${form}" == shared ) ]]; then
+        proxy_contract_die "identity ${identity} requires an existing shared file"
+        return 1
+    fi
+    if [[ "${identity}" == dnf ]] &&
+       [[ "$(grep -Ec '^[[:space:]]*\[main\][[:space:]]*$' "${path}" || true)" != 1 ]]; then
+        proxy_contract_die "identity dnf requires exactly one main section"
+        return 1
+    fi
+    if [[ "${identity}" == sshd && "${os_family}" != rocky ]]; then
+        proxy_contract_require_sshd_include || return 1
+    fi
+}
+
+function proxy_contract_replace_file {
+    local identity="$1" source_path="$2" path="$3"
+    local uid="$4" gid="$5" mode="$6" temporary security_context=""
+
+    proxy_contract_validate_rooted_path "${identity}" "${path}" true || return 1
+    temporary="$(mktemp "${path%/*}/.proxy-contract.XXXXXX")" || return 1
+    PROXY_CONTRACT_TEMP_PATHS+=("${temporary}")
+    install -o "${uid}" -g "${gid}" -m "${mode}" "${source_path}" "${temporary}" || return 1
+    touch -r "${source_path}" "${temporary}" || return 1
+    if [[ -e "${path}" ]]; then
+        security_context="$(stat -Lc '%C' "${path}" 2>/dev/null)" || security_context=""
+        if [[ -n "${security_context}" && "${security_context}" != '?' ]]; then
+            cp --attributes-only --preserve=context -- "${path}" "${temporary}" || return 1
+        fi
+    fi
+    proxy_contract_validate_rooted_path "${identity}" "${path}" true || return 1
+    mv -fT -- "${temporary}" "${path}"
+}
+
+function proxy_contract_file_state {
+    local path="$1"
+
+    if [[ ! -e "${path}" && ! -L "${path}" ]]; then
+        printf '%s\n' absent
+        return 0
+    fi
+    proxy_contract_validate_rooted_path snapshot "${path}" false || return 1
+    [[ -f "${path}" && "$(stat -Lc '%h' "${path}")" == 1 ]] || return 1
+    stat -Lc '%d:%i:%h:%u:%g:%a:%s:%y:%z' "${path}"
+}
+
+function proxy_contract_matches_snapshot {
+    local path="$1" expected_state="$2" expected_content="$3" current_state
+
+    current_state="$(proxy_contract_file_state "${path}")" || return 1
+    [[ "${current_state}" == "${expected_state}" ]] || return 1
+    [[ "${expected_state}" == absent ]] || cmp -s -- "${expected_content}" "${path}"
+}
+
+# Each backup retains the original bytes and metadata, including metadata
+# drift. Concurrent changes are preserved and reported as rollback failures.
+function proxy_contract_restore_reconciled {
+    local -n restore_indices="$1" restore_paths="$2"
+    local -n restore_backups="$3" restore_existed="$4"
+    local -n restore_states="$5" restore_candidates="$6"
+    local index position uid gid mode rc=0
+
+    for ((position=${#restore_indices[@]} - 1; position >= 0; position--)); do
+        index="${restore_indices[position]}"
+        if ! proxy_contract_matches_snapshot "${restore_paths[index]}" \
+            "${restore_states[index]:-}" "${restore_candidates[index]}"; then
+            proxy_contract_die "rollback preserved a concurrent change"
+            rc=1
+            continue
+        fi
+        if [[ "${restore_existed[index]}" == true ]]; then
+            uid="$(stat -Lc '%u' "${restore_backups[index]}")" || return 1
+            gid="$(stat -Lc '%g' "${restore_backups[index]}")" || return 1
+            mode="$(stat -Lc '%a' "${restore_backups[index]}")" || return 1
+            proxy_contract_replace_file rollback "${restore_backups[index]}" \
+                "${restore_paths[index]}" "${uid}" "${gid}" "${mode}" || rc=1
+        else
+            rm -f -- "${restore_paths[index]}" || rc=1
+        fi
+    done
+    return "${rc}"
+}
+
+function proxy_contract_reconcile {
+    local os_family="$1" identity path candidate base index uid gid mode
+    local lock_path lock_candidate created_csv="" current_identity changed=false
+    local lock_present=false rc=0 runtime_path reconcile_fd lock_index flock_path
+    local -a identities=() paths=() owners=() groups=() modes=() forms=()
+    local -a markers=() cleanups=() remnants=() formats=()
+    local -a rooted_paths=() candidates=() backups=() existed=()
+    local -a install_uids=() install_gids=() install_modes=() changes=() installed=()
+    local -a source_states=() installed_states=()
+
+    runtime_path="$(proxy_contract_root_path "${PROXY_CONTRACT_RUNTIME_DIR}")" || return 1
+    proxy_contract_validate_parent contract-lock "${runtime_path}/proxy-contract.lock" root root || return 1
+    if ! flock_path="$(command -v flock)" || [[ ! -x "${flock_path}" ]]; then
+        proxy_contract_die "reconcile requires flock"
+        return 1
+    fi
+    exec {reconcile_fd}<"${runtime_path}" || return 1
+    if ! "${flock_path}" -n "${reconcile_fd}"; then
+        proxy_contract_die "another reconciliation is running"
+        return 1
+    fi
+    proxy_contract_parse_input || return 1
+    proxy_contract_validate_staged_script || return 1
+    proxy_contract_inventory "${os_family}" identities paths owners groups modes forms \
+        markers cleanups remnants formats || return 1
+    for index in "${!identities[@]}"; do
+        proxy_contract_validate_inventory_entry "${os_family}" "${identities[index]}" \
+            "${paths[index]}" "${owners[index]}" "${groups[index]}" "${modes[index]}" \
+            "${forms[index]}" "${markers[index]}" "${cleanups[index]}" \
+            "${remnants[index]}" "${formats[index]}" || return 1
+        path="$(proxy_contract_root_path "${paths[index]}")" || return 1
+        source_states[index]="$(proxy_contract_file_state "${path}")" || return 1
+        proxy_contract_preflight_reconcile_identity "${os_family}" "${identities[index]}" \
+            "${path}" "${owners[index]}" "${groups[index]}" "${forms[index]}" "${formats[index]}" || return 1
+        if [[ "$(proxy_contract_file_state "${path}")" != "${source_states[index]}" ]]; then
+            proxy_contract_die "reconcile detected a concurrent change during preflight"
+            return 1
+        fi
+        rooted_paths[index]="${path}"
+    done
+    lock_path="$(proxy_contract_root_path "${PROXY_CONTRACT_LOCK}")" || return 1
+    proxy_contract_validate_parent contract-lock "${lock_path}" root root || return 1
+    proxy_contract_validate_rooted_path contract-lock "${lock_path}" true || return 1
+    lock_index="${#rooted_paths[@]}"
+    source_states[lock_index]="$(proxy_contract_file_state "${lock_path}")" || return 1
+    if [[ -e "${lock_path}" ]]; then
+        proxy_contract_parse_lock || return 1
+        lock_present=true
+    else
+        PROXY_CONTRACT_CREATED_IDENTITIES=()
+    fi
+    proxy_contract_preflight_apply_commands "${os_family}" || return 1
+    proxy_contract_create_work_dir || return 1
+    rooted_paths[lock_index]="${lock_path}"
+    backups[lock_index]="${PROXY_CONTRACT_WORK_DIR}/backup-lock"
+    existed[lock_index]="${lock_present}"
+    if [[ "${lock_present}" == true ]]; then
+        cp -p -- "${lock_path}" "${backups[lock_index]}" || return 1
+        if ! proxy_contract_matches_snapshot "${lock_path}" "${source_states[lock_index]}" \
+            "${backups[lock_index]}"; then
+            proxy_contract_die "reconcile detected a concurrent change during rendering"
+            return 1
+        fi
+    fi
+    for index in "${!identities[@]}"; do
+        if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+            proxy_contract_die "reconcile interrupted before installation"
+            return 1
+        fi
+        identity="${identities[index]}"
+        path="${rooted_paths[index]}"
+        candidate="${PROXY_CONTRACT_WORK_DIR}/candidate-${identity}"
+        candidates[index]="${candidate}"
+        backups[index]="${PROXY_CONTRACT_WORK_DIR}/backup-${identity}"
+        base="${path}"
+        mode="${modes[index]#0}"
+        proxy_contract_owner_ids "${owners[index]}" "${groups[index]}" uid gid || return 1
+        install_uids[index]="${uid}"
+        install_gids[index]="${gid}"
+        if [[ -e "${path}" ]]; then
+            existed[index]=true
+            cp -p -- "${path}" "${backups[index]}" || return 1
+            if ! proxy_contract_matches_snapshot "${path}" "${source_states[index]}" \
+                "${backups[index]}"; then
+                proxy_contract_die "reconcile detected a concurrent change during rendering"
+                return 1
+            fi
+            base="${backups[index]}"
+            if [[ "${forms[index]}" == shared ]]; then
+                mode="$(stat -Lc '%a' "${backups[index]}")" || return 1
+                # Safe shared-file permissions belong to the existing site
+                # configuration. Unsafe permissions return to the baseline.
+                if (( (8#${mode} & 8#7022) != 0 )); then
+                    mode="${modes[index]#0}"
+                fi
+                if grep -Fq -- "${PROXY_CONTRACT_BEGIN}" "${backups[index]}"; then
+                    base="${PROXY_CONTRACT_WORK_DIR}/base-${identity}"
+                    proxy_contract_remove_block "${identity}" "${backups[index]}" "${base}" || return 1
+                fi
+            fi
+        else
+            existed[index]=false
+            base=""
+            if [[ "${forms[index]}" == shared ]] &&
+               ! proxy_contract_identity_was_created "${identity}"; then
+                PROXY_CONTRACT_CREATED_IDENTITIES+=("${identity}")
+            fi
+        fi
+        install_modes[index]="${mode}"
+        proxy_contract_render_candidate "${os_family}" "${identity}" "${forms[index]}" \
+            "${PROXY_CONTRACT_INPUT_URL}" "${base}" "${candidate}" || return 1
+        proxy_contract_validate_marker_shape "${identity}" "${candidate}" \
+            "${forms[index]}" "${formats[index]}" || return 1
+        if [[ "${forms[index]}" == shared ]]; then
+            proxy_contract_validate_shared_placement "${os_family}" "${identity}" "${candidate}" || return 1
+        fi
+        proxy_contract_validate_exact_content "${identity}" "${candidate}" \
+            "${forms[index]}" "${PROXY_CONTRACT_INPUT_URL}" || return 1
+        if [[ "${identity}" == sudo ]] && ! "${PROXY_CONTRACT_VISUDO}" -cf "${candidate}" 1>&2; then
+            proxy_contract_die "sudo candidate validation failed"
+            return 1
+        fi
+        if [[ "${existed[index]}" == false ]] || ! cmp -s -- "${path}" "${candidate}" ||
+           [[ "$(stat -Lc '%u:%g:%a' "${path}")" != "${uid}:${gid}:${mode}" ]]; then
+            changes+=("${index}")
+            changed=true
+        fi
+    done
+    for current_identity in "${PROXY_CONTRACT_CREATED_IDENTITIES[@]}"; do
+        [[ -z "${created_csv}" ]] || created_csv+=","
+        created_csv+="${current_identity}"
+    done
+    lock_candidate="${PROXY_CONTRACT_WORK_DIR}/lock-candidate"
+    candidates[lock_index]="${lock_candidate}"
+    proxy_contract_print_lock "${created_csv}" > "${lock_candidate}" || return 1
+    for index in "${!rooted_paths[@]}"; do
+        if ! proxy_contract_matches_snapshot "${rooted_paths[index]}" \
+            "${source_states[index]}" "${backups[index]}"; then
+            proxy_contract_die "reconcile detected a concurrent change before installation"
+            return 1
+        fi
+    done
+    for index in "${changes[@]}"; do
+        if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]] ||
+           ! proxy_contract_matches_snapshot "${rooted_paths[index]}" \
+               "${source_states[index]}" "${backups[index]}"; then
+            rc=1
+            break
+        fi
+        if ! proxy_contract_replace_file "${identities[index]}" "${candidates[index]}" \
+            "${rooted_paths[index]}" "${install_uids[index]}" \
+            "${install_gids[index]}" "${install_modes[index]}"; then
+            rc=1
+            break
+        fi
+        installed+=("${index}")
+        installed_states[index]="$(proxy_contract_file_state "${rooted_paths[index]}")" || { rc=1; break; }
+    done
+    if [[ "${rc}" == 0 ]]; then
+        for index in "${!identities[@]}"; do
+            if ! proxy_contract_validate_regular_file "${identities[index]}" "${rooted_paths[index]}" \
+                "${owners[index]}" "${groups[index]}" "${install_modes[index]}" ||
+               ! proxy_contract_validate_exact_content "${identities[index]}" "${rooted_paths[index]}" \
+                "${forms[index]}" "${PROXY_CONTRACT_INPUT_URL}"; then
+                rc=1
+                break
+            fi
+        done
+    fi
+    if [[ "${rc}" == 0 ]] && ! proxy_contract_sshd_effective; then
+        rc=1
+    fi
+    if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+        rc=1
+    fi
+    if [[ "${rc}" == 0 && "${changed}" == true ]] && ! proxy_contract_reload_sshd "${os_family}" 1>&2; then
+        rc=1
+    fi
+    if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+        rc=1
+    fi
+    if [[ "${rc}" == 0 ]]; then
+        for index in "${!identities[@]}"; do
+            if [[ -n "${installed_states[index]:-}" ]]; then
+                proxy_contract_matches_snapshot "${rooted_paths[index]}" \
+                    "${installed_states[index]}" "${candidates[index]}" || { rc=1; break; }
+            else
+                proxy_contract_matches_snapshot "${rooted_paths[index]}" \
+                    "${source_states[index]}" "${backups[index]}" || { rc=1; break; }
+            fi
+        done
+        proxy_contract_matches_snapshot "${lock_path}" "${source_states[lock_index]}" \
+            "${backups[lock_index]}" || rc=1
+    fi
+    if [[ "${rc}" == 0 ]] &&
+       { [[ "${lock_present}" == false ]] || ! cmp -s -- "${lock_path}" "${lock_candidate}"; }; then
+        if proxy_contract_replace_file contract-lock "${lock_candidate}" "${lock_path}" \
+            "${PROXY_CONTRACT_ROOT_UID}" "${PROXY_CONTRACT_ROOT_GID}" 600; then
+            installed+=("${lock_index}")
+            installed_states[lock_index]="$(proxy_contract_file_state "${lock_path}")" || rc=1
+        else
+            rc=1
+        fi
+    fi
+    if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+        rc=1
+    fi
+    trap '' HUP INT TERM
+    if [[ "${PROXY_CONTRACT_INTERRUPTED}" == true ]]; then
+        rc=1
+    fi
+    if [[ "${rc}" != 0 ]]; then
+        proxy_contract_restore_reconciled installed rooted_paths backups existed installed_states candidates ||
+            proxy_contract_die "reconcile rollback failed"
+        if [[ "${#installed[@]}" != 0 ]]; then
+            proxy_contract_reload_sshd "${os_family}" >/dev/null 2>&1 || true
+        fi
+        proxy_contract_die "reconcile failed; no successful change result"
+        return 1
+    fi
+    if [[ "${PROXY_CONTRACT_SCOPE}" == general-server ]]; then
+        printf 'proxy_contract schema=2 mode=reconcile scope=general-server os=%s identities=%s changed=%s\n' \
+            "${os_family}" "${#identities[@]}" "${changed}"
+    else
+        printf 'proxy_contract schema=1 mode=reconcile os=%s identities=%s changed=%s\n' \
+            "${os_family}" "${#identities[@]}" "${changed}"
+    fi
+}
+
 function proxy_contract_any_artifact_present {
     local os_family="$1"
     local path index
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
 
     proxy_contract_inventory \
         "${os_family}" identities paths owners groups modes forms \
-        markers cleanups remnants || return 1
+        markers cleanups remnants formats || return 1
     for path in \
         "${PROXY_CONTRACT_SCRIPT}" \
         "${PROXY_CONTRACT_INPUT}" \
@@ -1478,11 +1973,11 @@ function proxy_contract_verify_clean {
     local os_family="$1"
     local identity path key_pattern index
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
 
     proxy_contract_inventory \
         "${os_family}" identities paths owners groups modes forms \
-        markers cleanups remnants || return 1
+        markers cleanups remnants formats || return 1
     for index in "${!identities[@]}"; do
         identity="${identities[index]}"
         path="$(proxy_contract_root_path "${paths[index]}")"
@@ -1551,12 +2046,12 @@ function proxy_contract_seal {
     local proxy_url identity path candidate index
     local script_path input_path lock_path
     local -a identities=() paths=() owners=() groups=() modes=() forms=()
-    local -a markers=() cleanups=() remnants=()
+    local -a markers=() cleanups=() remnants=() formats=()
     local -a rooted_paths=() candidates=() candidate_modes=()
 
     proxy_contract_inventory \
         "${os_family}" identities paths owners groups modes forms \
-        markers cleanups remnants || return 1
+        markers cleanups remnants formats || return 1
     proxy_contract_preflight_cloud_init || return 1
     if proxy_contract_any_artifact_present "${os_family}"; then
         proxy_contract_parse_input || return 1
@@ -1570,11 +2065,11 @@ function proxy_contract_seal {
                 "${os_family}" "${identities[index]}" "${paths[index]}" \
                 "${owners[index]}" "${groups[index]}" "${modes[index]}" \
                 "${forms[index]}" "${markers[index]}" \
-                "${cleanups[index]}" "${remnants[index]}" || return 1
+                "${cleanups[index]}" "${remnants[index]}" "${formats[index]}" || return 1
             proxy_contract_preflight_seal_identity \
                 "${os_family}" "${identities[index]}" "${paths[index]}" \
                 "${owners[index]}" "${groups[index]}" "${modes[index]}" \
-                "${forms[index]}" "${proxy_url}" || return 1
+                "${forms[index]}" "${proxy_url}" "${formats[index]}" || return 1
             path="$(proxy_contract_root_path "${paths[index]}")"
             rooted_paths[index]="${path}"
             if [[ "${forms[index]}" == shared ]] &&
@@ -1631,7 +2126,7 @@ function proxy_contract_configure_root {
 
     if [[ -z "${test_root}" ]]; then
         if [[ "${EUID}" != 0 ]]; then
-            proxy_contract_die "apply, seal, and verify clean require root"
+            proxy_contract_die "apply, reconcile, seal, and verify clean require root"
             return 1
         fi
         if [[ ! -o privileged ]]; then
@@ -1657,11 +2152,545 @@ function proxy_contract_configure_root {
         PROXY_CONTRACT_ROOT_UID="${EUID}"
         PROXY_CONTRACT_ROOT_GID="$(id -g)"
     fi
-    proxy_contract_parse_passwd
+    return 0
+}
+
+function proxy_contract_check {
+    local test_root="$1" input_fd="$2" source_path="$3"
+    local python="" candidate index
+    local -a identities=() paths=() owners=() groups=() modes=() forms=()
+    local -a markers=() cleanups=() remnants=() formats=() inventory=()
+
+    if [[ ! "${input_fd}" =~ ^[1-9][0-9]?$ ]] ||
+       (( 10#${input_fd} < 3 || 10#${input_fd} > 63 )); then
+        printf '%s\n' 'proxy_contract identity=input key=fd reason=invalid-fd' >&2
+        return 1
+    fi
+    if [[ -z "${test_root}" ]]; then
+        if (( EUID != 0 )) || [[ ! -o privileged ]]; then
+            printf '%s\n' 'proxy_contract identity=runtime key=execution reason=privileged-root-required' >&2
+            return 1
+        fi
+    elif [[ "${test_root}" == / ]]; then
+        printf '%s\n' 'proxy_contract identity=runtime key=root reason=unsafe-test-root' >&2
+        return 1
+    fi
+    for candidate in /usr/bin/python3 /usr/libexec/platform-python; do
+        if [[ -x "${candidate}" ]]; then
+            python="${candidate}"
+            break
+        fi
+    done
+    if [[ -z "${python}" ]]; then
+        printf '%s\n' 'proxy_contract identity=runtime key=python reason=missing-interpreter' >&2
+        return 1
+    fi
+    PROXY_CONTRACT_SCOPE=general-server
+    proxy_contract_inventory rocky identities paths owners groups modes forms \
+        markers cleanups remnants formats || return 1
+    for index in "${!identities[@]}"; do
+        inventory+=("${identities[index]}" "${paths[index]}")
+    done
+    # The parser is part of this source artifact; -I -B avoids inherited Python
+    # configuration and bytecode writes. Configuration is always data, never code.
+    "${python}" -I -B -c '
+import errno
+import fcntl
+import hashlib
+import os
+import re
+import stat
+import sys
+import urllib.parse
+import xml.etree.ElementTree as ET
+
+MAX_INPUT = 65536
+MAX_FILE = 1048576
+MAX_SOURCE = 4194304
+OWNER_UID = os.geteuid() if sys.argv[1] else 0
+OWNER_GID = os.getegid() if sys.argv[1] else 0
+FIELDS = {"schema", "scope", "existing_keys", "proxy_url", "no_proxy",
+          "maven_non_proxy_hosts", "script_sha256"}
+IDENTITIES = {"profile", "environment", "dnf", "pip", "git", "maven"}
+PROXY_KEYS = ("http_proxy", "https_proxy", "ftp_proxy", "no_proxy",
+              "HTTP_PROXY", "HTTPS_PROXY", "FTP_PROXY", "NO_PROXY")
+MAVEN_NAMESPACE = "http://maven.apache.org/SETTINGS/1.0.0"
+SEALS = getattr(fcntl, "F_GET_SEALS", 1034)
+ALL_SEALS = 15
+READ_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_NOATIME
+DIR_FLAGS = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_DIRECTORY | os.O_NOATIME
+
+
+class Refusal(Exception):
+    def __init__(self, identity, key, reason):
+        self.identity, self.key, self.reason = identity, key, reason
+
+
+def refuse(identity, key, reason):
+    raise Refusal(identity, key, reason)
+
+
+def diagnostic(identity, key, reason):
+    print("proxy_contract identity={} key={} reason={}".format(identity, key, reason),
+          file=sys.stderr)
+
+
+def signature(value):
+    return (value.st_dev, value.st_ino, value.st_uid, value.st_gid, value.st_mode,
+            value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+
+
+def metadata(identity, value, directory=False):
+    if value.st_uid != OWNER_UID or value.st_gid != OWNER_GID:
+        refuse(identity, "metadata", "ownership-conflict")
+    if value.st_mode & 0o7022:
+        refuse(identity, "metadata", "unsafe-mode")
+    required = 0o500 if directory else 0o400
+    if value.st_mode & required != required:
+        refuse(identity, "metadata", "unreadable-mode")
+    if directory:
+        if not stat.S_ISDIR(value.st_mode):
+            refuse(identity, "path", "not-directory")
+    elif not stat.S_ISREG(value.st_mode) or value.st_nlink != 1:
+        refuse(identity, "path", "not-single-regular-file")
+
+
+def read_fd(fd, limit, identity):
+    chunks = []
+    size = 0
+    while size <= limit:
+        part = os.read(fd, min(65536, limit + 1 - size))
+        if not part:
+            return b"".join(chunks)
+        chunks.append(part)
+        size += len(part)
+    refuse(identity, "content", "too-large")
+
+
+def source_state(path):
+    match = re.fullmatch("/(?:proc/self/fd|dev/fd)/([0-9]+)", path)
+    fd = os.open("/proc/self/fd/" + match.group(1), os.O_RDONLY | os.O_CLOEXEC | os.O_NOATIME) \
+        if match else os.open(path, READ_FLAGS)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode):
+            refuse("source", "script_sha256", "not-regular")
+        if before.st_nlink == 0 and match:
+            if fcntl.fcntl(fd, SEALS) & ALL_SEALS != ALL_SEALS:
+                refuse("source", "script_sha256", "unsealed-source")
+        else:
+            metadata("source", before)
+        data = read_fd(fd, MAX_SOURCE, "source")
+        if signature(before) != signature(os.fstat(fd)):
+            refuse("source", "script_sha256", "concurrent-change")
+        return signature(before), hashlib.sha256(data).hexdigest()
+    finally:
+        os.close(fd)
+
+
+def input_data(fd):
+    value = os.fstat(fd)
+    if fcntl.fcntl(fd, fcntl.F_GETFL) & os.O_ACCMODE != os.O_RDONLY:
+        refuse("input", "fd", "not-read-only")
+    if value.st_uid != OWNER_UID or value.st_gid != OWNER_GID \
+            or stat.S_IMODE(value.st_mode) != 0o600:
+        refuse("input", "fd", "not-private")
+    if not stat.S_ISREG(value.st_mode):
+        refuse("input", "fd", "unsupported-fd")
+    if value.st_nlink not in (0, 1):
+        refuse("input", "fd", "unsafe-links")
+    reader = os.open("/proc/self/fd/" + str(fd), os.O_RDONLY | os.O_CLOEXEC | os.O_NOATIME)
+    try:
+        if signature(value) != signature(os.fstat(reader)):
+            refuse("input", "fd", "concurrent-change")
+        data = read_fd(reader, MAX_INPUT, "input").decode("ascii")
+        if signature(value) != signature(os.fstat(reader)):
+            refuse("input", "fd", "concurrent-change")
+    finally:
+        os.close(reader)
+    if any(ord(char) < 32 and char != "\n" or ord(char) == 127 for char in data):
+        refuse("input", "fields", "invalid-field")
+    lines = data.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    result = {}
+    for line in lines:
+        if "=" not in line:
+            refuse("input", "fields", "invalid-field")
+        key, text = line.split("=", 1)
+        if key not in FIELDS or key in result:
+            refuse("input", "fields", "unknown-or-duplicate-field")
+        result[key] = text
+    if set(result) != FIELDS:
+        refuse("input", "fields", "missing-field")
+    if result["schema"] != "3" or result["scope"] != "general-server" \
+            or result["existing_keys"] != "reconcile":
+        refuse("input", "schema", "unsupported-policy")
+    if not re.fullmatch("[0-9a-f]{64}", result["script_sha256"]):
+        refuse("input", "script_sha256", "invalid-hash")
+    if not re.fullmatch("[A-Za-z0-9.,:/_*+-]*", result["no_proxy"]):
+        refuse("input", "no_proxy", "unsupported-value")
+    if not re.fullmatch("[A-Za-z0-9.*|:_-]*", result["maven_non_proxy_hosts"]):
+        refuse("input", "maven_non_proxy_hosts", "unsupported-value")
+    url = result["proxy_url"]
+    if not re.fullmatch("https?://[A-Za-z0-9.-]+(?::(?:0|[1-9][0-9]*))?/?", url):
+        refuse("input", "proxy_url", "unsupported-url")
+    parsed = urllib.parse.urlsplit(url)
+    try:
+        port = parsed.port
+    except ValueError:
+        refuse("input", "proxy_url", "invalid-port")
+    if port is not None and not 1 <= port <= 65535:
+        refuse("input", "proxy_url", "invalid-port")
+    return result, parsed, signature(value)
+
+
+class Files:
+    def __init__(self, root):
+        if root != "/" and (not os.path.isabs(root) or os.path.realpath(root) != root):
+            refuse("runtime", "root", "unsafe-test-root")
+        self.path = root
+        self.fd = os.open(root, DIR_FLAGS)
+        metadata("runtime", os.fstat(self.fd), True)
+        self.root_state = signature(os.fstat(self.fd))
+        self.directories = {}
+        self.observed = {}
+        self.os_entry_state = None
+
+    def os_release(self):
+        directory = os.open("etc", DIR_FLAGS, dir_fd=self.fd)
+        try:
+            current = os.fstat(directory)
+            metadata("runtime", current, True)
+            self.directories["etc"] = signature(current)
+            entry = os.stat("os-release", dir_fd=directory, follow_symlinks=False)
+            self.os_entry_state = signature(entry)
+            if not stat.S_ISLNK(entry.st_mode):
+                return "/etc/os-release"
+            if entry.st_uid != OWNER_UID or entry.st_gid != OWNER_GID:
+                refuse("runtime", "os", "ownership-conflict")
+            target = os.readlink("os-release", dir_fd=directory)
+        finally:
+            os.close(directory)
+        if target.startswith("/"):
+            refuse("runtime", "os", "unsafe-path")
+        parts = ["etc"]
+        for part in target.split("/"):
+            if part == "..":
+                if not parts:
+                    refuse("runtime", "os", "unsafe-path")
+                parts.pop()
+            elif part not in ("", "."):
+                parts.append(part)
+        if not parts:
+            refuse("runtime", "os", "unsafe-path")
+        return "/" + "/".join(parts)
+
+    def read(self, identity, path, observe=True):
+        parts = path.split("/")[1:]
+        if not path.startswith("/") or any(part in ("", ".", "..") for part in parts):
+            refuse(identity, "path", "unsafe-path")
+        directory = os.dup(self.fd)
+        try:
+            for index, part in enumerate(parts[:-1]):
+                child = os.open(part, DIR_FLAGS, dir_fd=directory)
+                os.close(directory)
+                directory = child
+                current = os.fstat(directory)
+                metadata(identity, current, True)
+                name = "/".join(parts[:index + 1])
+                state = signature(current)
+                if name in self.directories and self.directories[name] != state:
+                    refuse(identity, "path", "concurrent-change")
+                self.directories[name] = state
+            fd = os.open(parts[-1], READ_FLAGS, dir_fd=directory)
+            try:
+                before = os.fstat(fd)
+                metadata(identity, before)
+                data = read_fd(fd, MAX_FILE, identity)
+                if signature(before) != signature(os.fstat(fd)):
+                    refuse(identity, "content", "concurrent-change")
+                value = (signature(before), hashlib.sha256(data).digest())
+            finally:
+                os.close(fd)
+        except FileNotFoundError:
+            data, value = None, None
+        except OSError as exc:
+            if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                refuse(identity, "path", "unsafe-path")
+            refuse(identity, "path", "unreadable")
+        finally:
+            os.close(directory)
+        if observe:
+            self.observed[(identity, path)] = value
+        elif self.observed[(identity, path)] != value:
+            refuse(identity, "content", "concurrent-change")
+        if data is not None and b"\x00" in data:
+            refuse(identity, "content", "invalid-text")
+        return data
+
+    def verify(self):
+        for identity, path in self.observed:
+            self.read(identity, path, False)
+        directory = os.open("etc", DIR_FLAGS, dir_fd=self.fd)
+        try:
+            entry = os.stat("os-release", dir_fd=directory, follow_symlinks=False)
+            if self.os_entry_state != signature(entry):
+                refuse("runtime", "os", "concurrent-change")
+        finally:
+            os.close(directory)
+        if self.root_state != signature(os.stat(self.path, follow_symlinks=False)):
+            refuse("runtime", "root", "concurrent-change")
+
+
+def literal(identity, key, value):
+    match = re.fullmatch(
+        "(?:\"([^\"$`\\\\]*)\"|\x27([^\x27]*)\x27|([^\\s\"\x27$`\\\\;&|<>(){}#]*))(?:[ \\t]+#.*)?", value.strip())
+    if not match:
+        refuse(identity, key, "unsupported-syntax")
+    return next(part for part in match.groups() if part is not None)
+
+
+def assignments(identity, text):
+    values = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pattern = "(export[ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)" if identity == "profile" \
+            else "(export[ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*)"
+        match = re.fullmatch(pattern, line)
+        if not match or (identity == "environment" and match.group(1)):
+            refuse(identity, "content", "unsupported-syntax")
+        exported, key, value = match.groups()
+        if identity == "profile" and value[:1].isspace():
+            if value.lstrip().startswith("#"):
+                value = ""
+            else:
+                refuse(identity, "content", "unsupported-syntax")
+        relevant = key in PROXY_KEYS
+        diagnostic_key = key if relevant else "content"
+        if identity == "profile" and relevant and not exported:
+            refuse(identity, key, "not-exported")
+        alias = re.fullmatch(
+            "\"\\$(?:([A-Za-z_][A-Za-z0-9_]*)|\\{([A-Za-z_][A-Za-z0-9_]*)\\})\"(?:[ \\t]+#.*)?", value)
+        if identity == "profile" and relevant and alias:
+            reference = alias.group(1) or alias.group(2)
+            if reference not in values:
+                refuse(identity, key, "unsupported-reference")
+            value = values[reference]
+        else:
+            value = literal(identity, diagnostic_key, value)
+        if relevant:
+            if key in values:
+                refuse(identity, key, "duplicate-key")
+            values[key] = value
+    return values
+
+
+def git_literal(value):
+    # Accept complete literal values and comments without evaluating expressions.
+    if "\\" in value:
+        refuse("git", "content", "unsupported-syntax")
+    if value.startswith("\""):
+        match = re.fullmatch("\"([^\"\\\\]*)\"[ \\t]*(?:[#;].*)?", value)
+        if not match:
+            refuse("git", "content", "unsupported-syntax")
+        return match.group(1)
+    value = re.split("[#;]", value, maxsplit=1)[0].rstrip()
+    if "\"" in value:
+        refuse("git", "content", "unsupported-syntax")
+    return value
+
+
+def ini_values(identity, text):
+    values = {}
+    section = ""
+    sections = set()
+    seen = set()
+    for line in text.splitlines():
+        indented = line.startswith((" ", "\t"))
+        line = line.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if identity != "git" and indented:
+            refuse(identity, "content", "unsupported-continuation")
+        if line.startswith("["):
+            match = re.fullmatch("\\[([A-Za-z0-9_.-]+)(?:\\s+\"([^\"\\\\]+)\")?\\]\\s*(?:[#;].*)?", line)
+            if not match:
+                refuse(identity, "content", "unsupported-section")
+            section = match.group(1)
+            if identity == "git":
+                section = section.lower()
+            elif match.group(2):
+                refuse(identity, "content", "unsupported-section")
+            if match.group(2):
+                section += ":" + match.group(2)
+            if section in sections:
+                refuse(identity, "content", "duplicate-section")
+            sections.add(section)
+            if identity == "git" and section.split(":")[0] in ("include", "includeif"):
+                refuse(identity, "content", "unsupported-include")
+            continue
+        match = re.fullmatch("([A-Za-z0-9_.-]+)\\s*=\\s*(.*)", line)
+        if not match or not section:
+            refuse(identity, "content", "unsupported-syntax")
+        key, value = match.groups()
+        if identity == "git":
+            if not re.fullmatch("[A-Za-z][A-Za-z0-9-]*", key):
+                refuse(identity, "content", "unsupported-syntax")
+            value = git_literal(value)
+        elif key.lower() == "proxy" and key != "proxy":
+            refuse(identity, "proxy", "unsupported-key-case")
+        key = key.lower()
+        if identity != "git" and (section, key) in seen:
+            refuse(identity, "content", "duplicate-key")
+        seen.add((section, key))
+        if key != "proxy":
+            continue
+        if (section, key) in values:
+            refuse(identity, "proxy", "duplicate-key")
+        required = {"dnf": ("main",), "pip": ("global",), "git": ("http", "https")}[identity]
+        if section not in required:
+            refuse(identity, "proxy", "unsupported-override")
+        if identity != "git" and ("$" in value or "%" in value or "\\" in value
+                                  or value.startswith(("\"", "\x27"))):
+            refuse(identity, "proxy", "unsupported-expression")
+        values[(section, key)] = value
+    return values
+
+
+def maven_values(text):
+    if re.search("<!\\s*(DOCTYPE|ENTITY)", text, re.I):
+        refuse("maven", "content", "unsupported-declaration")
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        refuse("maven", "content", "invalid-xml")
+    namespace = "{" + MAVEN_NAMESPACE + "}" if root.tag.startswith("{") else ""
+    if root.tag != namespace + "settings":
+        refuse("maven", "content", "unsupported-namespace")
+    containers = root.findall(namespace + "proxies")
+    if len(containers) > 1:
+        refuse("maven", "proxy", "duplicate-container")
+    values = {}
+    ids = set()
+    for container in containers:
+        for proxy in container:
+            if proxy.tag != namespace + "proxy" or proxy.attrib:
+                refuse("maven", "proxy", "unsupported-syntax")
+            fields = {}
+            for child in proxy:
+                key = child.tag[len(namespace):] if child.tag.startswith(namespace) else ""
+                if not key or key in fields or child.attrib or len(child):
+                    refuse("maven", "proxy", "unsupported-syntax")
+                fields[key] = (child.text or "").strip()
+            if fields.get("active") == "false":
+                continue
+            if fields.get("active") != "true":
+                refuse("maven", "active", "explicit-active-required")
+            if fields.get("username") or fields.get("password"):
+                refuse("maven", "proxy", "unsupported-credentials")
+            protocol = fields.get("protocol")
+            if protocol not in ("http", "https"):
+                refuse("maven", "protocol", "unsupported-protocol")
+            if protocol in values or (fields.get("id") and fields["id"] in ids):
+                refuse("maven", "proxy", "duplicate-proxy")
+            ids.add(fields.get("id"))
+            values[protocol] = fields
+    return values
+
+
+def run():
+    root, fd, source = sys.argv[1:4]
+    arguments = sys.argv[4:]
+    inventory = list(zip(arguments[::2], arguments[1::2]))
+    if len(arguments) != 12 or {identity for identity, _ in inventory} != IDENTITIES:
+        refuse("runtime", "inventory", "invalid-inventory")
+    desired, proxy, input_state = input_data(int(fd))
+    initial_source = source_state(source)
+    if initial_source[1] != desired["script_sha256"]:
+        refuse("source", "script_sha256", "hash-mismatch")
+    files = Files(root or "/")
+    try:
+        # Resolve Rocky relative os-release link without crossing the root.
+        os_path = files.os_release()
+        os_data = files.read("runtime", os_path)
+        if os_data is None:
+            refuse("runtime", "os", "missing-os-release")
+        os_values = {}
+        for line in os_data.decode("utf-8").splitlines():
+            match = re.fullmatch("(ID|VERSION_ID)=(.*)", line)
+            if match:
+                if match.group(1) in os_values:
+                    refuse("runtime", "os", "duplicate-key")
+                os_values[match.group(1)] = literal("runtime", "os", match.group(2))
+        if os_values != {"ID": "rocky", "VERSION_ID": "8.10"}:
+            refuse("runtime", "os", "unsupported-platform")
+        changed = False
+
+        def compare(identity, key, actual, expected):
+            nonlocal changed
+            if actual != expected:
+                changed = True
+                diagnostic(identity, key, "missing-key" if actual is None else "value-mismatch")
+
+        for identity, path in inventory:
+            data = files.read(identity, path)
+            if data is None:
+                changed = True
+                diagnostic(identity, "content", "missing-file")
+                continue
+            text = data.decode("utf-8")
+            if any((ord(char) < 32 or 127 <= ord(char) <= 159 or char.isspace())
+                   and char not in " \t\n" for char in text):
+                refuse(identity, "content", "unsupported-whitespace")
+            if identity in ("profile", "environment"):
+                values = assignments(identity, text)
+                for key in PROXY_KEYS:
+                    compare(identity, key, values.get(key), desired["no_proxy"]
+                            if key.lower() == "no_proxy" else desired["proxy_url"])
+            elif identity in ("dnf", "pip", "git"):
+                values = ini_values(identity, text)
+                for section in {"dnf": ("main",), "pip": ("global",),
+                                "git": ("http", "https")}[identity]:
+                    compare(identity, "proxy", values.get((section, "proxy")), desired["proxy_url"])
+            else:
+                values = maven_values(text)
+                for protocol in ("http", "https"):
+                    fields = values.get(protocol, {})
+                    # The host is compared as written, like every other artifact.
+                    compare(identity, "host", fields.get("host"), proxy.netloc.partition(":")[0])
+                    compare(identity, "port", fields.get("port"), str(proxy.port or
+                            (443 if proxy.scheme == "https" else 80)))
+                    compare(identity, "nonProxyHosts", fields.get("nonProxyHosts"),
+                            desired["maven_non_proxy_hosts"])
+        files.verify()
+        if initial_source != source_state(source):
+            refuse("source", "script_sha256", "concurrent-change")
+        if input_state != signature(os.fstat(int(fd))):
+            refuse("input", "fd", "concurrent-change")
+        print("proxy_contract schema=3 mode=check scope=general-server os=rocky "
+              "identities=6 status=" + ("needs-change" if changed else "ready"))
+        return 2 if changed else 0
+    finally:
+        os.close(files.fd)
+
+
+try:
+    sys.exit(run())
+except Refusal as exc:
+    diagnostic(exc.identity, exc.key, exc.reason)
+except (OSError, ValueError, UnicodeError, OverflowError):
+    diagnostic("runtime", "content", "unreadable-or-invalid")
+except Exception:
+    diagnostic("runtime", "content", "internal-error")
+sys.exit(1)
+' "${test_root}" "${input_fd}" "${source_path}" "${inventory[@]}"
 }
 
 function proxy_contract_main {
-    local test_root="" os_family
+    local test_root="" os_family input_path input_fd=""
     local -a operands=()
 
     umask 077
@@ -1676,31 +2705,65 @@ function proxy_contract_main {
                 test_root="$2"
                 shift 2
                 ;;
+            --input-fd)
+                if (( $# < 2 )) || [[ -n "${input_fd}" ]]; then
+                    printf '%s\n' 'proxy_contract identity=input key=fd reason=invalid-fd' >&2
+                    return 1
+                fi
+                input_fd="$2"
+                shift 2
+                ;;
             *)
                 operands+=("$1")
                 shift
                 ;;
         esac
     done
+    unset BASH_ENV ENV CDPATH TMPDIR TMP TEMP
+    export LC_ALL=C
+    if [[ "${#operands[@]}" == 1 && "${operands[0]}" == check ]]; then
+        proxy_contract_check "${test_root}" "${input_fd}" "${BASH_SOURCE[0]:-}"
+        return "$?"
+    fi
+    if [[ -n "${input_fd}" ]]; then
+        printf '%s\n' 'proxy_contract identity=input key=fd reason=check-only-option' >&2
+        return 1
+    fi
     if ! { [[ "${#operands[@]}" == 1 &&
-              ( "${operands[0]}" == apply || "${operands[0]}" == seal ) ]] ||
+              ( "${operands[0]}" == apply || "${operands[0]}" == reconcile || "${operands[0]}" == seal ) ]] ||
            [[ "${#operands[@]}" == 2 && "${operands[0]}" == verify &&
               "${operands[1]}" == clean ]]; }; then
         proxy_contract_die \
-            "usage: proxy_contract.bash [--test-root <absolute-path>] {apply|seal|verify clean}"
+            "usage: proxy_contract.bash [--test-root <absolute-path>] {apply|reconcile|seal|verify clean|check --input-fd N}"
         return 1
     fi
 
-    unset BASH_ENV ENV CDPATH TMPDIR TMP TEMP
-    export LC_ALL=C
+    PROXY_CONTRACT_OPERATION="${operands[0]}"
+    PROXY_CONTRACT_SCOPE=cloud
+    PROXY_CONTRACT_INPUT_SCHEMA=1
+    PROXY_CONTRACT_INPUT_LOADED=false
     proxy_contract_configure_root "${test_root}" || return 1
+    input_path="$(proxy_contract_root_path "${PROXY_CONTRACT_INPUT}")"
+    # Select the input scope before account lookup or guest command preflight.
+    # Cloud cleanup also permits an absent input after transient state removal.
+    if [[ "${PROXY_CONTRACT_OPERATION}" == apply || "${PROXY_CONTRACT_OPERATION}" == reconcile ||
+          -e "${input_path}" || -L "${input_path}" ]]; then
+        proxy_contract_parse_input || return 1
+    fi
+    if [[ "${PROXY_CONTRACT_SCOPE}" == cloud ]]; then
+        proxy_contract_parse_passwd || return 1
+    fi
     trap proxy_contract_cleanup_temps EXIT
     trap 'exit 1' HUP INT TERM
+    if [[ "${operands[0]}" == reconcile ]]; then
+        trap 'PROXY_CONTRACT_INTERRUPTED=true' HUP INT TERM
+    fi
     if ! os_family="$(proxy_contract_parse_os_release)"; then
         return 1
     fi
     case "${operands[0]}" in
         apply) proxy_contract_apply "${os_family}" ;;
+        reconcile) proxy_contract_reconcile "${os_family}" ;;
         seal) proxy_contract_seal "${os_family}" ;;
         verify) proxy_contract_verify_clean "${os_family}" ;;
     esac

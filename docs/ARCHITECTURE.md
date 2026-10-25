@@ -16,11 +16,11 @@ manual OS installation.
      | 1. Acquire base image (download + integrity check)
      |
      | 2. Copy the selected image to an independent qcow2 VM disk
-     |    and set its virtual capacity to 20 GiB
+     |    and set its virtual capacity from -z (default: 20 GiB)
      |
      | 3. Generate seed ISO
-     |    - meta-data: instance-id, hostname (from VM_NAME)
-     |    - user-data: OS-specific template (templates/user-data.${OS_TYPE})
+     |    - meta-data: instance-id, bounded hostname (from VM_NAME)
+     |    - user-data: OS-specific template (templates/user-data.${OS_VARIANT})
      |    - SSH public key injection via perl substitution
      |
      | 4. Provision VM (virt-install, virtio, noautoconsole)
@@ -62,7 +62,7 @@ indicators in a single pass (domain state, IP, SSH reachability,
 cloud-init completion) so partial-progress diagnostics survive any
 failed stage.
 
-**Reset to baseline.** A successive `clean` then provision returns a node to fresh OS state in roughly one minute per VM. The selected image is copied to an independent VM disk and its virtual capacity is set to 20 GiB before first boot; that VM disk, its creation record, and seed ISO are discarded, then rebuilt from scratch with a fresh cloud-init run. Downstream provisioners can rely on this guarantee - software-side residue is not the responsibility of this layer.
+**Reset to baseline.** A successive `clean` then provision returns a node to fresh OS state in roughly one minute per VM. Cleanup discards the VM disk, its creation record, and seed ISO. Provisioning copies the selected image to an independent VM disk, sets its virtual capacity from `-z` (default: 20 GiB), and runs cloud-init from scratch. Downstream provisioners can rely on this guarantee - software-side residue is not the responsibility of this layer.
 
 ---
 
@@ -85,7 +85,7 @@ ${IMAGE_DIR}/
 
 ```
 
-Base images are downloaded once and remain read-only inputs. Every VM disk and baked image is an independent qcow2 copy with a creation record beside it. `create_vm.bash` sets each copied VM disk's virtual capacity to 20 GiB before first boot, and the baked image retains that capacity when it is published. No produced image is used as another image's backing file.
+Base images are downloaded once and remain read-only inputs. Every VM disk and baked image is an independent qcow2 copy with a creation record beside it. `create_vm.bash` sets each copied VM disk's virtual capacity from `-z` (default: 20 GiB) before first boot. A baked image retains its build VM disk's capacity when published. No produced image is used as another image's backing file.
 
 ---
 
@@ -106,6 +106,11 @@ Ordinary VMs keep the stable name. Bake entry points set `NODE_ID=build` and app
 ---
 
 ## 6. Cloud-Init Data Flow
+
+Guest hostnames of up to 63 bytes retain the VM name. Longer VM names use
+the first 50 bytes, a hyphen, and the first 12 hexadecimal characters of
+the full VM name's SHA-256 digest. Domain names, disk names, and DHCP
+ownership continue to use the full VM identity.
 
 ```
 templates/user-data.${OS_VARIANT}
@@ -136,28 +141,30 @@ not inside the repository. It is removed once the seed ISO is written, and
 deliberately left in place when `genisoimage` fails, because it holds the
 exact inputs that produced the failure.
 
-`OS_VARIANT` collapses pre-baked variants onto their base OS template,
-so `rocky8-iocrunner` reuses `templates/user-data.rocky8` and
-`debian13-iocrunner` reuses `templates/user-data.debian13`.
+`OS_VARIANT` selects the base OS template for each selector. For example,
+`rocky8-iocrunner` reuses `templates/user-data.rocky8`, and
+`debian13-archiver-dev` reuses `templates/user-data.debian13`.
 
 **Current proxy artifact contract.** When `create_vm.bash` discovers exactly
 one host `*proxy.sh` file and validates its single quoted `PROXY_URL`, it calls
-the source-only renderer in `bin/proxy_contract.bash`. The renderer writes only
-the applicable rows below; the host script itself is never copied or sourced as
-guest shell code.
+the source-only renderer in `bin/proxy_contract.bash`. The renderer stages the
+contract and its input through `write_files`, and the guest's first-boot
+`apply` installs the complete applicable inventory of the proxy artifact ADR;
+the host script itself is never copied or sourced as guest shell code.
 
-| Identity | Debian and Ubuntu | Rocky | Ownership |
-| --- | --- | --- | --- |
-| `/etc/profile.d/95cloud-provision-proxy.sh` | yes | yes | Dedicated marked file |
-| `/etc/apt/apt.conf.d/95cloud-provision-proxy` | yes | no | Dedicated marked file |
-| `/etc/dnf/dnf.conf` | no | yes | One marked block in a shared file |
-| `/etc/gitconfig` | yes | yes | One marked block in a shared file |
+`docs/decisions/ADR-20260820-proxy-artifact-lifecycle.md` is the exact
+inventory authority for paths, ownership and modes. It has nine Debian rows,
+nine Ubuntu rows and eight Rocky rows: proxy settings for the shell profile,
+`/etc/environment`, apt or dnf, sudo (Debian and Ubuntu only), sshd, the
+vmadmin ssh environment, pip, system git, and Maven.
 
 The profile owns the conventional lower- and upper-case proxy variables and
-the fixed local bypass set. Dedicated files have fixed first and last markers;
-shared targets have one exact begin/end marker pair. The production inventory
-also fixes each identity's ownership form, marker identity, cleanup requirement,
-and remnant requirement. A no-proxy input emits no proxy `write_files` entries.
+the fixed local bypass set. Dedicated hash-comment files have fixed first and
+last markers; shared targets have one exact begin/end marker pair; the Maven
+settings file is a whole XML document without markers. The production
+inventory also fixes each identity's ownership form, marker identity, cleanup
+requirement, remnant requirement, and format. A no-proxy input emits no proxy
+`write_files` entries.
 
 ---
 
@@ -192,11 +199,14 @@ Selector sets are intentionally different:
 | rocky10-epics-dev | rocky10 | download.rockylinux.org | dnf | EPICS source-build host |
 | ubuntu24-epics-dev | ubuntu24 | cloud-images.ubuntu.com/noble/current | apt | EPICS source-build host |
 | ubuntu26-epics-dev | ubuntu26 | cloud-images.ubuntu.com/resolute/current | apt | EPICS source-build host |
+| rocky8-archiver-dev | rocky8 | download.rockylinux.org | dnf | Archiver source-build host |
+| debian13-archiver-dev | debian13 | cloud.debian.org/images/cloud/trixie/daily | apt | Archiver source-build host |
 
 The `*-iocrunner` and `*-iocrunner-nfs` variants boot from images
-produced by section 12 and are gated out of `make all` via
-`DEFAULT_OS_TYPES` until their golden image is present. They share the
-base OS variant's cloud-init template and boot firmware.
+produced by section 12. The default `DEFAULT_OS_TYPES` excludes them
+from `make all`, regardless of whether their golden images exist.
+Provision them through their individual targets after baking.
+They share the base OS variant's cloud-init template and boot firmware.
 
 The `debian13-ethercat` variant boots from the EtherCAT golden image.
 The `debian13-rtbase` selector is a bake input, not the final EtherCAT
@@ -205,6 +215,10 @@ runtime host.
 The `*-epics-dev` variants boot plain cloud images (no golden bake) and
 exist to give EPICS from-source builds dedicated hosts. They are
 excluded from `make all`.
+
+The `*-archiver-dev` variants also boot plain cloud images and are excluded
+from `make all`. They provide the OS and SSH baseline for Archiver source
+builds; application installation is a separate step.
 
 OS-specific differences are isolated to `templates/user-data.*` and `bin/create_vm.bash`:
 
@@ -227,9 +241,32 @@ do not add locale setup.
 
 ## 8. Network
 
-All VMs use the libvirt `default` network with static IP assignment via
-DHCP reservation. MAC addresses and IPs are derived deterministically
-from the OS type and the instance label.
+All VMs use the libvirt `lab` network with static IP assignment via
+DHCP reservation. IPs are derived deterministically from the OS type and
+the instance label. New addressed VMs receive a locally administered
+unicast MAC derived from their complete VM name, including the prefix and
+any run ID. The `02` first byte is followed by the first five bytes of the
+name's SHA-256 digest. Existing domains retain the MAC read from their
+interface on the configured network.
+
+`bin/vm_network.bash` owns MAC generation and DHCP reservation operations.
+New reservations contain MAC and IP only; no DHCP name is configured.
+Registration checks both live and persistent reservations before changing
+either, rejecting an IP held by another MAC or a MAC held at another IP.
+Existing named reservations are eligible for migration or removal only
+when their MAC, IP and name identify the selected VM. An unnamed entry
+requires the selected VM's MAC and IP to agree.
+
+A DHCP lease outlives the reservation that produced it, and the network does
+not hand a leased address to another MAC before the lease expires (one hour
+on the lab network). Before a new domain with a static address creates its
+disk, seed or reservation, the provisioner reads the network's active leases.
+A lease for that address held by another MAC stops the run. When that MAC
+still holds a live reservation, the run reports a VM in use, because its lease
+keeps renewing; otherwise it reports the holding MAC and the lease expiry as
+the retry point. A lease held by the new domain's own MAC, or no lease, does
+not stop the run. A failed lease query, or a failed reservation read for a
+foreign lease, also stops the run before anything is created.
 
 **IP Base Addresses:**
 
@@ -238,14 +275,14 @@ instance sits exactly on the base. The `*_IP_BASE` constants live in
 `bin/create_vm.bash` and are pairwise distinct, all below the .160 floor
 of the hashed window.
 
-| Vacuum    | bare | epics-dev | iocrunner | iocrunner-nfs | ethercat | rtbase |
-|-----------|------|-----------|-----------|---------------|----------|--------|
-| Debian 13 | .10  | .20       | .50       | .55           | .70      | .80    |
-| Debian 12 | .15  | .45       | —         | —             | —        | —      |
-| Ubuntu 26 | .25  | .30       | —         | —             | —        | —      |
-| Ubuntu 24 | .35  | .40       | —         | —             | —        | —      |
-| Rocky 8   | .100 | .120      | .150      | .155          | —        | —      |
-| Rocky 10  | .110 | .130      | —         | —             | —        | —      |
+| Vacuum    | bare | epics-dev | iocrunner | iocrunner-nfs | ethercat | rtbase | archiver-dev |
+|-----------|------|-----------|-----------|---------------|----------|--------|--------------|
+| Debian 13 | .10  | .20       | .50       | .55           | .70      | .80    | .60          |
+| Debian 12 | .15  | .45       | —         | —             | —        | —      | —            |
+| Ubuntu 26 | .25  | .30       | —         | —             | —        | —      | —            |
+| Ubuntu 24 | .35  | .40       | —         | —             | —        | —      | —            |
+| Rocky 8   | .100 | .120      | .150      | .155          | —        | —      | .140         |
+| Rocky 10  | .110 | .130      | —         | —             | —        | —      | —            |
 
 The operator definition assigns more pairs than are addressed; a pair
 gains a base address when work first builds it.
@@ -257,11 +294,13 @@ the same label on two OS types yields two different addresses
 and two different MACs. The range holds 95 slots, so distinct pairs can
 still collide; the address is checked against the network's existing
 reservations before registration and a collision is reported with the
-holding VM. `NODE_ID=dhcp` bypasses static assignment and uses DHCP.
+holding MAC. The MAC digest is independent of this 95-slot address hash;
+different VM identities sharing an address are rejected rather than sharing
+its MAC. `NODE_ID=dhcp` bypasses static assignment and uses DHCP.
 
 ```
 Host
-  └── libvirt lab network (virbr1, 192.168.123.0/24, NAT)
+  └── libvirt lab network (virbr-lab, 192.168.123.0/24, NAT)
         ├── lab-debian13-main                   192.168.123.10
         ├── lab-debian12-main                   192.168.123.15
         ├── lab-debian13-epics-dev-main         192.168.123.20
@@ -272,23 +311,23 @@ Host
         ├── lab-debian12-epics-dev-main         192.168.123.45
         ├── lab-debian13-iocrunner-main         192.168.123.50
         ├── lab-debian13-iocrunner-nfs-main     192.168.123.55
+        ├── lab-debian13-archiver-dev-main      192.168.123.60
         ├── lab-debian13-ethercat-main          192.168.123.70
         ├── lab-debian13-rtbase-main            192.168.123.80
         ├── lab-rocky8-main                     192.168.123.100
         ├── lab-rocky10-main                    192.168.123.110
         ├── lab-rocky8-epics-dev-main           192.168.123.120
         ├── lab-rocky10-epics-dev-main          192.168.123.130
+        ├── lab-rocky8-archiver-dev-main        192.168.123.140
         ├── lab-rocky8-iocrunner-main           192.168.123.150
         └── lab-rocky8-iocrunner-nfs-main       192.168.123.155
 ```
 
-MAC addresses are generated deterministically from a fixed prefix
-(`52:54:00:01`) combined with the OS base and the instance offset
-(`main` is offset 0). A hashed NODE_ID uses the same prefix with the
-range base 160 and the hash value in place of those two bytes. In both
-cases the MAC carries the two numbers as separate bytes while the
-address carries their sum, so the MAC is derived from the same inputs
-as the address rather than containing it.
+The legacy MAC scheme uses the fixed prefix `52:54:00:01` with the
+OS base and instance offset, or with 160 and the address hash. This
+scheme remains recognizable for named orphan reservations. Existing
+domains are managed using their actual interface MAC instead of
+recomputing it with the new name-based scheme.
 
 ---
 
@@ -316,7 +355,7 @@ Pre-baked IOC runner variants (require section 12 bake first):
 |----------|-----------------|
 | RAM      | 4096 MB (`-m`)  |
 | vCPUs    | 2               |
-| Disk     | 20 GB (qcow2)   |
+| Disk     | 20 GiB by default (qcow2, `-z`) |
 | Graphics | none (headless)  |
 | Network  | virtio           |
 
@@ -368,9 +407,10 @@ ready-to-use environment.
 ```
 [ bin/bake_iocrunner_image.bash -o <os> ]
      |
-     | 1. create_vm.bash -o <os> -n build with the shared run ID
+     | 1. create_vm.bash -o <os> -n build -R with the shared run ID;
+     |    refresh the resolved address's stored key before SSH readiness
      |
-     | 2. refresh known_hosts, resolve the build VM address, and call the
+     | 2. resolve the build VM address and call the
      |    shared inventory generator for the run-specific host
      |
      | 3. resolve the source image from the source-disk creation record and
@@ -397,8 +437,8 @@ ${IMAGE_DIR}/iocrunner-<platform>-<run-id>.qcow2  →  base image of <platform>-
 
 | Step | Tool | Purpose |
 |------|------|---------|
-| 1 | `create_vm.bash` | Boot a run-specific build VM and independent VM disk |
-| 2 | `create_vm.bash -s`, `ssh-keygen`, `ssh-keyscan`, `generate_ansible_inventory.bash` | Resolve the build VM address, refresh its `known_hosts` entry, and generate its temporary Ansible inventory entry |
+| 1 | `create_vm.bash -R`, `ssh-keygen` | Boot a run-specific build VM and independent disk; remove the resolved address's stored key before the first SSH readiness probe |
+| 2 | `create_vm.bash -s`, `generate_ansible_inventory.bash` | Resolve the build VM address and generate its temporary Ansible inventory entry |
 | 3 | `qemu-img`, `sha256sum` | Record the selected source-image filename and digest |
 | 4 | `ansible-playbook` | Apply the species assembly of the selected flavor in one invocation; its EPICS operators install the EPICS OS build dependencies defined in `configure/epics-packages` (guarded by `make check-epics-packages`) |
 | 5 | remote privileged Bash | Append `pip3 freeze` provenance |
@@ -521,20 +561,30 @@ Two option choices carry that meaning.
 | Option | What it decides |
 | --- | --- |
 | `BatchMode=yes` | Removes password and keyboard-interactive authentication, so a probe can pass only with a usable key and never blocks on a prompt. |
-| `StrictHostKeyChecking=no` | Accepts a host key that is not yet known, so a freshly provisioned VM needs no operator step. It does **not** accept a key that has changed. |
+| `StrictHostKeyChecking=accept-new` | Automatically records a previously unknown host key and rejects a changed stored key. |
 
 That second limit produces a third outcome the contract names explicitly. VMs
-reuse deterministic addresses, so recreating one leaves the previous host key
-stored against the same address, and every probe then fails. This is not "not
-ready yet" and waiting will not resolve it, so `ssh_probe` returns a distinct
-code for it, `wait_for_ssh` stops instead of spending its budget, and the
-operator is given the `ssh-keygen -R` repair for that address.
+reuse deterministic addresses, so an existing domain whose guest keys changed,
+or an address whose stored key the provisioner did not refresh, makes every
+probe fail. This is not "not ready yet" and waiting will not resolve it, so
+`ssh_probe` returns a distinct code for it, `wait_for_ssh` stops instead of
+spending its budget, and the operator is given the `ssh-keygen -R` repair for
+that address.
 
-Refreshing `known_hosts` automatically is deliberately not done here. The bake
-scripts do it at their own step 2 because they are talking to a VM they created
-seconds earlier; the provisioner also reports on long-lived VMs the operator did
-not just create, where silently accepting a changed identity would hide a fact
-worth seeing.
+A new domain generates new host keys, so a key stored for its address can
+only belong to a removed VM. When the provisioner creates a new domain, it
+removes only that address's stored key before the first SSH readiness probe,
+without any option; the normal first-contact behavior then accepts the new
+key. Existing domains keep the rejection: a stopped restart refreshes the key
+only when provisioning-only `-R` is given, and running reuse does not probe
+SSH but also refreshes under `-R`. IOC and EtherCAT bake pass `-R` so a
+reused build VM is covered as well. A missing `~/.ssh/known_hosts` needs no
+removal; a removal failure stops the operation. Refresh runs on a temporary
+copy and preserves other addresses on comma-separated host lists. Matching shared patterns, non-regular
+files and symlinks are refused without replacing the original file. Status,
+stop and cleanup reject `-R`. Without it, changed
+keys retain the rejection and repair behavior above. Bake step 2 resolves the
+address and generates inventory without another host-key refresh.
 
 ### Wait policy
 
@@ -606,11 +656,11 @@ matches.
 
 | Domain state | `-s` status | provision (default) | `-S` stop | `-c` cleanup |
 | --- | --- | --- | --- | --- |
-| `running` | reports IP, SSH, `cloud-init` | prints the summary and exits 0, idempotent | ACPI shutdown, polls until off | destroys, undefines, removes disk and seed |
-| `shut off` | reports the state, hints `virsh start`, exits 1 | starts and waits for readiness | reports already off, exits 0 | same as above; destroy reports not running |
-| `not defined` | reports the state, hints provision, exits 1 | provisions from scratch | reports not defined, exits 0 | same as above; both virsh steps report absent |
-| unexpected (`paused`, `crashed`, `pmsuspended`) | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | proceeds and returns 0 |
-| `unavailable` (libvirt did not answer) | reports it and says the domain was not checked, exits 1 | refuses before creating anything, exits 1 | reports it and exits 1 | proceeds; each step reports its own failure |
+| `running` | reports IP, SSH, `cloud-init` | prints the summary and exits 0, idempotent | ACPI shutdown, polls until off | removes DHCP first, then destroys, undefines, removes disk and seed |
+| `shut off` | reports the state, hints `virsh start`, exits 1 | starts and waits for readiness | reports already off, exits 0 | same as above; failed destroy is accepted after confirming already stopped |
+| `not defined` | reports the state, hints provision, exits 1 | provisions from scratch | reports not defined, exits 0 | same as above; failed virsh steps are accepted after confirming absence |
+| unexpected (`paused`, `crashed`, `pmsuspended`) | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | reports the state, hints cleanup, exits 1 | attempts removal regardless of state |
+| `unavailable` (libvirt did not answer) | reports it and says the domain was not checked, exits 1 | refuses before creating anything, exits 1 | reports it and exits 1 | stops if DHCP cleanup fails, preserving resources; otherwise attempts removal |
 
 Three rules explain the table.
 
@@ -626,25 +676,37 @@ for a question nobody answered. The distinction stops at reporting: nothing
 retries or reconnects, because that would be a wait budget, which is tracked
 separately.
 
-**Cleanup never checks state, deliberately.** Its contract is idempotent
+**Cleanup has no state precheck.** Its contract is idempotent
 removal, and the end state is the same from every starting state. A pre-check
 would race — the domain can change between the check and the command — and would
-buy nothing. Every step reports its own outcome as information and cleanup
-always returns 0, so teardown scripts can run it unconditionally. Do not add
-state checks here for symmetry with the other three actions.
+buy nothing. DHCP reservations are removed before the domain or its files.
+If DHCP lookup or deletion fails, cleanup returns 1 and preserves the domain,
+disk pair and seed so a retry can still read the actual interface MAC.
+After DHCP cleanup succeeds, cleanup attempts destroy and undefine in order.
+A failed destroy is tolerated only when the domain reports `shut off` or a
+successful full domain listing proves it absent. A failed undefine is tolerated
+only when a successful full listing proves absence. Any other failure returns
+1 before removing the disk pair or seed; a destroy failure also stops before
+undefine. These checks follow failed commands, rather than predicting their
+outcomes. DHCP reservations already removed are not restored after a later
+teardown failure.
 
 ## 15. Image Selection
 
-Every `OS_TYPE` selects exactly one base image, and the choice is decided before
-anything is created. `-s` and the provision header both print it, so an operator
-can see which image a run will use before the run does anything.
+A new VM selects one base image after existing-domain dispatch and before
+creating its disk. The creation header prints that selected image.
+Status, stop, cleanup, running reuse and stopped restart operate on the VM's
+identity and independent disk; they do not select or require a retained golden
+image. Status reports domain, IP, SSH and cloud-init readiness without a
+base-image line. A missing or invalid golden image pair still blocks creation
+of a new consumer VM.
 
 What matters operationally is not the file name but whether the image can be
 obtained again. Three classes follow from that.
 
 | Class | Meaning | Types |
 | --- | --- | --- |
-| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | The six bare vacua and the six `*-epics-dev` build hosts |
+| upstream, moving | A "latest" or "current" upstream path. Re-fetched on demand; its contents change over time. | The six bare vacua, six `*-epics-dev` build hosts, and two `*-archiver-dev` build hosts |
 | upstream, pinned | A dated upstream release at a fixed URL. Re-fetchable and stable. | `debian13-rtbase` |
 | baked locally, not downloadable | Produced by `bin/bake_*_image.bash` on this host. There is no URL; losing it costs a full bake. | `rocky8-iocrunner`, `debian13-iocrunner`, `rocky8-iocrunner-nfs`, `debian13-iocrunner-nfs`, `debian13-ethercat` |
 
@@ -677,8 +739,8 @@ provenance and `.creation-record` for image identity.
 
 Ordinary runtime VM disks are also independent qcow2 copies, but retain the
 stable `${VM_PREFIX}-${OS_TYPE}-${NODE_ID}.qcow2` name required by lifecycle
-selectors. `create_vm.bash` sets every copied VM disk's virtual capacity to
-20 GiB before first boot. Their creation record carries the generated run ID
+selectors. `create_vm.bash` sets each copied VM disk's virtual capacity from
+`-z` (default: 20 GiB) before first boot. Their creation record carries the generated run ID
 for provenance; they are not selected by the golden image pair resolver.
 
 `bin/image_workflow.bash` is the single implementation of naming, copying,

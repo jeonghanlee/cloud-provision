@@ -266,7 +266,7 @@ case "${FLAVOR}" in
 esac
 
 for command_name in ansible-playbook awk du git mktemp mv qemu-img realpath sed \
-                    sha256sum ssh ssh-keygen ssh-keyscan virsh; do
+                    sha256sum ssh ssh-keygen virsh; do
     require_command "${command_name}"
 done
 
@@ -354,16 +354,14 @@ printf "  Ansible    : %s\n" "${ANSIBLE_DIR}"
 printf "%s\n" "------------------------------------------------------------"
 
 printf "\nStep 1/8: Boot a fresh %s\n" "${VM_NAME}"
-"${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}"
+"${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -R
 
-printf "\nStep 2/8: Refresh known_hosts and resolve the VM address\n"
+printf "\nStep 2/8: Resolve the VM address and generate runtime inventory\n"
 VM_IP="$(
     "${CREATE_VM}" -o "${OS_TYPE}" -n "${NODE_ID}" -d "${IMAGE_DIR}" -p "${VM_PREFIX}" -s 2>/dev/null \
         | awk -F': *' '/^IP Address/ && !seen {print $2; seen=1}'
 )"
 [[ -n "${VM_IP}" ]] || die "failed to resolve VM IP"
-ssh-keygen -f "${HOME}/.ssh/known_hosts" -R "${VM_IP}" 2>/dev/null || true
-ssh-keyscan -H "${VM_IP}" >> "${HOME}/.ssh/known_hosts" 2>/dev/null
 printf "  VM_IP=%s [OK]\n" "${VM_IP}"
 write_runtime_inventory
 printf "  runtime inventory for %s [OK]\n" "${VM_NAME}"

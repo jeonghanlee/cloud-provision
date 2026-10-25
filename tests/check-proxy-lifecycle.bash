@@ -84,7 +84,7 @@ function validate_fixture {
     local actual_inventory
     local valid=true
 
-    if [[ "$(head -n 1 "${FIXTURE}")" == $'os\tidentity\tpath\towner\tgroup\tmode\tform\tmarker\tcleanup\tremnant' ]]; then
+    if [[ "$(head -n 1 "${FIXTURE}")" == $'os\tidentity\tpath\towner\tgroup\tmode\tform\tmarker\tcleanup\tremnant\tformat' ]]; then
         record_pass "independent fixture has the fixed schema"
     else
         record_fail "independent fixture has the fixed schema" "unexpected header"
@@ -95,8 +95,8 @@ function validate_fixture {
         row_count="$(awk -F '\t' -v os="${os}" 'NR > 1 && $1 == os {count++} END {print count + 0}' \
             "${FIXTURE}")"
         case "${os}" in
-            debian|ubuntu) expected_count=8 ;;
-            rocky) expected_count=7 ;;
+            debian|ubuntu) expected_count=9 ;;
+            rocky) expected_count=8 ;;
         esac
         if [[ "${row_count}" == "${expected_count}" ]] &&
            [[ "$(awk -F '\t' -v os="${os}" '
@@ -120,7 +120,7 @@ function validate_fixture {
             record_pass "${os} fixture matches the production inventory tuple"
         else
             record_fail "${os} fixture matches the production inventory tuple" \
-                "path, owner, group, mode, form, marker, cleanup, or remnant differs"
+                "path, owner, group, mode, form, marker, cleanup, remnant, or format differs"
             valid=false
         fi
     done
@@ -219,6 +219,7 @@ function run_mutations {
     run_inventory_omission debian13 ssh-environment
     run_inventory_omission debian13 pip
     run_inventory_omission debian13 git
+    run_inventory_omission debian13 maven
     run_inventory_omission rocky8 profile
     run_inventory_omission rocky8 environment
     run_inventory_omission rocky8 dnf
@@ -226,10 +227,11 @@ function run_mutations {
     run_inventory_omission rocky8 ssh-environment
     run_inventory_omission rocky8 pip
     run_inventory_omission rocky8 git
-    if [[ "${INVENTORY_OMISSION_TOTAL}" == 15 ]]; then
-        record_pass "IOC lifecycle executes exactly fifteen inventory omissions"
+    run_inventory_omission rocky8 maven
+    if [[ "${INVENTORY_OMISSION_TOTAL}" == 17 ]]; then
+        record_pass "IOC lifecycle executes exactly seventeen inventory omissions"
     else
-        record_fail "IOC lifecycle executes exactly fifteen inventory omissions" \
+        record_fail "IOC lifecycle executes exactly seventeen inventory omissions" \
             "observed ${INVENTORY_OMISSION_TOTAL}"
     fi
 

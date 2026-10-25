@@ -2,16 +2,23 @@
 
 Remote tracker: `jeonghanlee/cloud-provision` GitHub milestone 1
 
-Next session entry point: M11 (middleware operator/species structure and package
-baseline) is Ready - reflect the java/tomcat/mariadb/archiver/phoebus operators
-and the archiver/phoebus/middleware species into `docs/OPERATOR_MODEL.md` (the
-`configure/` package baseline and its guard follow as M11's later plan steps).
-M11 is intended to satisfy ansible-provision G2 once G2's deliverable text is
-reconciled to this plan (see M11 Dependencies And Decisions). M2 (the `P_proxy`
-precondition) remains the other open milestone, its single remaining check
-M2 / T2's live apply on a real proxied host (the ansible-provision side's M4/T3
-live check, gated on the idev whitelist). M1, M3, M5, M6, M7, M8, M9, and M10
-are Complete; EtherCAT (M4) stays Deferred in the Backlog.
+Next session entry point: in `docs/milestone-e260630.md`, verify the M11 cloud-provision and ansible-provision master landing conditions.
+M15 is Complete: the real Ansible includedir task passed twice without changes
+on the already ordered Rocky guest, T1-T3 passed, the verification record was
+pushed in `68d047c`, and GitHub issue #46 is closed.
+M14 is Complete: both guests passed the live sudo checks, the
+verification record was pushed in `3517a23`, and GitHub issue #45 is closed.
+The M11 D4 and PV verification records
+were committed in `794eb6b`. T2 and T3 passed on fresh debian13 and
+rocky8 VMs at the D4 refs: full-species re-apply, installation-state comparison,
+live PV storage/retrieval and historical retrieval after appliance restart,
+on 2026-09-29 UTC (2026-09-28 Pacific). T3 required an explicit host CA address
+on the Rocky test VM; see its recorded configuration. M11 remains In progress on
+`m11-middleware-operators` until this branch and the ansible-provision
+reconciliation merge to their respective master branches (see M11 Dependencies
+And Decisions). M2 is
+Complete; the proxied-host live check belongs to ansible-provision. G1 is Open
+and M12 is Blocked on G1; EtherCAT (M4) is assigned to Milestone and stays Deferred.
 
 ## Milestone
 
@@ -20,13 +27,18 @@ are Complete; EtherCAT (M4) stays Deferred in the Backlog.
 | Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Operator model | M1 | Split the operator definition into its own normative document and add the realization-mode and produced-artifact framing | Milestone | Complete | No |  | `docs/OPERATOR_MODEL.md` carries the operator, species, and vacua definitions verbatim, `docs/IMAGE_WORKFLOW.md` points to it, and the realization-mode axis and produced-artifact node are added; committed as `e260630`; [M1 detail](#m1). |
-| Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | In progress | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition) and the matching ansible-provision `proxy` role exists so definition and implementation land together; the `iocserver` species already landed; [M2 detail](#m2). |
+| Operator model | M2 | Add the P_proxy precondition, landing with its ansible-provision proxy role | Milestone | Complete | No | M1 | `docs/OPERATOR_MODEL.md` defines `P_proxy` (optional, unconditionally-first precondition; `8654990`) and the matching ansible-provision `proxy` role landed (`a02298f`), one-to-one; verified 2026-09-25; [M2 detail](#m2). |
 | OS coverage | M3 | Support Debian 12 as a sixth vacuum, bare and epics-dev | Milestone | Complete | No | M1 | Debian 12 is wired as a vacuum (definition, template, package source, guard) and as the `debian12-epics-dev` variant, a real bare provision installs P_common, and the epics-dev variant builds layers 1+2; [M3 detail](#m3). |
 | Driver ergonomics | M5 | Add an extra-vars (ANSIBLE_OPTS) passthrough to the epics-dev build driver | Milestone | Complete | No |  | `bin/run_epics_env_build.bash` forwards extra-vars so the build flavor (e.g. gz) is selectable from the driver, not only via the ansible-provision make target; [M5 detail](#m5). Refs #38. |
 | Host setup | M6 | Define and create the `lab` libvirt network in the host setup path | Milestone | Complete | No |  | `bin/setup_host.bash` defines and activates the `lab` network (192.168.123.0/24) from a shipped definition when absent, so a host with only the libvirt `default` network can provision lab vacua; unblocks M3 / T2 and M3 / T3; [M6 detail](#m6). |
 | Host setup | M8 | Align the readiness self-tests with the file-based cloud-init probe | Milestone | Complete | No | M7 | `make check-cloud-init-status`, `make check-proxy-injection`, `make check-runtime-inventory`, and `make check-bake` pass on the control host with every fake ssh answering the M7 readiness probe; [M8 detail](#m8). |
-| Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | Not started | Yes | D2, D3 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
+| Middleware | M11 | Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus) | Milestone | In progress | No | D2, D3, D4, D5 | `docs/OPERATOR_MODEL.md` defines the java/tomcat/mariadb/archiver/phoebus operators and the archiver/phoebus/middleware species in the EPICS-symmetric dual-acquisition form, and `configure/` carries the middleware package baseline (system OpenJDK 21, Tomcat 9.0.121, MariaDB) with its guard; intended to satisfy ansible-provision G2 once its deliverable text is reconciled to this plan; [M11 detail](#m11). |
 | Gate | G1 | aa-distribution and phoebus-distribution repositories created and populated | External gate | Open | No |  | The two middleware distribution repositories exist and carry the built WARs and the Phoebus binary, produced by aa-env and phoebus-env; needed before the distribution-install path (P_archiver, P_phoebus) can be verified live |
+| Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
+| Middleware | M19 | Split the Archiver configuration-database operator into MariaDB over a Unix domain socket, MariaDB over loopback TCP, and SQLite | Milestone | Complete | No | D8 | `docs/OPERATOR_MODEL.md` defines three configuration-database operators and the Archiver operators and species select exactly one; the inventory generator, its tests and the related documents follow; ansible-provision has landed roles and species with the same names; [M19 detail](#m19). |
+| EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
+| VM access | M14 | Allow password-free sudo validation on the two dedicated verification VMs | Milestone | Complete | No | D1, D6 | Both guests passed uncached `sudo -n -v`, ordinary sudo, and full sudoers syntax validation; verification recorded in `3517a23` and #45 closed; [M14 detail](#m14). |
+| VM access | M15 | Put the Rocky sudoers includedir after all active rules | Milestone | Complete | No | D1, D6 | The Rocky guest retains its existing grants and has `/etc/sudoers.d` as the final active include directive with valid sudoers syntax; T1-T3 recorded in `68d047c` and #46 closed; [M15 detail](#m15). |
 
 ### Decisions
 
@@ -35,6 +47,11 @@ are Complete; EtherCAT (M4) stays Deferred in the Backlog.
 | D1 | Reading, auditing, quarantining, replacing, or deleting an existing guest, disk, image, archive, or sidecar requires a separate accepted plan and explicit authorization. | 2026-08-20 |
 | D2 | Middleware server provisioning follows the EPICS-symmetric ecosystem form: source -> env (compile) -> distribution -> install operator. AA uses aa-maven (source), aa-env (compile), and a new aa-distribution repository; Phoebus uses phoebus-env and a new phoebus-distribution repository; both distribution repositories are created and populated by their env producers. cloud-provision owns the operator/species structure, the package baseline, and the base VM; the middleware server hosts the EPICS Archiver Appliance and Phoebus, each independently selectable. | 2026-09-12 |
 | D3 | Middleware operator choices: system Java (distribution OpenJDK 21, not the java-env pin) with `JAVA_HOME` exported; P_epics (local EPICS C base) installed on the middleware host; Tomcat pinned to 9.0.121 (Apache tarball as the shared CATALINA_HOME; the four separate Archiver Appliance instances are created by aa-env, not P_tomcat); the Archiver Appliance config database is MariaDB now and SQLite later; service group `mid` and user `mid-srv` (parallel to `ioc`/`ioc-srv`). Maven is not installed as an operator: aa-maven pins Maven 3.9.9 through its Maven Wrapper, so the source-build species runs `./mvnw` and needs only `JAVA_HOME`, git (with an origin ref), openssh-client (scp), outbound HTTPS, and `-Dsphinx.skip=true`. | 2026-09-12 |
+| D4 | M11 / T2 uses ansible-provision `b8823c1`, epicsarchiverap-env `d09dca7`, and epicsarchiverap-maven `2fc12f01` on separate fresh Debian 13 and Rocky 8 VMs. These refs select Maven Wrapper 3.9.16 and `clean package -DskipTests`; the Maven build has no Sphinx step. This replaces D3's Maven version and Sphinx-skip requirement for this verification. The full MariaDB `archiver-dev` species and a re-apply with identical inputs are required; existing application-verification VMs remain outside this test. | 2026-09-28 |
+| D5 | Separate Phoebus source-build tool confirmation and prerequisite reconciliation from M11 into independent M13. M11 retains the operator/species structure and Archiver Appliance baseline and verification. M13 does not gate M11 closure or M12 distribution-install verification. | 2026-09-29 |
+| D6 | Assign two independent milestones to the dedicated Debian 13 and Rocky 8.10 IOC-runner documentation-verification guests: add per-user `verifypw=any` for `vmadmin` on both, and move the Rocky sudoers includedir after the existing active rules while preserving the `rocky` grant. Templates, golden images, other guests, and application setup are outside this scope. | 2026-09-29 |
+| D7 | Consolidate pending Phoebus build-tool and documentation reconciliation in M13 under Backlog. Defer execution until the Archiver work, including M11 master landing, is complete; resume as Not started upon assignment. | 2026-10-01 |
+| D8 | The Archiver configuration database is chosen from three separate operators: MariaDB over a Unix domain socket, MariaDB over loopback TCP, and SQLite. An Archiver host carries exactly one of them, and the cloud-provision definition and the related ansible-provision roles and documents follow that split. | 2026-10-05 |
 
 ### Assignment History
 
@@ -124,15 +141,15 @@ four local checks are satisfied; the milestone has no external gate.
 
 Origin: 2 / M2
 Identity History: none
-Status: In progress
+Status: Complete
 
 ##### Summary
 
 The `iocserver` species (`iocrunner` without `P_testusers`) landed in the SOT
 with the operator-model document, matching the ansible-provision `iocserver`
-species playbook. What remains for M2 is the `P_proxy` precondition, held out
-because it lands with its `proxy` role in ansible-provision. The full draft is
-preserved in `work/operator-model-pending-B.md`.
+species playbook. The `P_proxy` precondition has now landed too: defined in
+`docs/OPERATOR_MODEL.md` (`8654990`) alongside the matching ansible-provision
+`proxy` role (`a02298f`), completing M2.
 
 ##### Scope
 
@@ -245,6 +262,12 @@ implementation land together (M2 Dependencies).
 - One-to-one map holds: the definition's Role `proxy` and the landed
   `playbooks/operators/proxy.yml` match, both precondition-first over the same
   `proxy_contract.bash` artifact set.
+- Completion re-confirmed 2026-09-25: `P_proxy` present in `docs/OPERATOR_MODEL.md`
+  (`8654990`), and LAB-ansible-provision confirmed `roles/proxy` and
+  `playbooks/operators/proxy.yml` at `a02298f`/`8b9339d`, name and shape matching
+  (applied first when proxied, not imported by any species - consistent with the
+  definition). Completion criteria 1-3 met; the live apply remains ansible-provision's
+  own M4/T3, out of M2's scope.
 
 <a id="m3"></a>
 #### M3 - Support Debian 12 as a sixth vacuum
@@ -725,7 +748,7 @@ boundary, as each test already defines):
 #### M11 - Middleware operator/species structure and package baseline (Archiver Appliance + Phoebus)
 
 Origin: e260630 / M11
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -758,19 +781,19 @@ install operator.
 - Carry the middleware package baseline in `configure/` (system OpenJDK 21,
   Tomcat 9.0.121, MariaDB) as the single source with a guard.
 - The middleware VM is provisionable through the existing `create_vm.bash` and
-  the `lab` network. The target vacuum is proposed as rocky8 (inferred from the
-  IOC dev host and production; not yet an owner decision - see the open
-  sub-decision below).
+  the `lab` network. The target vacua are debian13 and rocky8 (both families),
+  with family-specific handling (the `JAVA_HOME` distribution path and the
+  package names differ by family).
 
 ##### Out of scope
 
 - Creating and populating the aa-distribution and phoebus-distribution
   repositories (owned by aa-env and phoebus-env); the ansible-provision role
   implementation (its M14); the live verification of the distribution-install
-  path, which needs those repositories to exist (tracked as `G1` and Backlog
-  `M12`).
-- Maven is not installed as an operator: aa-maven pins Maven 3.9.9 through its
-  Maven Wrapper (`./mvnw`).
+  path, which needs those repositories to exist (tracked as `G1` and `M12`).
+- Phoebus source-build tool confirmation and prerequisite reconciliation
+  belong to `M13` under `D5`. The aa-maven source build uses its Maven Wrapper
+  (`./mvnw`, verified present); Maven is not a separate operator in M11.
 
 ##### Completion Criteria
 
@@ -791,6 +814,14 @@ install operator.
 - The aa-maven build structure was confirmed by the aa-maven session on
   2026-09-12 (single-module pom, Maven Wrapper 3.9.9, JDK 21 + `JAVA_HOME`,
   Tomcat not a build dependency; servlet-api line Tomcat 9).
+- `D4` (2026-09-28) supplies the accepted T2 verification inputs. At
+  epicsarchiverap-maven `2fc12f01`, `.mvn/wrapper/maven-wrapper.properties`
+  selects Maven 3.9.16 and `pom.xml` has no Sphinx step. At
+  epicsarchiverap-env `d09dca7`, `configure/CONFIG_SRC` selects the source
+  checkout's `mvnw`; `configure/RULES_SRC` runs `clean package -DskipTests`
+  for `build.mvn`.
+  This verifies installation and re-apply behavior; it does not run the
+  application's skipped unit tests.
 - The java/tomcat/mariadb boundary was coordinated with the aa-env session on
   2026-09-12 and matches its decisions D10-D12 (`docs/milestone-265f580.md`):
   the system JDK with `JAVA_HOME` at the distribution path and java-env dropped
@@ -798,23 +829,136 @@ install operator.
   service (D12); MariaDB now, fully replaced by SQLite in Phase 2 (D11). The
   instance skeleton, `server.xml` / `context.xml`, and the schema stay aa-env's;
   the three operators provide only the generic packages and services.
-- Reconciliation needed (cross-repository): ansible-provision `G2`, `M14`, and
-  `D15` currently describe a pinned non-system OpenJDK/Maven and Phoebus build
-  dependencies. This plan supersedes that - system Java, Maven only via the
-  aa-maven wrapper (not installed), Tomcat 9.0.121 and MariaDB added, and
-  Phoebus as a binary distribution. The ansible session owns that register
-  (single-writer), so `G2`/`M14`/`D15` must be reconciled there before `G2` is
-  marked Complete; requested by cross-session message.
-- Open sub-decisions: the target vacuum (proposed rocky8), the `mid` group GID
-  policy, and the increment scope (source-build species first, or the
-  distribution path alongside).
+- Reconciliation (cross-repository): the ansible-provision session reconciled
+  `G2`/`M14`/`D15` to this plan on 2026-09-13 - its `D16` supersedes the pinned
+  non-system OpenJDK/Maven and Phoebus-build substance of `D15`, and `G2`/`M14`
+  now name the system Java, wrapper Maven, Tomcat 9.0.121, and MariaDB plan with
+  M11 as the source. The reconciliation (`D16`) is landed on the ansible-provision
+  branch `m14-middleware-reconcile` (commit `372c333`), pending its merge to
+  ansible master; this milestone's G2-reconciliation condition is met only when
+  that reconciliation merges to ansible master (durable evidence), not against the
+  branch commit. cloud-provision remains the
+  source (M11); the ansible session owns that register (single-writer).
+- Sub-decisions settled (2026-09-13): target vacua debian13 and rocky8 (both);
+  the `mid` group GID is site-assigned (not pinned in the operator); the
+  increment scope is the source-build species first (`archiver-dev` /
+  `phoebus-dev`), the distribution path deferred to `M12`; repository-wrapper
+  Maven (`./mvnw`) is the intended source-build path. It is confirmed for
+  aa-maven; the Phoebus assumption remains unverified and belongs to `M13`.
+- `D5` (2026-09-29): Phoebus source-build tool confirmation and prerequisite
+  reconciliation are separated into `M13`. M11 retains the operator/species
+  structure and Archiver Appliance baseline and verification; M13 is not a
+  condition for M11 closure.
+- Java setup reference: the ALS-U Linux OS Preparation document (`work/`,
+  gitignored, kept on both sides) is the implementation-time reference for the
+  rocky `alternatives` handling and the JDK package name only; it is not the
+  basis for the register (owner ruling 2026-09-13).
 - Proxy precondition: when the middleware host is behind the site proxy,
   `P_proxy` applies first (unconditionally, before `P_common` and every fetch),
   as it does for the other species. It is a precondition, not a product member,
   so it is not in the operator list; the source-build's outbound HTTPS (the
-  Maven wrapper download, the svg_viewer download) and every package and
+  Maven wrapper and dependency downloads) and every package and
   distribution fetch pass through it, and its fate follows the realization mode
-  (Golden seals it, Live and Instant keep it).
+  (Golden seals it, Live and Instant keep it). The svg_viewer asset is vendored
+  at the D4 source ref.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: owner accepted 2026-09-13 after the third-person plan review and findings F1-F4; accepted the D4 verification baseline and separate fresh VMs on 2026-09-28; requested live PV storage and retrieval verification on 2026-09-28
+Implementation Authorization: owner authorized 2026-09-13 (implement on branch m11-middleware-operators); authorized the checkout fast-forward, D4 update, installation and re-apply on 2026-09-28; authorized live PV storage and retrieval verification on those VMs on 2026-09-28
+Superseded Plan Artifacts: none
+
+1. Reflect the operators, species, and order into `docs/OPERATOR_MODEL.md`.
+2. Add the middleware package baseline under `configure/` and a guard under
+   `tests/` mirroring the existing `check-epics-packages.bash` /
+   `check-package-parity.bash` pattern, wired into a `make check-*` target.
+3. Structure-check the middleware species; confirm the source-build path on both
+   debian13 and rocky8.
+4. Verify real host IOC signals through CA, archive storage and retrieval on
+   both test VMs, including retrieval of the same historical interval after
+   restarting their appliances. Record any required CA address configuration.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Structure | Enumerate the new operators and species in `OPERATOR_MODEL.md`; run the middleware package-baseline guard | control host | Operators, species, and order are defined; the guard passes. |
+| T2 | Integration | Apply the full `archiver-dev` species at D4 refs on a fresh VM per family; inspect the deployed source refs, build result, WARs, schema and service; capture installation state before and after the same apply | debian13 and rocky8 | The repository `./mvnw` uses Maven 3.9.16 and builds the four WARs with `clean package -DskipTests`; all four instances run and MariaDB holds the four application tables over its socket. Re-apply reports `ARCHIVER_BUILD_SKIPPED`, with no drift or repair, unchanged build sentinel, config stamp, deployed artifact hashes and service start time, and healthy instances afterwards. `changed=0` alone is insufficient. |
+| T3 | Integration | Register two changing host softIoc PVs through `archivePV`; capture live CA events with `camonitor`; query the same UTC interval through `getData.json`; inspect MariaDB PVTypeInfo and nonempty PB files; restart each appliance and repeat the historical query | T2 Debian 13 and Rocky 8.10 VMs at D4 refs, with the host CA address configured where broadcast discovery is insufficient | Both PVs reach connected `Being archived` status. At least 20 events per PV and VM match the live CA values within 1e-12 and timestamps within 1 microsecond. MariaDB retains both PV configurations; archive files exist. The historical event values and full timestamps remain identical after an observed service restart. This is a bounded persistence check, not a long-term retention test. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-09-13 | control host | Passed | `docs/OPERATOR_MODEL.md` carries the 7 operators, 5 species, and 2 produced artifacts (`b2a79c8`); `make check-middleware-packages` reports 2/2 pass with its failure branches (missing coverage, duplicate, empty list, unknown OS, unparseable line) exercised, `shellcheck` clean, and `make check-bake` green (`b71af98`). |
+| T2 | 2026-09-29T02:29:22Z | Fresh Debian 13 and Rocky 8.10 VMs, 2 vCPU, 4 GiB RAM and 20 GiB disk each; cloud-provision `83ca6bb`, ansible-provision `b8823c1`, application refs D4 | Passed | The shipped `create_vm.bash -F` and readiness check produced each fresh host; the shipped inventory generator supplied its address, and `make archiver_dev.<vacuum>` applied all eight operators with an exact host limit. Initial apply: Debian `ok=31 changed=11 failed=0 unreachable=0`, Rocky `ok=33 changed=14 failed=0 unreachable=0`. The build journal records Maven 3.9.16, `mvnw ... clean package -DskipTests` and `BUILD SUCCESS`. Deployed refs match D4; four WARs pass archive integrity checks and a class from each matches its deployed webapp. OpenJDK 21, Tomcat 9.0.121, four JVMs under `mid-srv`, an active appliance unit and a valid management API response are present on both. MariaDB has ArchivePVRequests, ExternalDataServers, PVAliases and PVTypeInfo over the family socket, with skip_networking=1 and no TCP 3306 listener. Same-input re-apply: Debian `ok=29 changed=0 failed=0 unreachable=0`, Rocky `ok=31 changed=0 failed=0 unreachable=0`; both report `ARCHIVER_BUILD_SKIPPED` without drift or repair. Before/after checks retain identical four WAR hashes, all 3,555 deployed webapp/config file hashes per host, sentinel/stamp metadata and content, four JVM PIDs, unit MainPID, invocation ID and start timestamps; the management API and schema checks pass again. |
+| T3 | 2026-09-29T03:39:51Z | T2 VMs and D4 application refs; existing host softIoc supplies M33:CNT and M33:SIN over CA | Passed | Both PVs reached connected `Being archived` status with MONITOR and a 1-second sampling period. For the UTC query interval 03:37:14.357494-03:37:43.857445 on 2026-09-29, `getData.json` returned HTTP 200 and matched 29 real `camonitor` events per PV on each VM, within 1e-12 for values and 1 microsecond for CA timestamp formatting. Both PV names were present in MariaDB PVTypeInfo and had nonempty STS PB files. Both appliance services were restarted successfully; their MainPID and invocation ID changed. Queries of the same interval returned all 58 matched events per VM with identical full-event SHA-256 digests before and after restart. MariaDB PV registrations persisted, nonempty PB files remained, and connected PV status reported new events after restart. |
+
+T3 configuration: Debian used the installed `EPICS_CA_ADDR_LIST=localhost`
+and `EPICS_CA_AUTO_ADDR_LIST=YES`. On Rocky, that discovery configuration did
+not connect to the host PVs, while a direct CA query to the host gateway did.
+The Rocky test VM's installed `archappl.conf` now explicitly sets
+`EPICS_CA_ADDR_LIST=192.168.123.1`; its previous file is retained alongside it
+as `archappl.conf.m11-pv-before`. This is a test VM configuration change;
+the provisioning inputs were not changed. The firewall configuration was
+not changed. The host IOC was read only.
+
+T3 raw CA output, API responses, DB/file observations, restart records and
+the executed `verify_archive.py` are retained under the ignored
+`work/m11-t2-20260928.axZaVF/` directory. The result covers a bounded interval
+and graceful appliance restart; it does not establish long-term retention
+or recovery from a power failure.
+
+The control-host recheck on 2026-09-29 UTC passed
+`make check-middleware-packages` (2/2) and `make check-docs` (12/12).
+The application build uses its shipped `-DskipTests` path; this result is
+installation and re-apply evidence, not an application unit-test result.
+
+##### Closure Evidence
+
+T1, T2 and T3 verification passed. The D4 and PV verification records were
+committed in `794eb6b`. The cloud-provision branch and the ansible-provision
+reconciliation have not merged to their respective master branches. M11 remains In progress until
+those landing conditions are met. The two verification VMs remain available;
+their removal is a separate action.
+
+<a id="m12"></a>
+#### M12 - Verify the middleware distribution-install path (P_archiver, P_phoebus)
+
+Origin: e260630 / M12
+Status: Blocked
+
+##### Summary
+
+Once the aa-distribution and phoebus-distribution repositories exist (`G1`), the
+distribution-install operators defined in `M11` (`P_archiver`, `P_phoebus`) and
+their `archiver` / `phoebus` species can be verified live: install the built
+WARs and the Phoebus binary on the middleware host. `M11` delivers the structure
+and the source-build path; this row is the deferred distribution-path
+verification, which cannot run before the repositories exist.
+
+##### Scope
+
+- Live-apply the `archiver` (distribution) species and the `phoebus`
+  (distribution) species on the middleware VM, confirming the WARs and the
+  Phoebus binary install from their distribution repositories and a re-apply is
+  idempotent.
+
+Out of scope: defining the operators/species (that is `M11`); producing the
+distribution repositories (owned by aa-env and phoebus-env).
+
+##### Completion Criteria
+
+- The `archiver` and `phoebus` distribution species install and re-apply
+  idempotently on the middleware VM against real distribution repositories.
+
+##### Dependencies And Decisions
+
+- `G1` (Open): the two distribution repositories must exist and carry their
+  artifacts. This row is Blocked until `G1` is Complete, then resumes as Not
+  started.
+- Depends on `M11` for the operator and species definitions.
 
 ##### Implementation Plan
 
@@ -823,38 +967,189 @@ Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
 
-1. Reflect the operators, species, and order into `docs/OPERATOR_MODEL.md`.
-2. Add the middleware package baseline and its guard under `configure/` and
-   `tests/`.
-3. Structure-check the middleware species; confirm the source-build path.
+1. After `G1`, live-apply the distribution species on the middleware VM.
+2. Record the per-species install and idempotency evidence.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
-| T1 | Structure | Enumerate the new operators and species in `OPERATOR_MODEL.md`; run the middleware package-baseline guard | control host | Operators, species, and order are defined; the guard passes. |
-| T2 | Integration | Apply the `archiver-dev` source-build species on the base VM | rocky8 (proposed target) | aa-maven builds via `./mvnw ... -Dsphinx.skip=true` and the WARs install; a re-apply is idempotent. |
+| T1 | Integration | Live-apply the `archiver` distribution species | middleware VM | The aa-distribution WARs install and deploy to the Tomcat instances; a re-apply is idempotent. |
+| T2 | Integration | Live-apply the `phoebus` distribution species | middleware VM | The phoebus-distribution binary installs and configures; a re-apply is idempotent. |
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | pending | control host | Not run | |
-| T2 | pending | rocky8 (proposed target) | Not run | |
+| T1 | pending | middleware VM | Not run | |
+| T2 | pending | middleware VM | Not run | |
 
-## Backlog
+<a id="m19"></a>
+#### M19 - Split the Archiver configuration-database operator into MariaDB UDS, MariaDB TCP and SQLite
 
-### Work
+Origin: e260630 / M19
+Identity History: none
+GitHub Issue: none
+Status: Complete
 
-| Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| EtherCAT | M4 | Validate EtherCAT use of the shared image workflow and proxy seal | Carry-forward | Deferred | No | D1 | A real EtherCAT bake, fresh consumer selection, value-redacting proxy check, and separately authorized image audit are observed on supported Libvirt/KVM; [M4 detail](#m4). |
-| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
-| Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
-| Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
-| Middleware | M12 | Verify the middleware distribution-install path (P_archiver, P_phoebus) | Milestone | Blocked | No | G1 | With aa-distribution and phoebus-distribution in place, the `archiver` and `phoebus` (distribution) species install the built WARs and the Phoebus binary and a re-apply is idempotent; [M12 detail](#m12). |
+##### Summary
 
-### Backlog Details
+The Archiver Appliance configuration database is realized three ways today,
+but the definition names only two. `docs/OPERATOR_MODEL.md` defines `P_mariadb`
+as socket-only since `8c9b6ba` (2026-09-28), which replaced the earlier
+loopback-TCP definition, and `P_sqlite`. ansible-provision implements both
+MariaDB transports in one `mariadb` role selected by `mariadb_skip_networking`
+(socket-only by default; loopback TCP with `skip-name-resolve` when false), and
+`archiver_build` selects `archiver_db_backend` (`mariadb` or `sqlite`) and the
+socket or host and port. The epicsarchiverap-env acceptance runs exercise all
+three as separate cases (socket, tcp, sqlite). Under D8 each becomes its own
+operator so a species names exactly the database it carries.
+
+##### Scope
+
+- Define three configuration-database operators in `docs/OPERATOR_MODEL.md`:
+  MariaDB over a Unix domain socket (the current `P_mariadb` content), MariaDB
+  over loopback TCP (the loopback contract that `8c9b6ba` replaced, aligned with
+  the current ansible-provision TCP mode), and SQLite (`P_sqlite`, unchanged).
+- Make `P_archiver` and `P_archiver-build` require exactly one of the three,
+  and update the order-dependency text.
+- Define the three source-build Archiver species by database, renaming
+  `archiver-dev` to `archiver-dev-uds`.
+- In the `archiver` (distribution path) and `middleware` species rows, change
+  only the database operator name from `P_mariadb` to `P_mariadb-uds`, and
+  mark both rows as not yet implemented while `G1` is Open.
+- Update `bin/generate_ansible_inventory.bash`, its test, and every document
+  that names the MariaDB operator or the Archiver species.
+- Keep the VM OS selectors `rocky8-archiver-dev` and `debian13-archiver-dev`
+  unchanged: one Archiver host profile carries any of the three databases, so
+  their base addresses, `configure/CONFIG_SITE` `OS_TYPES`, `create_vm.bash`
+  help and the ARCHITECTURE selector tables stay as they are.
+- Ask ansible-provision, the single writer of its repository, to align its
+  roles, species playbooks and group variables to the new names.
+
+Out of scope: renaming the `*-archiver-dev` OS selectors; implementing the
+distribution path (`M12`); implementing Phoebus or the middleware species
+(`M13`, `G1`); changing the Archiver application or epicsarchiverap-env; and
+any existing guest (D1).
+
+##### Completion Criteria
+
+- `docs/OPERATOR_MODEL.md` defines exactly three configuration-database
+  operators; every Archiver species product contains exactly one of them; the
+  order dependencies state that P_archiver and P_archiver-build each need
+  exactly one.
+- The inventory generator accepts `archiver-dev-uds`, `archiver-dev-tcp` and
+  `archiver-dev-sqlite` with their groups, and rejects the removed
+  `archiver-dev` name; its test covers each.
+- No document in this repository still treats one MariaDB operator as the
+  only MariaDB realization.
+- ansible-provision has landed roles, species playbooks and group variables
+  that match the three operators and three species names, observed on its
+  upstream; until then M19 stays In progress after the cloud-provision change
+  lands.
+
+##### Dependencies And Decisions
+
+- D8 (2026-10-05): three configuration-database operators.
+- Owner decisions (2026-10-05):
+  1. Operator names: `P_mariadb-uds` (role `mariadb_uds`), `P_mariadb-tcp`
+     (role `mariadb_tcp`) and `P_sqlite` (role `sqlite`).
+  2. Species names state the database exactly: `archiver-dev-uds`,
+     `archiver-dev-tcp` and `archiver-dev-sqlite`. `archiver-dev` is renamed
+     to `archiver-dev-uds`, so its inventory group becomes `archiver_dev_uds`.
+  3. The existing distribution-path `archiver` species stays as one species
+     and is marked not yet implemented; splitting it by database is defined
+     after `G1`. Because `P_mariadb` no longer exists, its product and the
+     `middleware` product name `P_mariadb-uds`, today's MariaDB contract, and
+     both rows are marked not yet implemented.
+  4. M19 closes only after ansible-provision lands the matching roles,
+     species and group variables, as M11 waits on its landing conditions.
+  5. (2026-10-05) ansible-provision's owner accepted the names, starts after
+     its running 24-hour soak observations end, and keeps `archiver-dev` /
+     `archiver_dev` as a deprecated alias until epicsarchiverap-env moves.
+     M19 closes when T4 confirms ansible-provision's landing commit carries
+     the new names; removing the alias is tracked by ansible-provision and is
+     not a condition for closing M19.
+- Landing hold: on 2026-10-05 epicsarchiverap-env asked that the species and
+  group rename not land while its current VM acceptance run (node series
+  test-e441d59) uses the current names. Implementation and the local commit
+  may proceed; the push, and the alignment request and notices of plan item 4,
+  wait until that session reports the run's end. Released on 2026-10-05: epicsarchiverap-env
+  reported that run finished (verdict PASS, its guests removed); its driver
+  still uses `archiver-dev`/`archiver_dev` and will be moved to the new names
+  with a matching ansible-provision pin when it plans its next run.
+- D1 applies to any existing guest; this work changes no guest.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-10-05; owner accepted this plan after one third-person and three second-person reviews.
+Implementation Authorization: 2026-10-05; explicit owner direction to implement the accepted plan.
+Superseded Plan Artifacts: none
+
+1. `docs/OPERATOR_MODEL.md`: replace the `P_mariadb` row with the UDS and TCP
+   rows (role, order, content). The UDS row keeps the current `P_mariadb`
+   content. The TCP row restores the loopback contract from
+   `git show 8c9b6ba^:docs/OPERATOR_MODEL.md` (IPv4 loopback 127.0.0.1:3306
+   only, application account authenticating over that connection) and aligns
+   it with the current ansible-provision TCP mode (`skip-name-resolve`). Keep
+   `P_sqlite`. Change the `P_archiver` and `P_archiver-build` order cells and
+   the order-dependency paragraph to "exactly one of the three". Rename
+   `archiver-dev` to `archiver-dev-uds`, add `archiver-dev-tcp`, and keep
+   `archiver-dev-sqlite`. In the `archiver` and `middleware` rows replace
+   `P_mariadb` with `P_mariadb-uds` and mark both not yet implemented.
+2. `bin/generate_ansible_inventory.bash`: species `archiver-dev-uds` (group
+   `archiver_dev_uds`), `archiver-dev-tcp` (group `archiver_dev_tcp`) and
+   `archiver-dev-sqlite`; remove `archiver-dev`; usage text;
+   `tests/check-generated-ansible-inventory.bash` cases for each and for the
+   rejected old name.
+3. Every other file naming the MariaDB operator or the Archiver species, as
+   found by `grep -n -i 'mariadb\|archiver-dev\|archiver_dev'`:
+   `docs/RUNBOOK_ANSIBLE_INVENTORY.md` (species table),
+   `configure/middleware-packages` and `tests/check-middleware-packages.bash`
+   (comments naming `P_mariadb`). The `mariadb-server` package stays in the
+   middleware baseline as the package of both MariaDB operators; the comments
+   name both, and state that the SQLite species does not need it. Change only
+   what the split makes wrong; leave `docs/CLOSED_DOORS.md` rows and earlier
+   register records unchanged as historical records, and leave the OS-selector
+   mentions in `docs/ARCHITECTURE.md` and `bin/create_vm.bash` as they are.
+4. After the definition commit lands, send ansible-provision the alignment
+   request (roles `mariadb_uds`, `mariadb_tcp`, `sqlite`; species playbooks
+   and group variables for the three species), and send epicsarchiverap-env
+   and LAB-ansible-provision a notice of the renamed species and group. Record
+   ansible-provision's landing commit, observed on its upstream, in Closure
+   Evidence.
+5. Run `make check-runtime-inventory check-docs check-middleware-packages`,
+   Bash syntax and ShellCheck on changed scripts, and `git diff --check`.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Definition | Read the changed `docs/OPERATOR_MODEL.md` against the completion criteria; `grep` the repository for remaining single-operator MariaDB wording | Control host | Three database operators; each Archiver species carries exactly one; no contradicting wording remains. |
+| T2 | Inventory | Run the updated generated-inventory test against the unmodified generator and against the change. For the unmodified run, create a separate `git worktree` at the commit the change is based on (8308105 unless the branch moves first), copy only the changed test into it, and run it there; do not check out that commit in the shared checkout | Control host; real generator, shipped fixtures | The new `archiver-dev-uds` and `archiver-dev-tcp` cases and the rejection of the old `archiver-dev` name fail on the unmodified generator and pass after the change; the two former `archiver-dev` cases now expect rejection; every other case keeps passing. |
+| T3 | Checks | Run the checks in plan item 5 | Control host | All pass. |
+| T4 | Cross-repository | Clone ansible-provision into a scratch directory (never fetch in the checkout another session uses) and read its roles, species playbooks and group variables at its landing commit | Control host, read-only | Role, species and group names match the definition one to one. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-05T07:46Z | Control host; uncommitted change on `8308105` | Passed | `docs/OPERATOR_MODEL.md` defines P_mariadb-uds, P_mariadb-tcp and P_sqlite; P_archiver and P_archiver-build each take exactly one, in their Order cells and in the order-dependency paragraph; archiver-dev-uds, archiver-dev-tcp and archiver-dev-sqlite carry one each, and the `archiver` and `middleware` rows carry P_mariadb-uds marked not yet implemented. A repository `grep` for `P_mariadb` without a suffix finds no hit outside `docs/CLOSED_DOORS.md` and the register, which keep their historical records. |
+| T2 | 2026-10-05T07:46Z | Control host; change on `8308105`, and a separate `git worktree` at `8308105` with only the changed test copied in and a scratch sibling link to ansible-provision for the maintained inventory | Passed | After the change: generated inventory 255/255, including the four archiver-dev-uds/-tcp cases and the old-name rejection. Against `8308105` the updated test exited 1 at its first new case with `Error: unsupported species: archiver-dev-uds` (the test stops on the first generator failure); run directly, the unmodified generator accepted `--species archiver-dev` and emitted an `archiver_dev` group (exit 0), which the new rejection case refuses, while the changed generator rejects it with `Error: unsupported species: archiver-dev` (exit 1). |
+| T3 | 2026-10-05T07:46Z | Control host; change on `8308105` | Passed | `make check-runtime-inventory check-docs check-middleware-packages` exited 0 (generated inventory 255/255, EPICS-env driver 9/9, documentation 14/14 plus 8/8, middleware packages 2/2); Bash syntax and ShellCheck at warning severity with `-x` on the three changed scripts passed; `git diff --check` passed. |
+| T4 | 2026-10-06T05:26Z | Control host; scratch clone of ansible-provision branch `m14-middleware-reconcile` at `3b697e1`, read-only | Passed | Roles `mariadb_uds`, `mariadb_tcp` and `sqlite`, operator playbooks, species playbooks `archiver_dev_uds`, `archiver_dev_tcp` and `archiver_dev_sqlite`, and group variables for uds and tcp match the definition one to one; `archiver_dev` and `mariadb` remain as deprecated aliases. With the maintained inventory plus the inventories this repository's generator produced for three guests, `ansible-inventory` resolved the three groups under `vacua`, the tcp host received `mariadb_skip_networking: false` and an empty `archiver_db_socket`, and `ansible-playbook --syntax-check` passed for the three species and both aliases. Re-run: `git clone --branch m14-middleware-reconcile` the ansible-provision repository, then the same commands. |
+
+##### Closure Evidence
+
+- cloud-provision definition commit `796682c`. Landing observed
+  2026-10-05T15:06Z: after `git fetch`, local `HEAD` and
+  `origin/m11-middleware-operators` were both
+  `796682ce94b119abb0c51e9da4a9fb9b836f45e9`. The alignment request went to
+  ansible-provision and notices went to epicsarchiverap-env and
+  LAB-ansible-provision the same day.
+- ansible-provision landing commit `3b697e1` on its branch `m14-middleware-reconcile`. Observed 2026-10-06T05:26Z with `git ls-remote origin`: the branch head was `3b697e1d18617d22372557cfbe31ea4ce92e7f2b` and `master` was `087a89789767aeb7d1d499381da0ef5cd8713c38`, so the commit is on the pushed branch, not yet on master (the master merge belongs to M11's landing conditions). ansible-provision reported each species applied on a fresh Rocky 8.10 guest with `failed=0`, listeners and account hosts as specified, and a re-apply with `changed=0`.
+- T4 passed (see Verification Results). M19 is Complete.
 
 <a id="m4"></a>
 #### M4 - Validate EtherCAT use of the shared image workflow and proxy seal
@@ -949,6 +1244,979 @@ Plan Status: draft
 Plan Acceptance: none
 Implementation Authorization: none
 Superseded Plan Artifacts: none
+
+<a id="m14"></a>
+#### M14 - Allow password-free sudo validation on the two dedicated verification VMs
+
+Origin: e260630 / M14
+Identity History: none
+GitHub Issue: [#45](https://github.com/jeonghanlee/cloud-provision/issues/45)
+Status: Complete
+
+##### Summary
+
+The dedicated Debian 13 and Rocky 8.10 verification guests allow
+`sudo -n true` and `sudo -n id -u`, but reject `sudo -n -v` with a password
+requirement. Their `vmadmin` accounts have both password-required group
+grants and a cloud-init `NOPASSWD` grant. The default `verifypw=all` requires
+all matching grants to be password-free for validation.
+
+##### Scope
+
+- Add `Defaults:vmadmin verifypw=any` in a root-owned, mode-0440 sudoers
+  drop-in on the two dedicated guests.
+- Verify validation without an existing sudo timestamp, ordinary sudo,
+  effective grants, and the full sudoers configuration.
+- Update the private guest handoff with the observed SSH and sudo behavior.
+
+Out of scope: changing templates or golden images, other guests, SSH keys,
+passwords, other users' privileges, application setup, and the Rocky include
+ordering change owned by M15.
+
+##### Completion Criteria
+
+- Both guests pass `sudo -k` followed by `sudo -n -v` without a password.
+- `sudo -n true` succeeds and `sudo -n id -u` returns 0 on both guests.
+- `sudo -n visudo -c` succeeds and `sudo -n -l` retains the existing grants.
+- The private handoff records dated results and the guest configuration;
+  the linked issue is closed or a dated closure exception is recorded.
+
+##### Dependencies And Decisions
+
+- D1 requires an accepted and explicitly authorized plan for existing guests.
+- D6 sets the target pair and per-user policy. M15 is independent: changing
+  include ordering is not required for the drop-in to be read.
+- The observation on 2026-09-30 at 02:03 UTC established ordinary sudo success,
+  validation failure, and valid sudoers syntax on both guests. Exact private
+  coordinates are retained in the local handoff, outside the public repository.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-09-30; the owner accepted the current guest-only M14 plan by directing its execution after the plan and issue were prepared.
+Implementation Authorization: 2026-09-30; explicit owner direction to execute M14 on the two dedicated verification guests.
+Superseded Plan Artifacts: none
+
+1. Confirm the dedicated guest identities and current sudo configuration;
+   retain a private baseline and check for concurrent sudoers changes.
+2. Stage a single per-user directive in
+   `/etc/sudoers.d/91-cloud-provision-validation`, validate the candidate,
+   and install it as root with mode 0440. Do not overwrite unrelated files.
+3. Validate the full configuration; restore the prior state if validation
+   fails. Invalidate the sudo timestamp, run the real sudo checks, and
+   record the results and refreshed handoff.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Integration | Execute `sudo -k` and then `sudo -n -v` as `vmadmin` over SSH | Dedicated Debian 13 and Rocky 8.10 verification guests | Validation succeeds without a password or cached timestamp. |
+| T2 | Integration | Execute `sudo -n true`, `sudo -n id -u`, `sudo -n -l`, and `sudo -n visudo -c`; inspect drop-in ownership and mode | Same two guests | Ordinary sudo succeeds, UID is 0, existing grants remain, syntax is valid, and the drop-in is root-owned with mode 0440. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-01T05:22:30Z | Dedicated Debian 13 and Rocky 8.10 verification guests | Passed | Real SSH sessions ran `sudo -k` followed by `sudo -n -v` successfully on both guests. A second `sudo -k` followed by plain `sudo -v` with closed stdin also succeeded. Before the change, the actual `sudo -n -v` returned 1 with a password requirement on both guests. |
+| T2 | 2026-10-01T05:22:30Z | Same two guests | Passed | `sudo -n true` succeeded, `sudo -n id -u` returned 0, and full `sudo -n visudo -c` parsed every included file. The effective grant lines are identical before and after. The new drop-in is a root-owned regular file with mode 0440 and contains exactly `Defaults:vmadmin verifypw=any`. All pre-existing sudoers files retain their SHA-256 hashes, including each main file and application drop-ins. Rocky's new file received its restored SELinux context; temporary stage files are absent. |
+
+##### Closure Evidence
+
+- Guest configuration and T1/T2 verification passed on 2026-10-01 at
+  05:22:30 UTC. The private access handoff records the current policy and
+  observations. Only the new per-user drop-in was installed; main sudoers
+  and all earlier drop-ins were preserved.
+- The verification record was committed as
+  `3517a236a5e809ed41f103fc1c64b9d6409437b5` and pushed to
+  `origin/m11-middleware-operators`; the remote branch SHA was verified.
+- GitHub issue #45 received the verified results and all four completed
+  acceptance criteria, then closed as completed at 2026-10-01T05:42:20Z.
+  Its closed state was rechecked with `gh issue view 45` at
+  2026-10-01T05:44:05Z. All M14 completion criteria are satisfied;
+  the independent M15 include-order change remains outside this scope.
+
+##### GitHub Projection
+
+Title: Allow password-free sudo validation on verification VMs
+Labels: bug
+GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
+Observed State: closed
+Observed Labels: bug
+Observed Milestone: 1 / Nimbus - Cloud Provisioning Reliability
+Last Compared: 2026-10-01T05:44:05Z; remote updated 2026-10-01T05:42:20Z
+
+<a id="m15"></a>
+#### M15 - Put the Rocky sudoers includedir after all active rules
+
+Origin: e260630 / M15
+Identity History: none
+GitHub Issue: [#46](https://github.com/jeonghanlee/cloud-provision/issues/46)
+Status: Complete
+
+##### Summary
+
+The dedicated Rocky 8.10 verification guest must retain a valid sudoers
+configuration with `#includedir /etc/sudoers.d` after every active grant.
+IOC-runner's shipped
+`verify_sudoers_includedir_order` requires that no active rule follow the
+drop-in include. Moving the directive preserves the existing grant while
+making the file satisfy that prerequisite. The current live baseline already
+places the include last; verify the existing Ansible task on that state without
+claiming a directive movement in this run.
+
+##### Scope
+
+- Execute only the existing ansible-provision common-role task that places
+  `/etc/sudoers.d` last, through its shipped playbook with `--step` and
+  `--start-at-task`; decline every other task.
+- Preserve every existing grant, including the `rocky` NOPASSWD grant, and
+  existing drop-ins.
+- Verify syntax, file integrity outside the directive movement, ordering,
+  and ordinary sudo; update the private guest handoff.
+
+Out of scope: changing templates or golden images, the Debian guest, other
+guests, application setup, and the per-user validation policy owned by M14.
+
+##### Completion Criteria
+
+- The include appears once and no active sudoers rule follows it.
+- The existing `rocky` grant and all other rules are unchanged.
+- Full `visudo -c` validation succeeds, ordinary sudo succeeds, and effective
+  grants remain available.
+- The private handoff records the dated configuration result; the linked
+  issue is closed or a dated closure exception is recorded.
+
+##### Dependencies And Decisions
+
+- D1 requires an accepted and explicitly authorized plan for the existing guest.
+- D6 fixes the target and preserves the existing grant. M14 is independent.
+- The current live baseline already has the `rocky` grant before the final
+  include, with valid syntax. The ordering requirement is in the shipped
+  `epics-ioc-runner/bin/setup-system-infra.bash` function
+  `verify_sudoers_includedir_order`; syntax validity alone does not establish
+  that prerequisite.
+- The existing ansible-provision task is `roles/common/tasks/main.yml` at
+  commit `f7aba721463461ca8ea61a15819cd99041edbe5b`; that task and its
+  `playbooks/operators/common.yml` entry point had no local changes.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-09-30; the owner selected execution of only the existing Ansible sudoers task through `--step`.
+Implementation Authorization: 2026-09-30; explicit owner direction to proceed, followed by selection of the sudoers-only execution scope.
+Superseded Plan Artifacts: direct-edit plan preserved in commit `7391f51`.
+
+1. Confirm the dedicated Rocky guest and capture the actual sudoers content,
+   hashes, effective grants, ownership, mode, and SELinux context. Retain a
+   root-owned backup outside the drop-in directory.
+2. Execute `playbooks/operators/common.yml` at the shipped
+   `Ensure includedir is the final active directive in /etc/sudoers` task.
+   Select only that task through `--step`; decline all later tasks. Keep SSH
+   host-key validation enabled and retain the guest-specific alias.
+3. Compare the full configuration against the baseline and backup, inspect
+   final include ordering, and validate ordinary sudo and full syntax. A
+   pre-corrected file must remain byte-identical with preserved metadata.
+4. Repeat the same selected task to verify it reports no change, and record
+   real CLI results and the refreshed handoff. Do not run application setup.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Configuration | Compare the complete `/etc/sudoers` against the backup on the already ordered baseline; compare all sudoers hashes and inspect the include count and final line | Dedicated Rocky 8.10 verification guest | Every byte is preserved, the include appears once, and no active rule follows it. |
+| T2 | Integration | Execute `sudo -n visudo -c`, `sudo -n true`, `sudo -n id -u`, and `sudo -n -l`; inspect ownership, mode, and SELinux context | Same Rocky guest | Syntax is valid, ordinary sudo succeeds, UID is 0, grants remain, and file metadata is preserved. |
+| T3 | Integration | Run the shipped Ansible common playbook through `--start-at-task` and `--step`, select only the includedir task, and repeat | Same Rocky guest | The actual task succeeds; both executions report no change on the pre-corrected baseline and no other configuration task or handler runs. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-01T06:11:18Z | Dedicated Rocky 8.10 verification guest | Passed | Actual `/etc/sudoers` matched the root-owned backup byte for byte. Its SHA-256 and every existing drop-in hash matched the baseline. The include appears exactly once as the final line, after the retained `rocky` grant. The baseline was already ordered correctly; this run made no directive movement. |
+| T2 | 2026-10-01T06:11:18Z | Same Rocky guest | Passed | Full `sudo -n visudo -c` parsed all included files. Ordinary sudo succeeded, root UID was 0, effective `sudo -n -l` output matched the baseline exactly, and uncached `sudo -n -v` and plain `sudo -v` succeeded. Main-file ownership, mode 0440, and SELinux context matched the baseline. |
+| T3 | 2026-10-01T06:11:18Z | Same Rocky guest | Passed | Two real Ansible core 2.19.11 executions selected the unchanged common-role includedir task through the shipped playbook. Both reported `rc=0`, `stdout=unchanged`, `ok=1`, `changed=0`, `unreachable=0`, and `failed=0`. All later configuration tasks were declined; `meta: flush_handlers` ran with no pending handlers. |
+
+##### Closure Evidence
+
+- The guest satisfied the required ordering before execution. The real
+  Ansible task preserved that configuration on both runs, and T1-T3 passed
+  at 2026-10-01T06:11:18Z. The private handoff records the current state.
+- The task's modification and rollback paths were not exercised; no claim
+  is made that this run repaired an incorrectly ordered file.
+- The verification record was committed as
+  `68d047c267d4ca01dc9cb5c6cc33214fcff04ce8` and pushed to
+  `origin/m11-middleware-operators`; the actual remote branch SHA matched.
+- GitHub issue #46 received the verified results and all four completed
+  acceptance criteria, then closed as completed at 2026-10-01T06:34:02Z.
+  Its closed state was rechecked with `gh issue view 46` at
+  2026-10-01T06:36:17Z. All M15 completion criteria are satisfied.
+
+##### GitHub Projection
+
+Title: Move the Rocky sudoers includedir after active rules
+Labels: bug
+GitHub Milestone: 1 / Nimbus - Cloud Provisioning Reliability
+Observed State: closed
+Observed Labels: bug
+Observed Milestone: 1 / Nimbus - Cloud Provisioning Reliability
+Last Compared: 2026-10-01T06:36:17Z; remote updated 2026-10-01T06:34:02Z
+
+## Backlog
+
+### Work
+
+| Group | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Host setup | M7 | Restore the VM readiness preflight against cloud-init 23.4 | Milestone | Complete | No |  | `create_vm.bash -s` and the epics-dev build driver read a post-OS-update VM as ready, not `cloud-init: unknown`; [M7 detail](#m7). |
+| Documentation | M9 | Replace the unprivileged cloud-init status hint in the bake runbook | Milestone | Complete | No | M7 | The `docs/RUNBOOK_BAKE.md` slow-boot hint works unprivileged on a VM carrying the rebuilt cloud-init or states the privilege it needs; [M9 detail](#m9). |
+| Driver ergonomics | M10 | Report the refused host when the epics-dev build preflight fails | Milestone | Complete | No | M8 | A not-ready VM makes `bin/run_epics_env_build.bash` exit with a message naming the OS type and showing the `-s` report instead of exiting silently; [M10 detail](#m10). |
+| Middleware | M13 | Confirm the Phoebus source-build tool and reconcile its prerequisites | Milestone | Deferred | No | M11, D2, D3, D5, D7 | Immutable source refs identify the actual Phoebus build invocation and prerequisites; the operator model and middleware package baseline agree and shipped checks pass; [M13 detail](#m13). |
+| Code coherence | M16 | Resolve whole-codebase review findings and verification gaps | Milestone | Complete | No | D1 | Seven confirmed findings, one hypothesis and one audit decision recorded at `1b80978` are resolved on the branch: all seven findings corrected through `fb974df`, the hypothesis closed by a Keep verdict, and the audit inventory and digest updated in `a73432c`; no live check was selected; [M16 detail](#m16). |
+| OS packages | M17 | Add the Perl modules used by EPICS-env tooling to the EPICS package source | Milestone | Complete | No |  | `configure/epics-packages` lists `perl-Digest-SHA`, `perl-JSON-PP`, `perl-Pod-Checker` and `perl-Test-Simple` for rocky8 and rocky10 and `perl` for debian12, debian13, ubuntu24 and ubuntu26, matching ansible-provision `4dfb290`, and the package checks pass; landed in `3d4759a`; [M17 detail](#m17). |
+| VM lifecycle | M18 | Recreate a VM at a previously used address without stale SSH or DHCP state | Milestone | Complete | No |  | A new domain at an address whose stored host key or DHCP lease belongs to a removed VM either becomes ready without manual repair (stored key) or stops before creating its disk with the lease holder and expiry (foreign lease); a stopped existing domain keeps changed-key rejection at restart; [M18 detail](#m18). |
+
+### Backlog Details
+
+<a id="m16"></a>
+#### M16 - Resolve whole-codebase review findings and verification gaps
+
+Origin: e260630 / M16
+Identity History: none
+GitHub Issue: none
+Status: Complete
+
+##### Summary
+
+The whole-codebase conceptual-integrity review examined all 79 tracked files
+at `1b80978f55138848230a28b197a982526c2c9c94`: production scripts, tests,
+configuration, templates, fixtures and documentation. Seven findings are
+confirmed, one remains a hypothesis, and one requires an audit-policy choice.
+This record preserves the reviewed state and observed checks. All seven
+findings were corrected on the branch by 2026-10-02. On 2026-10-02 the owner
+closed the hypothesis with a Keep verdict and resolved the audit choice as an
+inventory and digest update, which landed in `a73432c`. The work closed on
+2026-10-03.
+
+##### Scope
+
+- Resolve the findings below against their original design premises.
+- Define and separately authorize the selected changes and their real-path
+  regression checks before implementation.
+- Preserve a dated Keep verdict in `docs/CLOSED_DOORS.md` for any examined
+  candidate deliberately left unchanged.
+
+Out of scope: automatically changing code, accepting the draft plan, changing
+the M11 landing order, duplicating M13 Phoebus work or M4 EtherCAT validation,
+and inspecting or modifying existing VM/image artifacts without D1 authority.
+
+##### Review Findings
+
+All source coordinates below refer to the reviewed commit, not this record's
+eventual carrying commit. Outer transport boundaries were controlled for
+offline reproductions; the shipped CLI and its internal path were executed.
+
+| Finding | Severity | Observed Behavior And Evidence | Premise To Preserve |
+| --- | --- | --- | --- |
+| Cleanup ignores teardown failure | P1 | In the shipped create CLI, failing `virsh destroy` and `undefine` still produced exit 0 and removed the temporary disk, creation record and seed; the outer libvirt boundary still reported a running domain. The reproduction used the shipped empty DHCP fixture. `bin/create_vm.bash:450-478@1b80978`. | Cleanup is idempotent and intentionally avoids a state precheck; distinguish absent domains from actual teardown failure before removing files. No live domain was deleted in this review. |
+| EPICS-env test boundary is stale | P2 | `make check-runtime-inventory` failed because the test's fake virsh lacks `domiflist --inactive`, now required by existing-domain MAC discovery. It aborted before the driver assertions. `tests/check-epics-env-inventory.bash:38-61@1b80978`. | The failure establishes a test-boundary mismatch, not a production MAC-discovery defect. |
+| Consumer management requires a current golden image | P2 | With an empty temporary image directory and an existing-domain outer boundary, the shipped create CLI rejected status, stop and cleanup before consulting libvirt. `bin/create_vm.bash:359-365@1b80978`. | A consumer disk is an independent copy; managing it should not depend on retaining its original golden image. |
+| Bake refresh follows SSH readiness | P2 | The shipped IOC bake exited during Step 1 when the SSH boundary returned a changed-host-key failure; Step 2's refresh was never reached. `bin/bake_iocrunner_image.bash:356-368@1b80978`. EtherCAT has the same ordering by source inspection only: `bin/bake_ethercat_image.bash:203-219@1b80978`. | Ordinary VM access intentionally rejects changed host keys; any bake-specific change must preserve that behavior. EtherCAT's separate IP-pipeline concern remains in M4. |
+| EPICS-env Make steps disagree on VM_PREFIX | P2 | Actual `make epics-env VM_PREFIX=review` with controlled outer libvirt state provisioned against the default lab names, then looked for review names and exited 2 before Ansible. Core and matrix provisioning omit `-p`; the build driver receives it. `configure/RULES_EPICS_ENV:11-25@1b80978`. | Provisioning and build must identify the same VM pair for a supported prefix override. |
+| IPv4 validation accepts additional inventory lines | P2 | The shipped generator accepted an address consisting of `192.0.2.1`, a newline, `[injected]`, a newline and `extra`. Real `ansible-inventory --list` accepted the generated file and reported the injected group and host; both commands exited 0. `bin/generate_ansible_inventory.bash:111-125@1b80978`, `bin/generate_ansible_inventory.bash:169@1b80978`. | The address must be validated in full before being written to inventory. |
+| Proxy documentation disagrees with the current contract | P3 | Architecture lists four artifact identities as the complete renderer output; the ADR index still names 8/8/7 while the current contract has 9/9/8. `docs/ARCHITECTURE.md:148-165@1b80978`, `docs/decisions/README.md:7@1b80978`. | The production artifact inventory is the authority; reconcile descriptive documents with the current staging/apply path. |
+
+##### Hypothesis And Audit Choice
+
+- Hypothesis: explicitly reusing `IMAGE_WORKFLOW_RUN_ID` after a failed bake
+  may reuse its existing build VM because the resolver accepts the supplied
+  ID and the bake invokes create without force. Source evidence:
+  `bin/image_workflow.bash:23-30@1b80978` and
+  `bin/bake_iocrunner_image.bash:357@1b80978`. A repeated full bake was not
+  executed; this is not a confirmed runtime defect or authorization to force
+  VM replacement.
+- Audit choice: the tracked IOC audit pins an older proxy-contract digest.
+  Running the shipped audit against an empty temporary directory under a
+  root user namespace exited 1 at `proxy-contract-drift`, before enumerating
+  images. `bin/audit_iocrunner_images.bash:342@1b80978`. This guard is
+  intentional. Decide whether to update the complete artifact inventory and
+  digest together or retain the refusal; no existing image contents were
+  audited and no policy change is authorized by this record.
+
+##### Completion Criteria
+
+- Each confirmed finding and the hypothesis has an evidence-backed resolution
+  or dated Keep verdict; the audit choice is explicitly resolved.
+- Selected implementation scope has an accepted plan and separate authority.
+- Selected changes pass their targeted real-path checks and the applicable
+  shipped suite; any unexecuted live gate remains explicit.
+- Closure names the resulting commits and observed results without treating
+  offline boundaries as real VM or image verification.
+
+##### Dependencies And Decisions
+
+- `D1` applies to any later existing-artifact operation.
+- Recorded on 2026-10-01; scope and priority remain unresolved. This is
+  unassigned Backlog work, with no inferred execution-order dependency.
+- No finding has a Keep verdict, accepted correction, or implementation
+  authorization merely because it appears in this review record. On
+  2026-10-01, the owner accepted and authorized the first cleanup correction
+  after its bounded proposal. The other candidates remain unresolved, so
+  the aggregate Backlog row remains Open.
+- On 2026-10-01, the owner directed the second correction: restore the
+  EPICS-env test's external virsh boundary for existing-domain MAC discovery.
+  Production behavior and the remaining candidates are outside this change.
+- On 2026-10-01, the third correction was selected: defer golden-image
+  selection until new creation and remove the status base-image line.
+  Existing-domain summaries retain their IP and MAC output. No existing guest
+  or image operation is authorized by this offline correction.
+- On 2026-10-01, the fourth correction was selected: IOC and EtherCAT bake
+  explicitly request host-key refresh before SSH readiness. Ordinary VM access
+  retains changed-key rejection. Existing guests and host SSH files remain
+  outside the offline implementation and verification scope.
+- On 2026-10-02, the fifth correction was selected: the EPICS-env Make
+  provisioning recipes pass the configured VM_PREFIX to the create CLI.
+  The driver and create CLI contracts are unchanged.
+- After the fifth correction, two confirmed findings (IPv4 validation and
+  proxy documentation), the hypothesis and the audit choice remain
+  unresolved, with no accepted plan, Keep verdict or authorization.
+- On 2026-10-02, the sixth correction was selected: the inventory generator
+  validates the complete address as one canonical dotted quad. Trailing-dot
+  and leading-zero addresses, accepted before, are rejected with it. The
+  proxy documentation finding, the hypothesis and the audit choice remain
+  unresolved.
+- On 2026-10-02, the seventh correction was selected: the descriptive proxy
+  documents defer to the ADR inventory and state its current 9/9/8 counts, and
+  the IOC lifecycle harness omits every Debian 13 and Rocky 8 identity,
+  `maven` included. The hypothesis and the audit choice remain unresolved.
+- On 2026-10-02, the owner closed the hypothesis: bakes keep calling the
+  create CLI without `-F`, recorded as a dated Keep verdict in
+  `docs/CLOSED_DOORS.md`. The owner resolved the audit choice as an update:
+  the audit gains the `maven` artifact check and the current contract digest
+  together. That update needs its own accepted plan and authorization.
+- On 2026-10-02, the eighth correction was selected: the IOC image audit
+  gains the `maven` check and the current contract digest, and a new source
+  check keeps its paths, check kinds, key patterns, markers and digest equal
+  to the shipped contract. Running the audit against images stays separate
+  under D1.
+- On 2026-10-02, the owner decided that this work closes once the audit
+  update lands on the branch. No accepted plan selected a live VM or image
+  check, so T3 is to be recorded as not selected rather than run.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-10-02; owner accepted the audit inventory and digest update plan after three third-person reviews and two second-person reviews, with their accepted corrections
+Implementation Authorization: 2026-10-02; owner explicitly authorized implementation of the accepted audit inventory and digest update plan
+Superseded Plan Artifacts: `docs/milestone-e260630.md@fb974dfe8de355f8cd4b1d24a046c6674eb9bcb4`, the implemented seventh-correction proxy documentation plan and its accepted review corrections
+
+The accepted plan applies only to the audit choice, which the owner resolved on
+2026-10-02 as an update of the audit inventory and digest. Observed on
+2026-10-02 at `fb974df`: `bin/audit_iocrunner_images.bash` keeps its own
+value-free copy of the proxy artifact paths and pins the SHA-256 of
+`bin/proxy_contract.bash`. Its path constants cover every Debian and Rocky
+production inventory path except `/etc/maven-proxy-settings.xml`, and the
+pinned digest differs from the shipped contract digest, so the audit stops at
+`proxy-contract-drift` before enumerating images. No test or Make target
+exercises the audit. On this control host, which has no `guestfish`, the
+shipped audit given an empty directory stops at `root-required` as an ordinary
+user and at `missing-command` as root in a user namespace, in both cases before
+the digest stage. The four shared-file key patterns it carries currently equal
+the contract's `proxy_contract_key_pattern` output.
+
+1. In `bin/audit_iocrunner_images.bash`, add the `maven` path constant and a
+   `verify_absent maven` call in the checks common to both families, and
+   replace the pinned digest with the SHA-256 of the shipped
+   `bin/proxy_contract.bash`. Keep every other check, the stage names and the
+   value-free output unchanged.
+2. Add `tests/check-audit-inventory.bash`, wired as the Make target
+   `check-audit-inventory` in `configure/RULES_BAKE`: add it to the `.PHONY`
+   list, to the `check-bake` prerequisites and to the validation targets that
+   `help.bake` prints. Like the existing source checks, it takes optional
+   audit and contract paths and defaults to `bin/audit_iocrunner_images.bash`
+   and `bin/proxy_contract.bash`. Without running guestfish or root code, it
+   reads the selected audit and contract and requires that:
+   - the pinned digest equals the SHA-256 of the selected contract;
+   - for each audited family, `debian` and `rocky`, the paths named by the
+     `verify_absent` and `verify_shared` calls in `verify_guest_proxy_clean`,
+     common and family-specific, equal that family's production inventory
+     paths from `proxy_contract_print_inventory` plus the contract's runtime
+     paths `PROXY_CONTRACT_SCRIPT`, `PROXY_CONTRACT_INPUT` and
+     `PROXY_CONTRACT_LOCK`, so the test holds no copy of any path;
+   - each dedicated production identity is checked with `verify_absent` and
+     each shared identity with `verify_shared`;
+   - for each shared identity, matched by path because the audit's check
+     labels differ from the contract's identity names, the key pattern passed
+     to `verify_shared` equals `proxy_contract_key_pattern <identity>`;
+   - the audit's begin and end marker strings equal the contract's.
+3. The new test must fail when given the unmodified audit from `fb974df`,
+   because of the digest and the missing `maven` path, and pass on the
+   corrected audit. Copies of the corrected audit without the `maven` call,
+   with a changed digest, and with a changed shared-file key pattern, each
+   passed through the audit-path argument, must each fail it.
+4. In `docs/RUNBOOK_BAKE.md` (Offline bake checks), list every target that
+   `make check-bake` expands to, the new one included; the list currently
+   names three of the six existing targets. Limit the following statement,
+   that the checks replace only host boundary commands and run the bake
+   scripts, producer, contract and validator through their entry points, to
+   the fresh-input, bake-provenance and proxy-lifecycle checks, and describe
+   the three package checks and the new audit check as consistency checks
+   that read source files.
+5. Run `make check-bake check-docs`, Bash syntax and ShellCheck on the audit
+   and the new test, and `git diff --check`. Record the actual results and
+   verification limits. Review the change before preparing its commit.
+
+Excluded: running the audit against any image, installing `guestfish`,
+changing `bin/proxy_contract.bash`, auditing EtherCAT images, and other
+changes to the audit's stages or output. Reading existing images remains
+separate work under D1.
+
+Accepted review corrections, 2026-10-02: the first third-person review found
+that the stop point described for this host held only when run as root, and
+that the planned test did not compare the shared-file key patterns, which the
+bake runbook says the audit pins. The owner accepted both; the observation now
+names both stop points, and item 2 compares the patterns by path. The second
+third-person review found that item 2 did not name the source of the runtime
+paths, inviting a third copy in the test, and omitted the `help.bake` listing;
+it also observed that the runbook's `check-bake` expansion list was already
+incomplete. The owner accepted both findings and added the runbook list as
+item 4. The third third-person review found that extending that list alone
+would make the following entry-point statement cover checks that only read
+source files; the owner accepted limiting it to the three entry-point checks.
+The first second-person review, from the implementer's seat, found that the
+plan did not say how the test selects the audit under check; the owner
+accepted optional audit and contract path arguments, as the existing source
+checks take. The second second-person review, from the verifier's seat, found
+no required correction. Plan acceptance and implementation authorization are
+recorded above.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Baseline review | Inspect all tracked files; run the shipped check targets, Bash syntax and ShellCheck; exercise the recorded CLI reproductions | Control host, temporary filesystem and controlled outer libvirt/SSH boundaries; real Ansible inventory parser | Establish the current failures and verification limits without changing existing artifacts. |
+| T2 | Regression | Run `make check-cloud-init-status check-bake check-docs`, Bash syntax and `shellcheck -S warning bin/*.bash tests/*.bash`; execute the updated cleanup test against production code from `1b80978` | Control host; public create CLI with controlled outer libvirt transport and shipped empty DHCP XML | Failed teardown preserves every VM file; absent/stopped cleanup succeeds; the original defect fails the new regression. |
+| T3 | Live validation | Execute only live VM/image checks selected by the accepted plan and separately authorized under D1 | To be specified by the accepted plan | Required live behavior is observed; offline checks alone do not satisfy it. |
+| T4 | Test boundary | Run `make check-runtime-inventory check-docs`, `bash -n tests/check-epics-env-inventory.bash` and ShellCheck | Control host; shipped driver, create CLI, generator and cloud-init fixtures; external virsh/SSH/Ansible boundaries | Both generated inventories reach the external Ansible boundary, temporary inventories are removed, and an unready VM is refused with its status report. |
+| T5 | Consumer lifecycle | Run `make check-cloud-init-status check-bake check-runtime-inventory check-docs`, syntax and ShellCheck; run the updated lifecycle test against production code at `e468393` | Control host; public create CLI, shipped cloud-init and DHCP fixtures, temporary files and controlled outer commands | Existing-domain management works without a golden image; new creation still requires a valid pair; the old production path fails the new regression. |
+| T6 | Bake host keys | Run lifecycle, bake, runtime-inventory, documentation and help checks, syntax and ShellCheck; run updated lifecycle and IOC bake regressions against `d899671` | Control host; real create and bake entry points, real ssh-keygen on temporary files, shipped cloud-init/proxy fixtures and outer command boundaries | Explicit refresh removes only the resolved address's old key before readiness; default access rejects a changed key; failure stops before SSH. IOC bake proceeds with stale keys; EtherCAT reaches inventory and the following SSH boundary. Offline checks do not establish a real guest or EtherCAT image publication. |
+| T7 | Host-key review corrections | Run the public CLI with real OpenSSH against a temporary loopback server; run the shipped suite and syntax/ShellCheck checks | Temporary host/client keys and known_hosts; real SSH authentication; controlled libvirt boundary | Changed stored keys are refused in status and restart probes, unknown keys are accepted, explicit refresh preserves another address on the same line, and a matching shared pattern leaves the original unchanged. No cloud-init completion or real VM/image result is inferred from the loopback checks. |
+| T8 | Host-key lookup failure | Run the updated lifecycle suite before and after the lookup correction; run lifecycle, bake, runtime-inventory, documentation and help checks, and syntax/ShellCheck on both changed Bash files | Public create CLI, temporary real host keys and known_hosts, shipped fixtures and controlled outer commands; only the failing ssh-keygen lookup returns 255 | A failed lookup preserves the original file and both stored addresses, invokes no removal or SSH, and returns failure. A normal no-match result still permits readiness and preserves unrelated keys. The pre-correction path fails the new regression. |
+| T9 | EPICS-env prefix propagation | Execute the shipped Make core and matrix targets with default and non-default prefixes; assert VM_PREFIX is absent at the recipe shell boundary before executing the real shell; compare libvirt domain identities and generated Ansible host identities; run the non-default regression against production rules at `a52bb79`, then the corrected rules and applicable checks | Temporary files, inherited VM_PREFIX unset and Make export suppressed with `--eval='unexport VM_PREFIX'`, shipped CLI/driver/generator and consumed fixtures, controlled outer commands | All four provisioning calls receive the selected prefix through recipe arguments; core provisioning and build inventories identify the same pair. Default behavior, inventory cleanup and unready-VM refusal remain valid. The original rules fail the non-default regression. No real guest, EPICS build or deployment result is inferred. |
+| T10 | Inventory address validation | Run the updated generated-inventory test against the unmodified generator at `9da0436`, then against the corrected generator; parse the pre-correction multiline output with the real `ansible-inventory --list`; run `make check-runtime-inventory check-bake check-docs`, Bash syntax and ShellCheck on both changed files | Control host; public generator, maintained ansible-provision group inventory and real Ansible inventory parser; temporary files only | Multiline, newline-terminated, trailing-dot and leading-zero addresses exit nonzero with empty standard output; the leading-newline rejection is retained. `0.0.0.0`, `255.255.255.255` and every existing single-line case still parse with their required groups, address and user. Against the unmodified generator the four newly rejected cases fail and the leading-newline case passes, and the real parser reports the additional group and host from that generator's multiline output. No real VM or Ansible deployment result is inferred. |
+| T11 | Proxy documentation and omission coverage | Compare the changed ARCHITECTURE summary, README count and ADR statements with the production inventory, printed per family by `bash -c 'source bin/proxy_contract.bash; proxy_contract_print_inventory debian'` and likewise for `ubuntu` and `rocky`, and with the fixture header; run the updated proxy lifecycle test; run `make check-bake check-docs`, Bash syntax and ShellCheck on the changed test | Control host; shipped proxy contract, independent fixture, public IOC bake seal-case with its controlled outer boundaries; temporary files only | Every changed count and statement matches the production inventory and fixture, and no sentence in section 6 refers to a removed table. The tuple-comparison failure text names the format in addition to the fields it named before. The lifecycle test executes seventeen omissions, and each, including both `maven` omissions, fails before seal completion and publication without exposing the fixture proxy value. No real VM, image bake or guest audit result is inferred. |
+| T12 | Audit inventory and digest | Run the new test with its audit-path argument on the unmodified audit from `fb974df` and on corrected copies without the `maven` call, with a changed digest, or with a changed shared-file key pattern, and with its defaults on the corrected audit; run `make check-bake check-docs`, Bash syntax and ShellCheck on the audit and the new test | Control host; shipped audit and proxy contract read as files; no guestfish, root execution or image | The unmodified audit and all three mutated copies fail; the corrected audit passes. For Debian and Rocky the audited paths equal the production inventory paths plus the three runtime paths, dedicated and shared identities use the matching check, each shared identity's key pattern equals the contract's, and the markers and digest match the shipped contract. `make help.bake` lists the new target, the runbook's `check-bake` list names every prerequisite of that target, and its entry-point statement covers only the three checks that run the bake entry points. No image audit result is inferred. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-01 | Control host; reviewed tree `1b80978`; offline outer boundaries and real Ansible inventory parser | Baseline recorded; suite has one failure | 12 distinct test scripts attempted: 11 passed, EPICS-env inventory aborted before its assertions. 905 successful top-level assertions across the passing scripts; nested reruns were not counted twice. All 23 production/test Bash scripts passed syntax checks; ShellCheck at warning severity and above passed. Reproduction outcomes are recorded above. |
+| T2 | 2026-10-01 | Local correction; control host and controlled outer libvirt boundary | Passed for the accepted P1 scope | Cleanup 269/269; fresh 7/7; IOC bake provenance 155/155; proxy lifecycle 35/35; documentation references 14/14 and proxy statements 8/8. The same updated cleanup suite against the original production tree at `1b80978` exited 2 with 251/269, including failures of file-preservation assertions. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above passed. No existing VM/image was changed. |
+| T3 | Not selected | No accepted plan of this work selected a live VM or image check | Not selected; owner decision 2026-10-02 | No existing VM or image was read, run or changed for this work; reading the published IOC images with the updated audit remains separate work under D1. |
+| T4 | 2026-10-01 | Local test-boundary correction on `fe79689`; control host, shipped internal paths and external command boundaries | Passed | Before correction, the EPICS-env test exited 1 on unsupported `domiflist --inactive`, before its assertions. After correction, `make check-runtime-inventory check-docs` exited 0: generated inventory 233/233, EPICS-env driver 3/3, documentation references 14/14 and proxy statements 8/8. Bash syntax and both warning-gated and full ShellCheck on the changed test passed. Production files were unchanged; no real VM or Ansible provisioning was run. |
+| T5 | 2026-10-01 | Local third correction on `e468393`; public CLI, shipped cloud-init/DHCP fixtures, temporary independent disk files and outer command boundaries | Passed for the selected scope | Lifecycle 400/400, fresh inputs 7/7, IOC bake provenance 155/155, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3 and documentation 14/14 plus 8/8. All five golden consumer selectors passed status, stop, cleanup, running reuse and stopped restart without a golden pair; missing and invalid pairs still refused new creation. The updated lifecycle regression against production code at `e468393` exited 1 with 345/400, including 55 failures in the image-independent management cases. Both changed Bash files passed syntax checks; repository-wide ShellCheck at warning severity and above and `shellcheck -x` on the changed files passed. No real guest, image bake or Ansible provisioning ran. |
+| T6 | 2026-10-01 | Local fourth correction on `d899671`; temporary known_hosts files, real ssh-keygen, public create/IOC/EtherCAT entry points and controlled outer transports | Passed controlled transport checks; contract evidence superseded by T7 | Lifecycle 454/454, fresh inputs 7/7, IOC bake provenance 158/158 including three EtherCAT readiness-boundary assertions, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Static, DHCP, hashed keys, restart, running reuse, missing-file, removal-failure and incompatible-action cases passed; unrelated keys on separate lines were preserved and the controlled SSH transport refused the stored old key. Both IOC OS bakes passed with stale keys. EtherCAT reached readiness, generated inventory and exited 43 at the following controlled SSH boundary; its image publication was not exercised. Against production code at `d899671`, the updated lifecycle test exited 1 with 426/454; the IOC Rocky seal-case exited 1 with 3/7 and stopped at Step 1's changed-key refusal before inventory or publication. All five changed Bash files passed syntax; repository-wide and source-following ShellCheck gates at warning severity and above passed. No real guest, host known_hosts, image bake or Ansible provisioning was changed or run. |
+| T7 | 2026-10-01 | Accepted fourth-correction review changes; public CLI, real OpenSSH loopback server, temporary known_hosts and controlled libvirt boundary | Passed for the selected local scope | Real SSH refused changed keys in status and stopped restart, accepted a previously unknown key, and accepted the refreshed key while preserving another address on the same line and mode 0640. Matching shared patterns left the original unchanged and stopped before SSH. Directory, existing and dangling symlink, and malformed-file cases preserved the original and stopped before SSH; temporary refresh directories were removed. Lifecycle 466/466, fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, package parity 6/6, EPICS packages 6/6, middleware packages 2/2, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. All five changed Bash files passed syntax; repository-wide and source-following ShellCheck gates at warning severity and above passed. Lifecycle and documentation checks were repeated after the dangling-symlink guard. Loopback checks establish SSH behavior only; cloud-init completion, live VM readiness and real image publication were not exercised. |
+| T8 | 2026-10-01 | Accepted lookup-error correction in the fourth-correction working tree; public CLI, real key files and controlled outer commands | Passed for the selected local scope | Before the lookup correction, the updated lifecycle suite exited 1 with 472/479: seven assertions exposed successful exit, loss of the target and unrelated keys, removal invocation, original-file replacement and SSH execution after a failed lookup. After correction it passed 479/479, including failed-lookup preservation and normal no-match readiness. Fresh inputs 7/7, IOC provenance 158/158, proxy lifecycle 35/35, generated inventory 233/233, EPICS-env driver 3/3, documentation 14/14 plus 8/8 and VM help passed. Both changed Bash files passed syntax and source-following ShellCheck at warning severity and above; git diff --check passed. No real guest, image publication or owner known_hosts change was exercised. |
+| T9 | 2026-10-02 | Authorized fifth correction on `a52bb79`; shipped Make targets, create CLI, driver and generator; temporary HOME/image directory, shipped cloud-init fixtures, existing-running-domain libvirt boundary and external SSH/Ansible boundaries | Passed for the selected local scope | Before the four recipe changes, the updated test exited 1: the three driver checks and all three default-prefix Make cases passed, then `epics-env.provision VM_PREFIX=review` selected lab names and failed the domain comparison. After correction, all six default/non-default Make cases and the three driver checks passed (9/9). Recipe-shell assertions confirmed VM_PREFIX was absent after Make export suppression; Ansible-boundary checks confirmed both generated core host identities, cleanup and the existing unready-VM refusal. `make check-epics-env-inventory check-runtime-inventory check-docs` exited 0: EPICS-env 9/9, generated inventory 233/233, documentation 14/14 plus 8/8. The changed test passed Bash syntax, warning-gated and full ShellCheck; git diff --check passed. The libvirt boundary reported existing running domains; no new guest, real image tool, EPICS build or Ansible deployment was exercised. Accepted review correction: the two Ansible host-row checks now use full-line equality. In isolated copies running the actual driver and generator, prepending wrong- to all generated host names failed with exit 1; prepending it only to review-prefixed hosts failed the Make build case with exit 2. Before this correction, the wrong-name mutation passed 9/9. The final test again failed with exit 1 against production rules at a52bb79 and passed the required suite, syntax and both ShellCheck gates after correction. |
+| T10 | 2026-10-02T22:53:28Z | Authorized sixth correction on `9da0436`; control host, public generator, maintained ansible-provision group inventory, real Ansible inventory parser and temporary files | Passed for the selected local scope | Against an unmodified copy of the tree at `9da0436` carrying only the updated test, the test exited 1 with 242/246: the group-header, trailing-newline, trailing-dot and leading-zero cases failed, while the leading-newline rejection and both boundary addresses passed. The real `ansible-inventory --list`, given the maintained inventory and that generator's multiline output, reported group `injected` with host `extra` beside the intended host. After correction, `make check-runtime-inventory check-bake check-docs` exited 0: generated inventory 246/246 including all five rejected-address cases and both boundary addresses, EPICS-env 9/9, fresh inputs 7/7, IOC bake provenance 158/158, proxy lifecycle 35/35, documentation 14/14 plus 8/8. Both changed Bash files passed syntax, warning-gated and full ShellCheck; `git diff --check` passed. No real VM, image bake or Ansible deployment was run. Accepted review correction: the leading-zero case first used `192.168.123.080`, which Bash arithmetic rejects as invalid octal, so a generator copy with the leading-zero rule removed still passed 246/246. The case now uses `192.168.123.060`; the same mutated copy fails it with 245/246. Mutated copies without the end anchor, the start anchor, the range check and the whole-value match failed 4, 1, 1 and 5 cases. The results above were observed again with the corrected case. |
+| T11 | 2026-10-03T00:30:56Z | Authorized seventh correction on `6ae1dbf`; control host, shipped proxy contract, independent fixture and public IOC bake seal-case with its controlled outer boundaries; temporary files only | Passed for the selected local scope | The printed production inventory has nine Debian, nine Ubuntu and eight Rocky rows; `sudo` appears only for Debian and Ubuntu; every family has one `xml` row and hash-comment rows otherwise, with two shared rows for Debian and Ubuntu and four for Rocky. The fixture has eleven columns. The rewritten section 6 states those counts, names the ADR as the exact authority, contains no table and no sentence about rows below, and carries the marker, XML and format statements. The decisions index states 9/9/8 with its other status text unchanged, and the ADR states eleven-field tuples and seventeen omissions. `make check-bake check-docs` exited 0: fresh inputs 7/7, IOC bake provenance 158/158, proxy lifecycle 37/37 with all seventeen omissions, both `maven` omissions included, failing before seal completion and publication, documentation 14/14 plus 8/8. The changed test passed Bash syntax, warning-gated and full ShellCheck; `git diff --check` passed. The tuple-comparison failure text now names the format; that failure branch was read, not executed. No real VM, image bake or guest audit was run. |
+| T12 | 2026-10-03T05:56:49Z | Authorized eighth correction on `fb974df`; control host; shipped audit and contract read as files, audit copies under a temporary directory; no guestfish, root execution or image | Passed for the selected local scope | Given the unmodified audit from `fb974df`, the new test exited 1 with 29/34: the digest, both families' path sets and both `maven` checks failed. Copies of the corrected audit failed as intended: without the `maven` call 30/34, with a changed digest 33/34, and with a changed generic key pattern 31/34, on the Debian git and Rocky dnf and git patterns. With its defaults on the corrected audit it passed 34/34, covering the digest, both markers, exact path sets for Debian and Rocky, the dedicated or shared check for every identity and runtime path, and every shared key pattern. `make help.bake` lists `check-audit-inventory`, `make check-bake` runs it, and the runbook list equals the `check-bake` prerequisites, with the entry-point statement limited to the first three. `make check-bake check-docs` exited 0: fresh inputs 7/7, IOC bake provenance 158/158, proxy lifecycle 37/37, audit inventory 34/34, documentation 14/14 plus 8/8. The audit and the new test passed Bash syntax, warning-gated and full ShellCheck; repository-wide warning-gated ShellCheck and `git diff --check` passed. The audit was not run against any image. |
+
+Baseline commands: `make check-cloud-init-status check-proxy-injection
+check-runtime-inventory check-bake check-docs check-vm-help
+check-required-group` stopped at the EPICS-env test failure. The remaining
+targets passed through `make -k check-bake check-docs check-vm-help
+check-required-group`. Each of `bin/*.bash` and `tests/*.bash` was checked
+with `bash -n`; `shellcheck -S warning bin/*.bash tests/*.bash` exited 0.
+These observations do not establish a real KVM bake, guest readiness, image
+content audit or EtherCAT bake result.
+
+##### Closure Evidence
+
+- Review acceptance: 2026-10-01; the owner accepted the P1 cleanup correction
+  after its first review (third-person self-review) and second review
+  (second-person self-review), both with no additional required corrections.
+  The third-person pass also exercised five additional public-CLI cases for
+  exact domain-name matching, partial listing failure and unexpected state;
+  all passed with controlled outer libvirt boundaries. This acceptance applies
+  only to the first correction and does not close the aggregate work.
+- P1 landing: 2026-10-01; `fe796897e273077caadb0559803a2a4775e7d0c2`
+  was pushed to `origin/m11-middleware-operators`; direct remote branch
+  inspection matched that commit. This is branch landing, not master landing.
+- Second-correction landing: 2026-10-01; `e468393242000f627f626fffbb2f5b7277f344e3`
+  was pushed to `origin/m11-middleware-operators`; direct remote inspection
+  matched the commit. Its third-person and second-person passes found no
+  required corrections. This is branch landing, not master landing.
+- Third-correction review acceptance: 2026-10-01; the owner accepted the
+  first review (third-person self-review) and second review (second-person
+  self-review), both with no additional required corrections. The third-person
+  pass also verified 23 additional public-CLI error combinations with controlled
+  outer command boundaries; the second-person pass checked the changed text
+  against observed CLI output and verification evidence. This acceptance
+  applies only to image-independent consumer management and status output.
+- Third-correction landing: 2026-10-01; `d899671adc053673a5f2773f309ad61324c84d53`
+  was pushed to `origin/m11-middleware-operators`; direct remote inspection
+  matched that commit. This is branch landing, not master landing.
+- Fourth-correction review results: 2026-10-01; the first third-person
+  self-review found shared host-list key loss and an unsupported changed-key
+  rejection claim. Both corrections were explicitly accepted and applied.
+  The second third-person self-review found the ignored lookup failure; that
+  correction was explicitly accepted and passed T8. The third review,
+  second-person self-review, found no additional required corrections in the
+  bake instructions, failure behavior or verification limits. Its checks
+  compared the changed text with executed CLI and real SSH results, bake
+  dry-run commands and actual CLI help.
+- Fourth-correction landing: 2026-10-01; `a52bb79687f0ba260123de362f5ade77d136ceb9`
+  was pushed to `origin/m11-middleware-operators`; direct remote inspection
+  matched the commit. T7 and T8 establish the selected local scope only.
+  This is branch landing, not master landing.
+- The fifth-correction VM_PREFIX plan was accepted on 2026-10-02 after two
+  third-person reviews and a second-person review. Implementation was explicitly
+  authorized on 2026-10-02. The four recipe changes and the real-path regression
+  passed T9 local checks. The third-person implementation
+  review and the second-person implementation review were accepted on
+  2026-10-02. The other candidates remain
+  unassigned and this aggregate work remains Open.
+- Fifth-correction implementation review, 2026-10-02: the first third-person
+  self-review found that substring host-row checks accepted wrong-prefixed
+  inventory names while the entire test passed. The owner accepted the finding;
+  both checks now require full-line equality. Normal and wrong-name checks were
+  rerun through the actual Make, CLI, driver and generator paths as recorded in
+  T9. The review also verified that omitting each of the four recipe prefix
+  arguments independently fails the regression. The second third-person
+  self-review found no additional required corrections and was accepted on
+  2026-10-02. The third implementation review, second-person self-review, found
+  no required corrections and was accepted on 2026-10-02. It checked the current
+  plan, T9 results and closure text against the executed normal, original-rules
+  and wrong-name cases.
+- Fifth-correction landing: 2026-10-02; `de558aa07b1f103ca052652040dd7cf44b203d6a`
+  committed the four EPICS-env recipe prefix arguments, their regression test
+  and the verification record, and was pushed to `origin/m11-middleware-operators`.
+  Direct remote inspection at 2026-10-02T16:53:00Z matched that commit at
+  `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
+  T9 establishes the selected local scope. Master landing remains pending.
+- The sixth-correction IPv4 address-validation plan was accepted on
+  2026-10-02 after two third-person reviews and a second-person review, and
+  its implementation was explicitly authorized on 2026-10-02. The generator
+  change and its regression passed T10 local checks. The proxy documentation
+  finding, the hypothesis and the audit choice remain unassigned and this
+  aggregate work remains Open.
+- Sixth-correction implementation review, 2026-10-02: the first third-person
+  self-review found that the leading-zero regression passed with that rule
+  removed, because its address was rejected by octal arithmetic instead, and
+  that the Backlog row, Summary and Closure Evidence did not yet describe
+  this correction. The owner accepted both findings. The regression address
+  was replaced and rechecked against the mutated and unmodified generators as
+  recorded in T10. The second third-person self-review found that T10 still
+  carried mutation counts observed before the replacement; the owner accepted
+  the corrected counts. It also ran every shipped check target and
+  repository-wide ShellCheck on the corrected tree, all with exit 0. The
+  third review, second-person self-review, found no required correction.
+- Sixth-correction landing: 2026-10-02; `4cc3d8f4ffe3489a98e5c50ac8f05e214fd2130c`
+  committed the generator validation, its regression test and the
+  verification record, and was pushed to `origin/m11-middleware-operators`.
+  Direct remote inspection at 2026-10-02T23:17:34Z matched that commit at
+  `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
+  T10 establishes the selected local scope. Master landing remains pending.
+- The seventh-correction proxy documentation plan was accepted on
+  2026-10-02 after four third-person reviews and three second-person reviews,
+  and its implementation was explicitly authorized on 2026-10-02. The
+  documentation changes and the extended omission list passed T11 local
+  checks. The hypothesis and the audit choice remain unassigned and this
+  aggregate work remains Open.
+- Seventh-correction implementation review, 2026-10-03: the first third-person
+  self-review found that the rewritten section 6 said the host-side renderer
+  writes the inventory, although it stages only the contract and its input
+  and the guest's first-boot apply installs the inventory, and that the plan
+  acceptance understated the second-person review count. It also confirmed
+  that removing one `maven` omission makes the lifecycle test fail with
+  "observed 16". The owner accepted both findings and a line rewrap in the
+  ADR. The second third-person self-review found no required correction. The
+  second-person self-review found that the Backlog row, Summary and Closure
+  Evidence did not yet describe this correction; the owner accepted that
+  correction.
+- Seventh-correction landing: 2026-10-03; `fb974dfe8de355f8cd4b1d24a046c6674eb9bcb4`
+  committed the proxy documentation changes, the extended omission list and
+  the verification record, and was pushed to `origin/m11-middleware-operators`.
+  Direct remote inspection at 2026-10-03T04:29:02Z matched that commit at
+  `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
+  T11 establishes the selected local scope. Master landing remains pending.
+- The eighth-correction audit inventory and digest plan was accepted on
+  2026-10-02 after three third-person reviews and two second-person reviews,
+  and its implementation was explicitly authorized on 2026-10-02. The audit
+  change, the new source check and its Make and runbook wiring passed T12
+  local checks.
+- Eighth-correction implementation review, 2026-10-03: the first third-person
+  self-review also exercised a dedicated identity checked as shared, a
+  removed runtime check, a contract with an unknown identity, a missing
+  contract file and a renamed audit function; each made the new check fail.
+  It found that the runbook did not tell a contract or audit editor to run
+  `make check-bake`; the owner accepted adding both to that instruction. The
+  second-person self-review found that the Backlog row, Summary and Closure
+  Evidence still described the audit update as unplanned; the owner accepted
+  that correction.
+- Eighth-correction landing: 2026-10-03; `a73432c2a96f5a08dcd7b2429143f92fd7d5fd26`
+  committed the audit inventory and digest update, the new source check, its
+  Make and runbook wiring, the kept run-ID decision and this record, and was
+  pushed to `origin/m11-middleware-operators`. Direct remote inspection at
+  2026-10-03T06:10:40Z matched that commit at
+  `refs/heads/m11-middleware-operators`; recheck the branch with Git ls-remote.
+  T12 establishes the selected local scope. Master landing remains pending.
+- Closure: 2026-10-03. Every completion criterion is met. The seven
+  findings are corrected in `fe79689`, `e468393`, `d899671`, `a52bb79`,
+  `de558aa`, `4cc3d8f` and `fb974df`; the hypothesis has the dated Keep
+  verdict of 2026-10-02 in `docs/CLOSED_DOORS.md`; the audit choice was
+  resolved and landed in `a73432c`. T2 and T4 through T12 record the
+  targeted real-path checks, and T3 records that no live check was
+  selected. These are branch landings; master landing follows the branch.
+
+<a id="m17"></a>
+#### M17 - Add the Perl modules used by EPICS-env tooling to the EPICS package source
+
+Origin: e260630 / M17
+Identity History: none
+GitHub Issue: none
+Status: Complete
+
+##### Summary
+
+The EPICS-env installed-tree utility moves from Python to Perl. Its runtime
+uses JSON::PP and Digest::SHA, and its tests use Test::More and podchecker.
+On Rocky these modules come from separate packages, as ansible-provision
+reported from `dnf repoquery` on Rocky 8.10 and 10.2; this repository did not
+query the Rocky repositories itself. On Debian and Ubuntu they
+come with the `perl` package, which the base `perl-base` package does not
+provide. ansible-provision added the packages to its `epics_os_packages`
+lists in `4dfb290` on `m14-middleware-reconcile`, which mirror this
+repository's normative `configure/epics-packages`.
+
+##### Scope
+
+- Add `perl-Digest-SHA`, `perl-JSON-PP`, `perl-Pod-Checker` and
+  `perl-Test-Simple` to the rocky8 and rocky10 lines of
+  `configure/epics-packages`.
+- Add `perl` to the debian12, debian13, ubuntu24 and ubuntu26 lines.
+
+Out of scope: ansible-provision lists and their landing, pkg_automation,
+rebaking existing golden images, real VM installation, and other package
+changes.
+
+##### Completion Criteria
+
+- The six lines carry the names above, and each matches the corresponding
+  ansible-provision `epics_os_packages` list at `4dfb290` for these names.
+- `make check-epics-packages check-middleware-packages check-bake check-docs`
+  passes.
+
+##### Dependencies And Decisions
+
+- Related, not a gate: ansible-provision `4dfb290` on
+  `m14-middleware-reconcile` and jeonghanlee/ansible-provision#29, which
+  remains open until live application on fresh vacua. This milestone changes
+  only the normative source here; installation follows the ansible-provision
+  lists.
+- The Rocky 8 iocrunner golden images on this control host were baked between
+  2026-08-13 and 2026-08-31, before these names entered the package lists.
+  Whether each module is already present in them through another package is
+  unverified; reading the images, and any rebake, are separate work that
+  needs its own plan and authority under D1.
+- On 2026-10-02, the owner directed this change after the bounded proposal of
+  the two line groups above.
+- Review, 2026-10-02: the first third-person self-review confirmed the six
+  lines against ansible-provision `4dfb290` and the Debian package ownership on
+  this Debian 13 host, and found that the Rocky package statement lacked its
+  source and that the golden-image statement asserted absence without
+  inspection. The owner accepted both corrections. The second-person
+  self-review found no required correction.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-10-02; owner accepted the bounded two-part proposal by directing the change
+Implementation Authorization: 2026-10-02; explicit owner direction to make the change
+Superseded Plan Artifacts: none
+
+1. Append the four Rocky package names to the rocky8 and rocky10 lines and
+   `perl` to the debian12, debian13, ubuntu24 and ubuntu26 lines of
+   `configure/epics-packages`.
+2. Compare the added names with the ansible-provision lists at `4dfb290`.
+3. Run the checks named in Completion Criteria and `git diff --check`, and
+   record the results.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Package source | Run `make check-epics-packages check-middleware-packages check-bake check-docs`; compare the six changed lines with ansible-provision `inventory/group_vars/<os>.yml` at `4dfb290` | Control host; shipped guards; ansible-provision files read from the remote at that commit | All checks exit 0, and every added name appears in the matching ansible-provision list. No package installation result is inferred. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-03T01:59:16Z | Control host; shipped guards on `fb974df` plus the uncommitted change; ansible-provision group variables read from the remote at `4dfb290` | Passed | The four Rocky names now end the rocky8 and rocky10 lines and `perl` ends the debian12, debian13, ubuntu24 and ubuntu26 lines; every added name also appears in the matching ansible-provision `epics_os_packages` list, and no line carries a duplicate. `make check-epics-packages check-middleware-packages check-bake check-docs` exited 0: EPICS packages 6/6, middleware packages 2/2, the bake suite and documentation 14/14 plus 8/8. `git diff --check` passed. No package was installed on a VM or container here. |
+
+##### Closure Evidence
+
+- Landing: 2026-10-03; `3d4759a` committed the six package lines and this
+  record, and was pushed to `origin/m11-middleware-operators`. Direct remote
+  inspection at 2026-10-03T06:10:40Z found it on that branch beneath
+  `a73432c2a96f5a08dcd7b2429143f92fd7d5fd26`; recheck with Git ls-remote and
+  `git branch -r --contains 3d4759a`. Master landing remains pending.
+- Closure: 2026-10-03. The six lines carry the names in Scope and match the
+  ansible-provision lists at `4dfb290`, and T1 passed. Installation on fresh
+  vacua is verified separately by ansible-provision under
+  jeonghanlee/ansible-provision#29.
+
+<a id="m18"></a>
+#### M18 - Recreate a VM at a previously used address without stale SSH or DHCP state
+
+Origin: e260630 / M18
+Identity History: none
+GitHub Issue: none
+Status: Complete
+
+##### Summary
+
+VM addresses are derived from the OS selector and instance label, so a VM
+that is removed and created again, or a bake build VM whose run ID changes
+its name and MAC, returns to the same address. Two kinds of state from the
+removed VM survive `bin/create_vm.bash -c` and break the new VM's readiness:
+
+- Its host key stays in `~/.ssh/known_hosts`. The new guest generates new
+  keys, so the first readiness probe reports a changed host key and stops.
+  The reset to baseline described in `docs/ARCHITECTURE.md` (clean, then
+  provision) therefore stops at SSH until an operator removes the key. On
+  2026-10-03 a new rocky8 VM at such an address stopped this way on this
+  host; `-R` with the same selectors recovered it. At that time 14 lab
+  addresses without a reservation still had a stored key; recheck by listing
+  the lab addresses that `ssh-keygen -F <address>` finds in
+  `~/.ssh/known_hosts` and removing those that appear as reservations in
+  `virsh --connect qemu:///system net-dumpxml lab`.
+- Its DHCP lease stays until it expires. Registration checks reservations
+  only, so a new VM with a different MAC at the same address cannot obtain
+  that address while the old lease is active, takes another one, and its
+  readiness probe to the reserved address fails. ansible-provision reported
+  this as "No route to host" on this host on 2026-10-03; it was not
+  reproduced here, and no orphan lease existed when checked. The lab
+  network's leases last one hour. Both bakes remove their build VM with
+  `-c` by default, and the next bake's build VM has a new name and MAC at
+  the same address, so after this change a second bake of the same OS
+  within that hour stops at Step 1 with the previous lease's expiry.
+
+##### Scope
+
+- When `create_vm.bash` creates a new domain, refresh the stored host key of
+  its resolved address before the first readiness probe, as `-R` does today.
+- Before creating the disk of a new domain with a static address, refuse when
+  an active lease for that address belongs to another MAC, naming the holder
+  and the lease expiry.
+
+Out of scope: changed-key handling for existing domains (stopped restart
+keeps rejecting a changed key unless `-R` is given; running reuse does not
+probe SSH; status, stop and cleanup keep rejecting `-R`), the lab network
+lease time, editing dnsmasq lease
+files, removing stored keys of addresses not being created, and any existing
+VM or image.
+
+##### Completion Criteria
+
+- A new domain at an address with a stored key from another host becomes
+  ready without manual repair, and only that address's key is replaced.
+- A stopped existing domain whose key changed is still refused at restart
+  without `-R`.
+- A foreign lease at the address stops new-domain creation before any disk,
+  seed or reservation is created, with the holder and expiry in the message;
+  a lease held by the same MAC, or no lease, does not stop it.
+- Regressions through the public CLI fail on the unmodified code and pass
+  after the change; the shipped suites and documentation checks pass.
+
+##### Dependencies And Decisions
+
+- D1 applies to any existing guest, disk or image.
+- Since the M16 fourth correction, selected on 2026-10-01, ordinary VM
+  access rejects changed host keys and only the bakes refresh a key, through
+  `-R`. On 2026-10-03 the owner decided that creating a new domain always
+  refreshes its address's stored key, because a new guest's key is new by
+  definition, while existing domains keep the rejection.
+- On 2026-10-03 the owner chose to stop on a foreign lease with its expiry
+  rather than wait for it or change the lab network lease time.
+
+##### Implementation Plan
+
+Plan Status: accepted
+Plan Acceptance: 2026-10-03; owner accepted this plan after third-person and second-person reviews.
+Implementation Authorization: 2026-10-03; explicit owner direction to implement the accepted plan.
+Superseded Plan Artifacts: none
+
+1. In `bin/create_vm.bash`, apply the existing `refresh_host_key` behavior
+   on the new-domain path (after `provision_vm`, before the first readiness
+   probe) without requiring `-R`. Keep `-R` as the opt-in for the
+   existing-domain paths, and keep every refusal and preservation rule of the
+   refresh (shared host lists, matching patterns, non-regular files, lookup
+   failures). Update the `-R` usage line so it states that a new domain
+   always refreshes and `-R` applies to stopped restart and running reuse.
+2. In `bin/vm_network.bash`, add a lease check that reads the network's
+   active leases and fails when the static address is leased to a MAC other
+   than the new domain's. Call it on the new-domain path before
+   `verify_base_image` and `prepare_disk`, so nothing is created when it
+   fails; report the holder MAC and the expiry and exit nonzero. When the
+   lease query itself fails, stop the same way and report that the leases
+   could not be read.
+3. Extend `tests/check-cloud-init-status.bash` through the public CLI with
+   its controlled libvirt and SSH boundaries and real `ssh-keygen` on a
+   temporary `known_hosts`: a new domain at a static address and a new domain
+   at a DHCP address, each with a stored key, become ready and keep unrelated
+   keys; a stopped existing domain with a changed key is still refused
+   without `-R` (the existing `ssh host key changed` case and the refresh
+   `default` mode); a foreign lease and a failed lease query stop before
+   disk, seed and reservation creation, the foreign lease naming the holder
+   and expiry; an own-MAC lease and no lease proceed. Add the lease outputs
+   these cases read as fixtures under `tests/fixtures/dhcp/`, which today
+   holds reservation XML only. The new cases must fail against the
+   unmodified code at `a29f477`. Every test whose controlled `virsh` drives
+   the new-domain path and exits on an unknown command must answer the lease
+   query: `tests/check-cloud-init-status.bash`,
+   `tests/check-iocrunner-bake-provenance.bash`,
+   `tests/check-proxy-injection.bash` and
+   `tests/check-epics-env-inventory.bash`.
+4. Update `docs/ARCHITECTURE.md` sections 13 and 8 for the new-domain refresh
+   and the lease check, and `docs/RUNBOOK_BAKE.md` in both "Build VM SSH host
+   keys" and "Fresh consumer SSH host keys", whose manual removal no longer
+   applies to a consumer VM created through `create_vm.bash`. The runbook
+   also states that a bake started within the lease time of a previous
+   same-OS bake stops at Step 1 with the lease expiry, and that the operator
+   retries after that time.
+5. Run `make check-cloud-init-status check-proxy-injection check-bake
+   check-runtime-inventory check-docs check-vm-help`, Bash syntax and
+   ShellCheck on the changed
+   files, and `git diff --check`. Record the results and verification limits.
+   Review the change before preparing its commit.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Lifecycle | Run the updated lifecycle test against the unmodified code at `a29f477` and against the change; run the checks in plan item 5. For the unmodified run, create a separate `git worktree` at `a29f477` (or a `cp -a` copy of a checkout at that commit, keeping `.git`), copy only the changed tests and the added fixtures into it, and run the test there; do not check out `a29f477` in the shared checkout | Control host; public create CLI, shipped cloud-init and DHCP reservation fixtures plus the added lease fixtures, controlled libvirt and SSH boundaries, real `ssh-keygen` on temporary files | The new cases fail on the unmodified code and pass after the change; existing cases keep passing. No real VM is created or changed. |
+| T2 | Live | Find a lab address with a stored key and no reservation by the recheck in the Summary; choose selectors whose `create_vm.bash … -s` output reports that address as "mapped to"; then create a new VM with those selectors through `make` or the CLI, without `-R`. After the check, shut the VM down with `-S`; cleanup needs separate owner authorization | This host's libvirt and `~/.ssh/known_hosts`, under separate owner authorization; copy `~/.ssh/known_hosts` before creation | The VM reaches READY without manual repair, and a diff of the copy against `~/.ssh/known_hosts` shows only that address's key changed. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-10-04T05:52Z | Control host; uncommitted change on `a29f477`, and a separate `git worktree` at `a29f477` with only the changed tests and added lease and holder fixtures copied in; public create CLI, shipped reservation fixtures, added lease fixtures, controlled virsh and SSH boundaries, real `ssh-keygen` on temporary files | Passed | After the change: lifecycle 522/522, proxy injection 204/204, fresh inputs 7/7, IOC bake provenance 158/158, audit inventory 34/34, generated inventory 246/246, EPICS-env driver 9/9, documentation 14/14 plus 8/8, VM help and the remaining bake checks passed under one `make` run with exit 0. Against `a29f477` the updated lifecycle test exited 1 with 491/522; all 31 failures are in the new cases: new-domain static and DHCP refresh, the foreign orphan lease and its retry hint, the reserved live holder, unreadable leases, and unreadable reservations for a foreign lease. The own-lease and no-lease cases pass on both trees, because the unmodified code never stops on a lease. The updated proxy injection (204/204) and IOC bake provenance (158/158) tests pass on `a29f477`; the worktree needed a sibling `ansible-provision` link because the bake resolves that directory next to the repository. `tests/check-epics-env-inventory.bash` was left unchanged: its controlled libvirt reports every domain as existing, so it never reaches the lease query. Bash syntax, ShellCheck at warning severity with `-x` on the five changed Bash files, and `git diff --check` passed. No real VM was created or changed by these checks. |
+| T2 | 2026-10-04T06:52:53Z to 06:54:16Z | This host; committed `81f0669`, unmodified `bin/`; real libvirt, DHCP and `~/.ssh/known_hosts` | Passed | A disposable rocky8 lab guest was removed with `-c`; its reservation was gone while its stored host key (three hashed entries) and its own-MAC lease remained. Creating it again with the same selectors and without `-R` passed the lease check (own MAC), removed that address's stored key, and reached READY with SSH ready on the second probe and cloud-init complete. Against a copy taken before creation, `known_hosts` kept 551 lines; exactly the three entries for that address were replaced and every other line was unchanged. The guest was then shut down with `-S`. The foreign-lease stop was not exercised live because no foreign lease existed on the network. |
+
+##### Closure Evidence
+
+- Implementation commit `81f0669` (provisioner, tests, lease fixtures,
+  architecture, bake runbook and this record), preceded by `78272a9`, which
+  records the rejected fallback-address request in `docs/CLOSED_DOORS.md`.
+  Landing observed 2026-10-04T06:44Z: after `git fetch`, local `HEAD` and
+  `origin/m11-middleware-operators` were both
+  `81f0669c193406ec9494425f739baa33817dfdbc`.
+- T2 passed live on 2026-10-04 under owner direction; M18 is complete. The
+  foreign-lease stop is verified by T1 only.
+
+<a id="m13"></a>
+#### M13 - Confirm the Phoebus source-build tool and reconcile its prerequisites
+
+Origin: e260630 / M13
+Identity History: none
+GitHub Issue: none
+Status: Deferred
+
+##### Summary
+
+Confirm the actual build tool used by phoebus-env and its source checkout,
+then align the Phoebus source-build prerequisites in `docs/OPERATOR_MODEL.md`
+and the middleware package baseline with that evidence. The current model
+intends a repository Maven Wrapper, but that assumption is unverified.
+This work is separated from M11 under D5. D7 moves it to Backlog for
+execution after the Archiver work completes. This detail is the single
+source for the pending Phoebus build-tool and documentation reconciliation.
+
+##### Source Documents
+
+| Source | Content To Reconcile |
+| --- | --- |
+| `docs/OPERATOR_MODEL.md`, P_java | Shared OpenJDK baseline; the confirmed Archiver wrapper must not imply that the Phoebus tool is verified. |
+| `docs/OPERATOR_MODEL.md`, P_phoebus-build | Source-build entry point and the unverified wrapper assumption. |
+| `docs/OPERATOR_MODEL.md`, Phoebus species and produced artifacts | Source/distribution alternatives and producer-consumer ownership. |
+| `configure/middleware-packages` | Current system Java package baseline; Phoebus tool acquisition remains pending source inspection. |
+| This document, M11 / D5 | Archiver verification is complete at its recorded refs; Phoebus build-tool confirmation is separate. |
+| This document, M12 / G1 | Distribution-install verification and repository availability are separate dependencies, outside this build-tool task. |
+
+##### Scope
+
+- Inspect phoebus-env at a recorded source ref, its `make build.phoebus`
+  entry point, and the delegated Phoebus source build invocation.
+- Confirm the tool, wrapper or system-package acquisition, JDK requirement,
+  `JAVA_HOME` handling, and other required build prerequisites against the
+  actual source and configuration.
+- Reconcile the `P_phoebus-build` and `P_java` descriptions in
+  `docs/OPERATOR_MODEL.md` and the relevant comments or package requirements
+  in `configure/middleware-packages` with the confirmed source-build path.
+
+Out of scope: creating or populating phoebus-distribution (`G1`), verifying
+distribution installation (`M12`), implementing ansible-provision roles,
+building or running the full Phoebus application, and repeating the M11
+Archiver Appliance verification.
+
+##### Completion Criteria
+
+- An immutable phoebus-env source ref and its delegated source ref identify
+  the actual build invocation and prerequisite evidence.
+- The repository-wrapper assumption is confirmed or corrected; the operator
+  model and middleware package baseline agree with the observed build path.
+- The shipped middleware package and documentation checks pass against the
+  resulting definitions.
+
+##### Dependencies And Decisions
+
+- `D2` and `D3` supply the ecosystem structure and system-Java baseline.
+- `D5` (2026-09-29) assigns Phoebus source-build tool confirmation and
+  prerequisite reconciliation to this independent milestone.
+- The unresolved M11 hypothesis is retained here: aa-maven's `./mvnw` is
+  confirmed present, but phoebus-env was not cloned locally when the model
+  was defined. Whether Phoebus uses its intended repository wrapper or the
+  site document's `maven-openjdk21` remains to be confirmed from its source.
+- `D7` (2026-10-01): defer this Backlog item until the Archiver work
+  completes, including the M11 master landing conditions. Resume as
+  Not started when M11 is Complete and this item is assigned for execution.
+- Source inspection does not technically require the G1 distribution
+  repositories. M11 and M12 do not depend on M13; M11 is an execution-order
+  dependency for this item.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Record the source refs and inspect the real build entry point and tool
+   configuration through the delegated source build.
+2. Confirm the prerequisites and reconcile the operator model and middleware
+   package baseline where the source evidence requires a change.
+3. Run the shipped checks and record the source evidence and check results.
+
+##### Test Plan
+
+| Label | Layer | Method | Environment | Expected Result |
+| --- | --- | --- | --- | --- |
+| T1 | Structure | Inspect `make build.phoebus`, its delegated build invocation and tool configuration at recorded immutable refs | phoebus-env and its source checkout | The actual tool, acquisition path, JDK and other prerequisites are identified from shipped source files. |
+| T2 | Structure | Compare `P_phoebus-build`, `P_java` and `configure/middleware-packages` with T1 evidence; run `make check-middleware-packages` and `make check-docs` | control host | The definitions agree with the source evidence and both shipped checks pass. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | Not run | phoebus-env and its source checkout | Pending | none |
+| T2 | Not run | control host | Pending | none |
+
+##### Closure Evidence
+
+- None.
 
 <a id="m7"></a>
 #### M7 - Restore the VM readiness preflight against cloud-init 23.4
@@ -1241,66 +2509,13 @@ both edited scripts.
   offline path. The commit carries `Closes #41`, so #41 auto-closes when it
   lands on origin/master.
 
-<a id="m12"></a>
-#### M12 - Verify the middleware distribution-install path (P_archiver, P_phoebus)
+## Assignment History
 
-Origin: e260630 / M12
-Status: Blocked
-
-##### Summary
-
-Once the aa-distribution and phoebus-distribution repositories exist (`G1`), the
-distribution-install operators defined in `M11` (`P_archiver`, `P_phoebus`) and
-their `archiver` / `phoebus` species can be verified live: install the built
-WARs and the Phoebus binary on the middleware host. `M11` delivers the structure
-and the source-build path; this row is the deferred distribution-path
-verification, which cannot run before the repositories exist.
-
-##### Scope
-
-- Live-apply the `archiver` (distribution) species and the `phoebus`
-  (distribution) species on the middleware VM, confirming the WARs and the
-  Phoebus binary install from their distribution repositories and a re-apply is
-  idempotent.
-
-Out of scope: defining the operators/species (that is `M11`); producing the
-distribution repositories (owned by aa-env and phoebus-env).
-
-##### Completion Criteria
-
-- The `archiver` and `phoebus` distribution species install and re-apply
-  idempotently on the middleware VM against real distribution repositories.
-
-##### Dependencies And Decisions
-
-- `G1` (Open): the two distribution repositories must exist and carry their
-  artifacts. This row is Blocked until `G1` is Complete, then resumes as Not
-  started.
-- Depends on `M11` for the operator and species definitions.
-
-##### Implementation Plan
-
-Plan Status: draft
-Plan Acceptance: none
-Implementation Authorization: none
-Superseded Plan Artifacts: none
-
-1. After `G1`, live-apply the distribution species on the middleware VM.
-2. Record the per-species install and idempotency evidence.
-
-##### Test Plan
-
-| Label | Layer | Method | Environment | Expected Result |
-| --- | --- | --- | --- | --- |
-| T1 | Integration | Live-apply the `archiver` distribution species | middleware VM | The aa-distribution WARs install and deploy to the Tomcat instances; a re-apply is idempotent. |
-| T2 | Integration | Live-apply the `phoebus` distribution species | middleware VM | The phoebus-distribution binary installs and configures; a re-apply is idempotent. |
-
-##### Verification Results
-
-| Label | Observed At | Environment | Result | Evidence |
-| --- | --- | --- | --- | --- |
-| T1 | pending | middleware VM | Not run | |
-| T2 | pending | middleware VM | Not run | |
+| Date | Movement | Note |
+| --- | --- | --- |
+| 2026-09-25 | M12: Backlog to Milestone | Assigned to the middleware line; stays Blocked on G1 and resumes as Not started when G1 completes. |
+| 2026-09-29 | M4: Backlog to Milestone | Assigned with its complete row and detail in this synchronization commit; Origin, ID, Deferred status, plan and verification evidence are preserved. |
+| 2026-10-01 | M13: Milestone to Backlog | Moved with its complete row and detail in this synchronization commit; Origin, ID, draft plan and pending checks are preserved. D7 defers execution until Archiver completion. |
 
 ## History
 

@@ -1,0 +1,4 @@
+ Expiry Time           MAC address         Protocol   IP address           Hostname          Client ID or DUID
+-----------------------------------------------------------------------------------------------------------
+ 2026-10-03 23:14:08   02:aa:bb:cc:dd:ee   ipv4       192.168.123.100/24   lab-rocky8-old    01:02:aa:bb:cc:dd:ee
+

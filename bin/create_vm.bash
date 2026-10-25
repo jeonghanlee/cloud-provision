@@ -14,10 +14,13 @@ SC_TOP="${SC_RPATH%/*}/.."
 SC_TOP="$(realpath "${SC_TOP}")"
 source "${SC_TOP}/bin/image_workflow.bash"
 source "${SC_TOP}/bin/proxy_contract.bash"
+source "${SC_TOP}/bin/vm_network.bash"
 
 # --- Global Configuration ---
 declare -g VM_PREFIX="lab"
 declare -g VM_NAME
+declare -gr VM_HOSTNAME_MAX_LENGTH=63
+declare -gr VM_HOSTNAME_HASH_LENGTH=12
 declare -g VM_RAM=4096
 declare -g VM_VCPUS=2
 declare -g VM_DISK_SIZE="20G"
@@ -51,7 +54,7 @@ declare -g VM_WAIT_CLOUD_INIT_INTERVAL_SECONDS="${VM_WAIT_CLOUD_INIT_INTERVAL_SE
 declare -g VM_WAIT_SHUTDOWN_ATTEMPTS="${VM_WAIT_SHUTDOWN_ATTEMPTS:-12}"
 declare -g VM_WAIT_SHUTDOWN_INTERVAL_SECONDS="${VM_WAIT_SHUTDOWN_INTERVAL_SECONDS:-5}"
 
-# Network configuration: static IP via libvirt DHCP reservation
+# Static address configuration and the legacy MAC scheme for existing VMs.
 declare -g NETWORK_SUBNET="192.168.123"
 declare -g MAC_PREFIX="52:54:00:01"
 # Vacuum-by-species address table. Each pair listed here owns one base
@@ -76,8 +79,11 @@ declare -g ROCKY8_EPICS_DEV_IP_BASE=120
 declare -g ROCKY10_EPICS_DEV_IP_BASE=130
 declare -g ROCKY8_IOCRUNNER_IP_BASE=150
 declare -g ROCKY8_IOCRUNNER_NFS_IP_BASE=155
+declare -g DEBIAN13_ARCHIVER_DEV_IP_BASE=60
+declare -g ROCKY8_ARCHIVER_DEV_IP_BASE=140
 declare -g VM_IP=""
 declare -g VM_MAC=""
+declare -g VM_LEGACY_MAC=""
 
 # Base image details
 declare -g BASE_URL
@@ -94,6 +100,7 @@ declare -g DO_CLEANUP=false
 declare -g DO_STATUS=false
 declare -g DO_STOP=false
 declare -g DO_FRESH=false
+declare -g DO_REFRESH_HOST_KEY=false
 
 function print_usage {
     printf "Usage: %s [options]\n" "$(basename "$0")"
@@ -107,22 +114,29 @@ function print_usage {
     printf "                 Source-build hosts: rocky8-epics-dev, debian12-epics-dev,\n"
     printf "                 debian13-epics-dev, rocky10-epics-dev, ubuntu24-epics-dev,\n"
     printf "                 ubuntu26-epics-dev\n"
+    printf "                 Archiver hosts: rocky8-archiver-dev,\n"
+    printf "                 debian13-archiver-dev\n"
     printf "  -n <instance>  Instance label (default: main). main takes the static\n"
     printf "                 base address, dhcp takes a DHCP lease, any other label\n"
     printf "                 hashes into the shared 160-254 window.\n"
     printf "  -d <image_dir> Image storage directory (default: ~/libvirt/images)\n"
     printf "  -p <prefix>    VM name prefix (default: lab)\n"
     printf "  -m <mb>        VM memory in MB (default: 4096)\n"
+    printf "  -z <size>      VM disk size with M/G/T suffix (default: 20G)\n"
     printf "  -c             Remove VM domain, disk pair, and seed ISO\n"
     printf "  -s             Check VM domain, IP, SSH, and cloud-init readiness\n"
     printf "  -S             Graceful shutdown of running VM (ACPI, polls until shut off)\n"
     printf "  -F             Require a new domain and disk (provisioning only)\n"
+    printf "  -R             Refresh the resolved IP's stored SSH key on stopped restart\n"
+    printf "                 or running reuse (a new domain always refreshes;\n"
+    printf "                 provisioning only)\n"
     printf "  -h             Show this help message\n"
     printf "\n"
     printf "Examples:\n"
     printf "  %s -o rocky8\n" "$(basename "$0")"
     printf "  %s -o debian13-iocrunner -n a\n" "$(basename "$0")"
     printf "  %s -o ubuntu24 -m 4096\n" "$(basename "$0")"
+    printf "  %s -o rocky8 -z 30G\n" "$(basename "$0")"
     printf "  %s -o rocky8 -s\n" "$(basename "$0")"
     printf "  %s -o rocky8 -c\n" "$(basename "$0")"
 }
@@ -135,17 +149,19 @@ if ! groups "$USER" | grep -q "\b${REQUIRED_GROUP}\b"; then
 fi
 
 # --- Argument Processing ---
-while getopts ":o:n:d:p:m:csSFh" opt; do
+while getopts ":o:n:d:p:m:z:csSFRh" opt; do
     case "$opt" in
         o) OS_TYPE="$OPTARG" ;;
         n) NODE_ID="$OPTARG" ;;
         d) IMAGE_DIR="$OPTARG" ;;
         p) VM_PREFIX="$OPTARG" ;;
         m) VM_RAM="$OPTARG" ;;
+        z) VM_DISK_SIZE="$OPTARG" ;;
         c) DO_CLEANUP=true ;;
         s) DO_STATUS=true ;;
         S) DO_STOP=true ;;
         F) DO_FRESH=true ;;
+        R) DO_REFRESH_HOST_KEY=true ;;
         h) print_usage; exit 0 ;;
         :) printf "Error: Option -%s requires an argument.\n" "$OPTARG"; exit 1 ;;
         ?) printf "Error: Unknown option -%s\n" "$OPTARG"; exit 1 ;;
@@ -162,8 +178,19 @@ if [[ "${DO_FRESH}" == true ]] && \
     exit 1
 fi
 
+if [[ "${DO_REFRESH_HOST_KEY}" == true ]] && \
+   { [[ "${DO_CLEANUP}" == true ]] || [[ "${DO_STATUS}" == true ]] || [[ "${DO_STOP}" == true ]]; }; then
+    printf "Error: -R is valid only for provisioning.\n" >&2
+    exit 1
+fi
+
 if [[ ! "${VM_RAM}" =~ ^[1-9][0-9]*$ ]]; then
     printf "Error: -m memory must be a positive integer in MB, got: %s\n" "${VM_RAM}"
+    exit 1
+fi
+
+if [[ ! "${VM_DISK_SIZE}" =~ ^[1-9][0-9]*[MGT]$ ]]; then
+    printf "Error: -z disk size must be a positive integer with an M, G, or T suffix, got: %s\n" "${VM_DISK_SIZE}"
     exit 1
 fi
 
@@ -308,6 +335,16 @@ elif [[ "${OS_TYPE}" == "ubuntu26-epics-dev" ]]; then
     VM_BOOT_FIRMWARE="uefi"
     BASE_IMAGE_NAME="resolute-server-cloudimg-amd64.img"
     BASE_URL="https://cloud-images.ubuntu.com/resolute/current/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "rocky8-archiver-dev" ]]; then
+    # Archiver Appliance source-build host on the plain Rocky 8 base image.
+    OS_VARIANT="rocky8"
+    BASE_IMAGE_NAME="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+    BASE_URL="https://download.rockylinux.org/pub/rocky/8/images/x86_64/${BASE_IMAGE_NAME}"
+elif [[ "${OS_TYPE}" == "debian13-archiver-dev" ]]; then
+    OS_VARIANT="debian13"
+    VM_BOOT_FIRMWARE="uefi"
+    BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
+    BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
 else
     printf "Error: Unsupported OS type: %s\n" "${OS_TYPE}"
     exit 1
@@ -330,15 +367,6 @@ if ! VM_NAME="$(image_workflow_vm_name \
     printf "Error: failed to resolve VM name\n" >&2
     exit 1
 fi
-if [[ -n "${BASE_IMAGE_KIND}" ]]; then
-    if ! BASE_IMAGE_NAME="$(image_workflow_select_latest_image \
-        "${IMAGE_DIR}" "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}")"; then
-        printf "Error: no valid %s image found for %s in %s\n" \
-            "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}" "${IMAGE_DIR}" >&2
-        exit 1
-    fi
-fi
-BASE_IMAGE_FULL_PATH="${IMAGE_DIR}/${BASE_IMAGE_NAME}"
 if ! TARGET_DISK="$(image_workflow_vm_disk_path \
     "${IMAGE_DIR}" "${VM_PREFIX}" "${OS_TYPE}" "${NODE_ID}" \
     "${IMAGE_WORKFLOW_RUN_ID}")"; then
@@ -348,9 +376,9 @@ fi
 CLOUD_INIT_ISO="${IMAGE_DIR}/${VM_NAME}-seed.iso"
 
 # --- Network Resolution ---
-# Derives static IP and MAC from OS type and node identifier.
+# Derives static IP from OS type and node identifier, and MAC from VM identity.
 # IP:  ${NETWORK_SUBNET}.${OS_BASE + NODE_OFFSET}
-# MAC: ${MAC_PREFIX}:${OS_HEX}:${NODE_HEX}
+# Existing domains retain their actual MAC; new names use a separate digest.
 function resolve_network {
     local os_base=0
     local node_offset=0
@@ -374,6 +402,8 @@ function resolve_network {
         rocky10-epics-dev)      os_base=${ROCKY10_EPICS_DEV_IP_BASE} ;;
         ubuntu24-epics-dev)     os_base=${UBUNTU24_EPICS_DEV_IP_BASE} ;;
         ubuntu26-epics-dev)     os_base=${UBUNTU26_EPICS_DEV_IP_BASE} ;;
+        rocky8-archiver-dev)    os_base=${ROCKY8_ARCHIVER_DEV_IP_BASE} ;;
+        debian13-archiver-dev)  os_base=${DEBIAN13_ARCHIVER_DEV_IP_BASE} ;;
     esac
 
     case "${NODE_ID}" in
@@ -387,7 +417,7 @@ function resolve_network {
             # 160-199 sits between the highest static base (155) and the
             # old 200-254 window, and nothing else uses it, so widening
             # costs nothing and roughly halves the collision rate. A
-            # fixed range still collides; register_dhcp names it when it does.
+            # fixed range still collides; register_dhcp reports it when it does.
             # Both go into the hash: an address identifies a VM, not a node
             # name. Hashing NODE_ID alone gave every OS type the same address
             # and the same MAC for a given node ID, so the second VM could not
@@ -401,7 +431,8 @@ function resolve_network {
             done
             local ip_last=$(( 160 + hash ))
             VM_IP="${NETWORK_SUBNET}.${ip_last}"
-            VM_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "160" "${hash}")
+            VM_LEGACY_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "160" "${hash}")
+            VM_MAC="$(vm_network_mac "${VM_NAME}")" || return 1
             printf "Note: NODE_ID=%s mapped to %s\n" "${NODE_ID}" "${VM_IP}"
             return 0
             ;;
@@ -409,86 +440,65 @@ function resolve_network {
 
     local ip_last=$(( os_base + node_offset ))
     VM_IP="${NETWORK_SUBNET}.${ip_last}"
-    VM_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "${os_base}" "${node_offset}")
-}
-
-# Register DHCP reservation in libvirt network
-function register_dhcp {
-    if [[ -z "${VM_IP}" || -z "${VM_MAC}" ]]; then
-        return 0
-    fi
-
-    # Remove existing reservation if present. This matches only this VM's own
-    # exact triple, so another VM holding the same address is left alone and
-    # the add below is what meets it.
-    virsh --connect "${LIBVIRT_URI}" net-update "${LIBVIRT_NETWORK}" delete ip-dhcp-host \
-        "<host mac='${VM_MAC}' name='${VM_NAME}' ip='${VM_IP}'/>" \
-        --live --config 2>/dev/null || true
-
-    # Name the collision before libvirt does. The address computed for this VM
-    # can be held by another one — the fallback node-ID mapping has 95 slots,
-    # so unrelated pairs can land together. libvirt refuses the duplicate, but
-    # its message says only that an entry exists; it cannot say which VM holds
-    # the address or that a node-ID choice produced it.
-    # Match the address as a whole quoted field. A substring or regex match
-    # would report 192.168.123.10 as held by the entry for 192.168.123.101,
-    # refusing a VM whose address is free.
-    local holder
-    holder="$(virsh --connect "${LIBVIRT_URI}" net-dumpxml "${LIBVIRT_NETWORK}" 2>/dev/null \
-        | awk -F"'" -v want="${VM_IP}" '
-            {
-                name = ""; addr = ""
-                for (i = 2; i <= NF; i += 2) {
-                    if ($(i-1) ~ /name=$/) name = $i
-                    if ($(i-1) ~ /ip=$/)   addr = $i
-                }
-                if (addr == want && name != "") { print name; exit }
-            }')"
-    if [[ -n "${holder}" && "${holder}" != "${VM_NAME}" ]]; then
-        printf "Error: %s is already reserved for %s.\n" "${VM_IP}" "${holder}" >&2
-        printf "Cause: OS type %s with node ID %s maps to that address.\n" \
-            "${OS_TYPE}" "${NODE_ID}" >&2
-        printf "Hint: choose a different node ID, or remove the other VM.\n" >&2
-        exit 1
-    fi
-
-    printf "Network: registering %s → %s (%s)... " "${VM_NAME}" "${VM_IP}" "${VM_MAC}"
-    virsh --connect "${LIBVIRT_URI}" net-update "${LIBVIRT_NETWORK}" add ip-dhcp-host \
-        "<host mac='${VM_MAC}' name='${VM_NAME}' ip='${VM_IP}'/>" \
-        --live --config
-    printf "[OK]\n"
-}
-
-# Remove DHCP reservation from libvirt network
-function unregister_dhcp {
-    if [[ -z "${VM_IP}" || -z "${VM_MAC}" ]]; then
-        return 0
-    fi
-
-    printf "  Removing DHCP reservation... "
-    virsh --connect "${LIBVIRT_URI}" net-update "${LIBVIRT_NETWORK}" delete ip-dhcp-host \
-        "<host mac='${VM_MAC}' name='${VM_NAME}' ip='${VM_IP}'/>" \
-        --live --config 2>/dev/null \
-        && printf "[OK]\n" || printf "[not found]\n"
+    VM_LEGACY_MAC=$(printf "%s:%02x:%02x" "${MAC_PREFIX}" "${os_base}" "${node_offset}")
+    VM_MAC="$(vm_network_mac "${VM_NAME}")" || return 1
 }
 
 # Resolve network (non-fatal if NODE_ID is unknown)
-resolve_network || true
+if ! resolve_network; then
+    [[ "${NODE_ID}" == "dhcp" ]] || exit 1
+fi
 
 # --- Cleanup ---
+function cleanup_domain_is_absent {
+    local domains
+    local domain
+
+    # A successful full listing distinguishes absence from a failed lookup.
+    if ! domains=$(virsh --connect "${LIBVIRT_URI}" list --all --name); then
+        return 1
+    fi
+    while IFS= read -r domain; do
+        [[ "${domain}" != "${VM_NAME}" ]] || return 1
+    done <<< "${domains}"
+    return 0
+}
+
 function do_cleanup {
     local target_record
+    local state
 
     target_record="$(image_workflow_record_path "${TARGET_DISK}")"
     printf "Cleanup: %s\n" "${VM_NAME}"
 
+    # Preserve the domain's actual MAC and disk pair until DHCP removal succeeds.
+    if ! unregister_dhcp; then
+        printf 'Error: DHCP cleanup failed; domain and disk files were preserved.\n' >&2
+        return 1
+    fi
+
     printf "  Stopping VM... "
-    virsh --connect "${LIBVIRT_URI}" destroy "${VM_NAME}" 2>/dev/null \
-        && printf "[OK]\n" || printf "[not running]\n"
+    if virsh --connect "${LIBVIRT_URI}" destroy "${VM_NAME}"; then
+        printf "[OK]\n"
+    elif state=$(LC_ALL=C virsh --connect "${LIBVIRT_URI}" domstate "${VM_NAME}" 2>/dev/null) && \
+         [[ "${state}" == "shut off" ]]; then
+        printf "[already stopped]\n"
+    elif cleanup_domain_is_absent; then
+        printf "[already absent]\n"
+    else
+        printf 'Error: VM stop failed; disk pair and seed were preserved.\n' >&2
+        return 1
+    fi
 
     printf "  Undefining VM... "
-    virsh --connect "${LIBVIRT_URI}" undefine "${VM_NAME}" --nvram 2>/dev/null \
-        && printf "[OK]\n" || printf "[not defined]\n"
+    if virsh --connect "${LIBVIRT_URI}" undefine "${VM_NAME}" --nvram; then
+        printf "[OK]\n"
+    elif cleanup_domain_is_absent; then
+        printf "[already absent]\n"
+    else
+        printf 'Error: VM undefine failed; disk pair and seed were preserved.\n' >&2
+        return 1
+    fi
 
     printf "  Removing disk pair... "
     rm -f -- "${TARGET_DISK}" "${target_record}" \
@@ -497,7 +507,6 @@ function do_cleanup {
     printf "  Removing seed ISO... "
     rm -f "${CLOUD_INIT_ISO}" && printf "[OK]\n" || printf "[not found]\n"
 
-    unregister_dhcp
 }
 
 # --- Graceful Shutdown ---
@@ -743,7 +752,7 @@ function prepare_disk {
 # --- Cloud-Init Seed Generation ---
 function merge_proxy_user_data {
     local user_data_path="$1"
-    local merged_path line
+    local merged_path line proxy_write_files
     local write_files_count runcmd_count final_message_count
     local merged_write_files_count merged_runcmd_count apply_count
     local merged_packages_count
@@ -757,7 +766,7 @@ function merge_proxy_user_data {
     write_files_count="$(grep -Ec '^write_files:' "${user_data_path}" || true)"
     runcmd_count="$(grep -Ec '^runcmd:' "${user_data_path}" || true)"
     final_message_count="$(grep -Ec '^final_message:' "${user_data_path}" || true)"
-    if [[ "${write_files_count}" != 0 ||
+    if [[ ( "${write_files_count}" != 0 && "${write_files_count}" != 1 ) ||
           ( "${runcmd_count}" != 0 && "${runcmd_count}" != 1 ) ||
           "${final_message_count}" != 1 ]]; then
         printf "Error: unsupported cloud-init structure for proxy merge.\n" >&2
@@ -765,6 +774,10 @@ function merge_proxy_user_data {
     fi
 
     merged_path="$(mktemp "${user_data_path}.proxy-merge.XXXXXX")" || return 1
+    if ! proxy_write_files="$(proxy_contract_render_write_files "${OS_VARIANT}" "${PROXY_URL}")"; then
+        rm -f -- "${merged_path}"
+        return 1
+    fi
     # The cloud-init packages module installs in the config stage, before the
     # runcmd proxy apply in the final stage. In a no-direct-route topology the
     # package manager has no proxy yet and cannot fetch, so drop the packages
@@ -785,16 +798,17 @@ function merge_proxy_user_data {
             fi
             skipping_packages=false
         fi
-        if [[ "${inserted_write_files}" == false ]] &&
-           { [[ "${runcmd_count}" == 1 && "${line}" =~ ^runcmd: ]] ||
-             [[ "${runcmd_count}" == 0 && "${line}" =~ ^final_message: ]]; }; then
-            proxy_contract_render_write_files "${OS_VARIANT}" "${PROXY_URL}" \
-                >> "${merged_path}" || {
-                rm -f -- "${merged_path}"
-                return 1
-            }
-            printf '\n' >> "${merged_path}"
+        if [[ "${write_files_count}" == 1 && "${line}" =~ ^write_files: ]]; then
+            printf '%s\n' "${line}" "${proxy_write_files#*$'\n'}" >> "${merged_path}"
             inserted_write_files=true
+            continue
+        fi
+        if [[ "${runcmd_count}" == 1 && "${line}" =~ ^runcmd: ]] ||
+           [[ "${runcmd_count}" == 0 && "${line}" =~ ^final_message: ]]; then
+            if [[ "${inserted_write_files}" == false ]]; then
+                printf '%s\n\n' "${proxy_write_files}" >> "${merged_path}"
+                inserted_write_files=true
+            fi
             if [[ "${runcmd_count}" == 0 ]]; then
                 printf 'runcmd:\n' >> "${merged_path}"
                 printf '%s\n\n' \
@@ -832,9 +846,26 @@ function merge_proxy_user_data {
     mv -f -- "${merged_path}" "${user_data_path}"
 }
 
+function guest_hostname {
+    local LC_ALL=C
+    local digest
+    local prefix_length
+
+    if [[ ${#VM_NAME} -le ${VM_HOSTNAME_MAX_LENGTH} ]]; then
+        printf '%s\n' "${VM_NAME}"
+        return 0
+    fi
+    digest="$(printf '%s' "${VM_NAME}" | sha256sum)" || return 1
+    digest="${digest%% *}"
+    [[ "${digest}" =~ ^[0-9a-f]{64}$ ]] || return 1
+    prefix_length=$((VM_HOSTNAME_MAX_LENGTH - VM_HOSTNAME_HASH_LENGTH - 1))
+    printf '%s-%s\n' "${VM_NAME:0:prefix_length}" "${digest:0:VM_HOSTNAME_HASH_LENGTH}"
+}
+
 function generate_seed {
     local pub_key_path=""
     local pub_key_data=""
+    local hostname
     local seed_dir="${IMAGE_DIR}/${VM_NAME}.seed_staging"
     # Variants share the base OS cloud-init template (e.g. rocky8-iocrunner uses user-data.rocky8).
     local user_data_template="${SC_TOP}/templates/user-data.${OS_VARIANT}"
@@ -863,9 +894,13 @@ function generate_seed {
     rm -rf "${seed_dir}"
     mkdir -p "${seed_dir}"
 
-    # meta-data: dynamic hostname from VM_NAME
+    # Keep guest hostnames within one DNS label while retaining VM identity.
+    hostname="$(guest_hostname)" || {
+        printf 'Error: failed to derive guest hostname.\n' >&2
+        exit 1
+    }
     printf "instance-id: %s\n" "$(uuidgen)" > "${seed_dir}/meta-data"
-    printf "local-hostname: %s\n" "${VM_NAME}" >> "${seed_dir}/meta-data"
+    printf "local-hostname: %s\n" "${hostname}" >> "${seed_dir}/meta-data"
 
     # user-data: inject SSH key into OS-specific template
     export PUB_KEY_DATA="${pub_key_data}"
@@ -971,8 +1006,8 @@ function resolve_runtime_ip {
 # remote command execution. BatchMode=yes removes password and keyboard-
 # interactive authentication, so a probe can pass only with a usable key, and
 # the probe runs a remote command rather than opening a socket. A first-time
-# host key is accepted; a CHANGED host key is not, and StrictHostKeyChecking=no
-# does not override that. That case means the address now answers for a
+# host key is accepted; accept-new rejects a CHANGED host key. That case means
+# the address now answers for a
 # different host, which is a different fact from "not ready yet", so ssh_probe
 # reports it separately and the callers say so.
 #
@@ -988,7 +1023,7 @@ function resolve_runtime_ip {
 # socket, ControlMaster=no stops it from becoming one for the next call.
 declare -g SSH_USER="vmadmin"
 declare -ag SSH_PROBE_OPTIONS=(
-    -o StrictHostKeyChecking=no
+    -o StrictHostKeyChecking=accept-new
     -o "ConnectTimeout=${VM_WAIT_SSH_CONNECT_TIMEOUT_SECONDS}"
     -o BatchMode=yes
     -o ControlMaster=no
@@ -1081,7 +1116,6 @@ function print_status_report {
     local rc=0
 
     domain_state=$(get_domain_state)
-    printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
     printf "Domain     : %s\n" "${domain_state}"
 
     if [[ "${domain_state}" != "running" ]]; then
@@ -1206,6 +1240,83 @@ function wait_for_vm {
     return 1
 }
 
+# Removes only this address's stored identity, for every new domain and for an
+# existing domain under -R. The first readiness connection accepts the new key
+# through the normal SSH contract.
+function refresh_host_key {
+    local ip_addr="$1"
+    local known_hosts="${HOME}/.ssh/known_hosts"
+    local workspace matches
+    local rc=0
+    local lookup_rc=0
+
+    [[ "${DO_REFRESH_HOST_KEY}" == true ]] || return 0
+    [[ -n "${ip_addr}" ]] || return 0
+    [[ -e "${known_hosts}" || -L "${known_hosts}" ]] || return 0
+    if [[ ! -f "${known_hosts}" || -L "${known_hosts}" ]]; then
+        printf 'Error: host-key refresh requires a regular non-symlink file: %s\n' \
+            "${known_hosts}" >&2
+        return 1
+    fi
+    workspace="$(mktemp -d "${known_hosts}.refresh.XXXXXX")" || return 1
+    # Remove an exact address from shared host lists before OpenSSH removes
+    # whole matching lines. Keep every other host token and the key bytes.
+    if ! cp -p -- "${known_hosts}" "${workspace}/known_hosts" || \
+       ! awk -v target="${ip_addr}" '
+        /^[[:space:]]*#/ || NF == 0 { print; next }
+        {
+            field = ($1 ~ /^@/) ? 2 : 1
+            hosts = $field
+            count = split(hosts, tokens, ",")
+            found = 0
+            kept = ""
+            for (i = 1; i <= count; i++) {
+                if (tokens[i] == target) found = 1
+                else kept = kept (kept == "" ? "" : ",") tokens[i]
+            }
+            if (count > 1 && found) {
+                if (kept != "") {
+                    start = index($0, hosts)
+                    print substr($0, 1, start - 1) kept substr($0, start + length(hosts))
+                }
+                next
+            }
+            print
+        }
+    ' "${known_hosts}" > "${workspace}/normalized" || \
+       ! cat "${workspace}/normalized" > "${workspace}/known_hosts"; then
+        rc=1
+    fi
+    if [[ "${rc}" == 0 ]]; then
+        matches="$(ssh-keygen -f "${workspace}/known_hosts" -F "${ip_addr}")" || lookup_rc=$?
+        # A matching pattern identifies more than one address. Refuse instead
+        # of deleting its shared trust entry. Hashed single hosts are safe.
+        # OpenSSH returns 1 when no key matches; other failures stop refresh.
+        if [[ "${lookup_rc}" != 0 && "${lookup_rc}" != 1 ]]; then
+            rc=1
+        elif ! awk -v target="${ip_addr}" '
+            /^[[:space:]]*#/ || NF == 0 { next }
+            {
+                host = ($1 ~ /^@/) ? $2 : $1
+                if (host != target && host !~ /^\|1\|[^,]+$/) exit 1
+            }
+        ' <<< "${matches}"; then
+            printf 'Error: cannot refresh a shared host pattern for %s.\n' "${ip_addr}" >&2
+            rc=1
+        elif ! ssh-keygen -f "${workspace}/known_hosts" -R "${ip_addr}" || \
+             ! mv -- "${workspace}/known_hosts" "${known_hosts}"; then
+            rc=1
+        fi
+    fi
+    rm -rf -- "${workspace}"
+    if [[ "${rc}" != 0 ]]; then
+        printf "Error: failed to refresh the stored SSH key for %s.\n" \
+            "${ip_addr}" >&2
+        return 1
+    fi
+    return 0
+}
+
 function wait_for_ssh {
     local ip_addr="$1"
     local mode="${2:-retry}"
@@ -1213,6 +1324,8 @@ function wait_for_ssh {
     local interval="${VM_WAIT_SSH_INTERVAL_SECONDS}"
     local attempt=0
     local probe_rc
+
+    refresh_host_key "${ip_addr}" || return 1
 
     while [[ ${attempt} -lt ${max_retry} ]]; do
         probe_rc=0
@@ -1281,6 +1394,11 @@ function wait_for_cloud_init {
 }
 
 # --- Main ---
+if [[ "${DO_FRESH}" == true ]]; then
+    require_fresh_input || exit 1
+fi
+vm_network_existing_mac || exit 1
+
 if [[ "${DO_CLEANUP}" == true ]]; then
     do_cleanup
     exit 0
@@ -1302,16 +1420,11 @@ if [[ "${DO_STOP}" == true ]]; then
     fi
 fi
 
-if [[ "${DO_FRESH}" == true ]]; then
-    require_fresh_input || exit 1
-fi
-
 printf "%s\n" "------------------------------------------------------------"
 printf "OS Type    : %s\n" "${OS_TYPE}"
 printf "Node ID    : %s\n" "${NODE_ID}"
 printf "VM Name    : %s\n" "${VM_NAME}"
 printf "Storage    : %s\n" "${IMAGE_DIR}"
-printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
 if [[ -n "${VM_IP}" ]]; then
     printf "IP Address : %s\n" "${VM_IP}"
     printf "MAC Address: %s\n" "${VM_MAC}"
@@ -1347,6 +1460,7 @@ if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
             ;;
         running)
             existing_ip=$(resolve_runtime_ip)
+            refresh_host_key "${existing_ip}" || exit 1
             printf "VM '%s' is already running.\n" "${VM_NAME}"
             printf "%s\n" "------------------------------------------------------------"
             printf "VM Name    : %s\n" "${VM_NAME}"
@@ -1367,12 +1481,28 @@ if virsh --connect "${LIBVIRT_URI}" dominfo "${VM_NAME}" >/dev/null 2>&1; then
     esac
 fi
 
+if [[ -n "${BASE_IMAGE_KIND}" ]]; then
+    if ! BASE_IMAGE_NAME="$(image_workflow_select_latest_image \
+        "${IMAGE_DIR}" "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}")"; then
+        printf "Error: no valid %s image found for %s in %s\n" \
+            "${BASE_IMAGE_KIND}" "${BASE_IMAGE_PLATFORM}" "${IMAGE_DIR}" >&2
+        exit 1
+    fi
+fi
+BASE_IMAGE_FULL_PATH="${IMAGE_DIR}/${BASE_IMAGE_NAME}"
+
+printf "Base image : %s (%s)\n" "${BASE_IMAGE_NAME}" "$(base_image_class)"
+
+check_dhcp_lease || exit 1
 discover_proxy_configuration
 verify_base_image
 prepare_disk
 generate_seed
-register_dhcp
+register_dhcp || exit 1
 provision_vm
+# A new guest generates new host keys, so a key stored for its address belongs
+# to a removed VM and is refreshed without -R.
+DO_REFRESH_HOST_KEY=true
 wait_for_vm "retry" || exit 1
 
 printf "%s\n" "------------------------------------------------------------"

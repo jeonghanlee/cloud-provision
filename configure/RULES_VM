@@ -3,7 +3,7 @@
 ##@ Help
 
 .PHONY: help help.detail help.vm check-vm-help check-cloud-init-status \
-	check-proxy-injection \
+	check-proxy-injection check-proxy-checker check-capacity \
 	check-generated-ansible-inventory check-epics-env-inventory check-runtime-inventory
 
 help: ## Show the operator workflow overview
@@ -76,6 +76,12 @@ check-cloud-init-status: ## Verify shared cloud-init status parsing and readines
 check-proxy-injection: ## Verify host proxy discovery and cloud-init injection
 	$(QUIET) bash $(TOP)/tests/check-proxy-injection.bash
 
+check-proxy-checker: ## Verify read-only proxy checks and private descriptor transport
+	$(QUIET) python3 -B $(TOP)/tests/check-proxy-checker.py
+
+check-capacity: ## Verify the host capacity decision for starting or creating guests
+	$(QUIET) bash $(TOP)/tests/check-capacity.bash
+
 check-generated-ansible-inventory: ## Verify generated hosts against the Ansible group graph
 	$(QUIET) bash $(TOP)/tests/check-generated-ansible-inventory.bash
 
@@ -88,7 +94,7 @@ check-runtime-inventory: check-generated-ansible-inventory check-epics-env-inven
 
 .PHONY: all clean status stop
 
-all: $(DEFAULT_OS_TYPES) ## Provision the default OS types (excludes pre-baked variants)
+all: $(DEFAULT_OS_TYPES) ## Provision the default OS types (the plain base test VMs)
 
 clean: $(addsuffix .clean, $(OS_TYPES)) ## Remove all VM domains, disks, and seed ISOs (incl. baked)
 

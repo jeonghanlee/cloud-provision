@@ -1,0 +1,7 @@
+<network>
+  <ip address='192.168.123.1' netmask='255.255.255.0'>
+    <dhcp>
+      <host mac='02:00:00:00:00:01' ip='192.168.123.150'/>
+    </dhcp>
+  </ip>
+</network>

@@ -35,6 +35,7 @@ declare -g FAKEBIN
 declare -g SLEEP_LOG
 declare -g SSH_ARG_LOG
 declare -g QEMU_IMG_LOG
+declare -g REAL_SSH_KEYGEN
 declare -g TEST_TOTAL=0
 declare -g TEST_PASSED=0
 declare -g TEST_FAILED=0
@@ -43,6 +44,9 @@ declare -ag FAILED_DETAILS=()
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TOP="$(cd "${SCRIPT_DIR}/.." && pwd)"
 FIXTURE_DIR="${TOP}/tests/fixtures/cloud-init-status"
+REAL_SSH_KEYGEN="$(command -v ssh-keygen)"
+readonly REAL_SSH_KEYGEN
+export REAL_SSH_KEYGEN
 
 function cleanup {
     local rc=$?
@@ -126,12 +130,15 @@ set -e
 cmd=""
 for arg in "$@"; do
     case "$arg" in
-        domstate|dominfo|domifaddr|net-update|net-dumpxml|start|shutdown|destroy|undefine|uri)
+        domstate|dominfo|domiflist|domifaddr|net-update|net-dumpxml|net-dhcp-leases|start|shutdown|destroy|undefine|list|uri)
             cmd="$arg"
             break
             ;;
     esac
 done
+if [[ -n "${FAKE_VIRSH_LOG:-}" ]]; then
+    printf '%s\n' "${cmd}" >> "${FAKE_VIRSH_LOG}"
+fi
 # FAKE_LIBVIRT_DOWN makes every command fail the way an unreachable libvirt
 # does: domstate and uri both exit non-zero, which is the pair get_domain_state
 # uses to tell an outage from an absent domain.
@@ -169,7 +176,14 @@ case "$cmd" in
         printf "%s\n" "${FAKE_DOMAIN_STATE:-running}"
         ;;
     dominfo)
+        if [[ -n "${FAKE_UNDEFINED_MARKER:-}" && -e "${FAKE_UNDEFINED_MARKER}" ]]; then
+            exit 1
+        fi
         exit "${FAKE_DOMINFO_RC:-1}"
+        ;;
+    domiflist)
+        printf 'Interface Type Source Model MAC\n'
+        printf 'vnet0 network lab virtio %s\n' "${FAKE_DOMAIN_MAC:-52:54:00:01:64:00}"
         ;;
     domifaddr)
         count=0
@@ -190,13 +204,53 @@ case "$cmd" in
         fi
         ;;
     net-dumpxml)
+        if [[ "${FAKE_NET_DUMP_FAIL:-}" == "1" ]]; then
+            printf 'error: cannot read network\n' >&2
+            exit 1
+        fi
+        if [[ -n "${FAKE_RESERVATION_FILE:-}" ]]; then
+            if [[ "$*" == *--inactive* && -n "${FAKE_CONFIG_RESERVATION_FILE:-}" ]]; then
+                cat "${FAKE_CONFIG_RESERVATION_FILE}"
+            else
+                cat "${FAKE_RESERVATION_FILE}"
+            fi
+            exit 0
+        fi
         # A reservation whose address is a strict prefix of the one under test.
         # A substring or regex match would report the tested address as held.
         printf "%s\n" "<network><ip><dhcp>"
         printf "%s\n" "  <host mac='52:54:00:01:64:01' name='other-vm' ip='${FAKE_RESERVED_IP:-192.168.123.1501}'/>"
         printf "%s\n" "</dhcp></ip></network>"
         ;;
-    net-update|start|destroy|undefine)
+    net-dhcp-leases)
+        if [[ "${FAKE_LEASE_FAIL:-}" == "1" ]]; then
+            printf 'error: failed to get leases\n' >&2
+            exit 1
+        fi
+        cat "${FAKE_LEASE_FILE:-${FAKE_LEASE_FIXTURE_DIR}/leases-empty.txt}"
+        ;;
+    net-update)
+        if [[ -n "${FAKE_NET_UPDATE_LOG:-}" ]]; then
+            printf '%s\n' "$*" >> "${FAKE_NET_UPDATE_LOG}"
+        fi
+        exit "${FAKE_NET_UPDATE_RC:-0}"
+        ;;
+    undefine)
+        [[ "${FAKE_UNDEFINE_RC:-0}" == 0 ]] || exit "${FAKE_UNDEFINE_RC}"
+        if [[ -n "${FAKE_UNDEFINED_MARKER:-}" ]]; then
+            : > "${FAKE_UNDEFINED_MARKER}"
+        fi
+        ;;
+    destroy)
+        exit "${FAKE_DESTROY_RC:-0}"
+        ;;
+    list)
+        [[ "${FAKE_LIST_RC:-0}" == 0 ]] || exit "${FAKE_LIST_RC}"
+        if [[ "${FAKE_DOMAIN_STATE:-running}" != absent ]]; then
+            printf '%s\n' "${FAKE_LIST_DOMAIN:-lab-rocky8-main}"
+        fi
+        ;;
+    start)
         ;;
     *)
         printf "unexpected virsh command: %s\n" "$*" >&2
@@ -214,6 +268,14 @@ if [[ -n "${FAKE_SSH_ARG_LOG:-}" ]]; then
     printf "%s\n" "$*" >> "${FAKE_SSH_ARG_LOG}"
 fi
 remote_cmd="${@: -1}"
+if [[ "${FAKE_CHECK_KNOWN_HOSTS:-0}" == 1 ]]; then
+    host="${@: -2:1}"
+    if "${REAL_SSH_KEYGEN}" -F "${host#*@}" -f "${HOME}/.ssh/known_hosts" \
+        >/dev/null 2>&1; then
+        printf '%s\n' 'REMOTE HOST IDENTIFICATION HAS CHANGED' >&2
+        exit 255
+    fi
+fi
 case "${remote_cmd}" in
     exit)
         if [[ -n "${FAKE_SSH_STDERR:-}" ]]; then
@@ -266,6 +328,17 @@ if [[ -n "${FAKE_SLEEP_LOG:-}" ]]; then
     printf "%s\n" "$1" >> "${FAKE_SLEEP_LOG}"
 fi
 exit 0
+EOF
+
+    cat > "${FAKEBIN}/ssh-keygen" <<'EOF'
+#!/usr/bin/env bash
+set -e
+printf '%s\n' "$*" >> "${FAKE_REFRESH_LOG}"
+[[ "${FAKE_REFRESH_FAIL:-0}" == 0 ]] || exit 1
+if [[ "$*" == *' -F '* && "${FAKE_REFRESH_LOOKUP_RC:-0}" != 0 ]]; then
+    exit "${FAKE_REFRESH_LOOKUP_RC}"
+fi
+exec "${REAL_SSH_KEYGEN}" "$@"
 EOF
 
 cat > "${FAKEBIN}/qemu-img" <<'EOF'
@@ -325,6 +398,7 @@ EOF
 
     chmod +x "${FAKEBIN}/virsh" "${FAKEBIN}/ssh" "${FAKEBIN}/sleep" \
         "${FAKEBIN}/qemu-img" "${FAKEBIN}/genisoimage" "${FAKEBIN}/virt-install"
+    chmod +x "${FAKEBIN}/ssh-keygen"
 }
 
 function write_baked_image_fixture {
@@ -361,7 +435,9 @@ function run_create_vm {
     local rc=0
     local domain_state="running"
     local dominfo_rc=1
-    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "${CASE_NODE_ID:-main}" "-d" "${WORKSPACE}/images")
+    local -a args=("-o" "${CASE_OS_TYPE:-rocky8}" "-n" "${CASE_NODE_ID:-main}" "-d" "${CASE_IMAGE_DIR:-${WORKSPACE}/images}" "-p" "${CASE_PREFIX:-lab}")
+
+    [[ "${CASE_REFRESH_HOST_KEY:-0}" != 1 ]] || args+=(-R)
 
     case "${action}" in
         status)
@@ -388,6 +464,10 @@ function run_create_vm {
     FAKE_DOMINFO_RC="${CASE_DOMINFO_RC:-${dominfo_rc}}" \
     FAKE_SSH_EXIT_RC="${FAKE_SSH_EXIT_RC:-0}" \
     FAKE_SSH_STDERR="${FAKE_SSH_STDERR:-}" \
+    FAKE_CHECK_KNOWN_HOSTS="${FAKE_CHECK_KNOWN_HOSTS:-0}" \
+    FAKE_REFRESH_LOG="${WORKSPACE}/refresh.log" \
+    FAKE_REFRESH_FAIL="${FAKE_REFRESH_FAIL:-0}" \
+    FAKE_REFRESH_LOOKUP_RC="${FAKE_REFRESH_LOOKUP_RC:-0}" \
     FAKE_SSH_READY_AFTER="${FAKE_SSH_READY_AFTER:-}" \
     FAKE_SSH_COUNT_FILE="${FAKE_SSH_COUNT_FILE:-}" \
     FAKE_CLOUD_INIT_READY_AFTER="${FAKE_CLOUD_INIT_READY_AFTER:-}" \
@@ -400,6 +480,21 @@ function run_create_vm {
     FAKE_DOMIFADDR_COUNT_FILE="${FAKE_DOMIFADDR_COUNT_FILE:-}" \
     FAKE_QEMU_IMG_FAIL="${FAKE_QEMU_IMG_FAIL:-}" \
     FAKE_RESERVED_IP="${FAKE_RESERVED_IP:-}" \
+    FAKE_DOMAIN_MAC="${FAKE_DOMAIN_MAC:-}" \
+    FAKE_VIRSH_LOG="${FAKE_VIRSH_LOG:-}" \
+    FAKE_UNDEFINED_MARKER="${FAKE_UNDEFINED_MARKER:-}" \
+    FAKE_RESERVATION_FILE="${FAKE_RESERVATION_FILE:-}" \
+    FAKE_CONFIG_RESERVATION_FILE="${FAKE_CONFIG_RESERVATION_FILE:-}" \
+    FAKE_NET_DUMP_FAIL="${FAKE_NET_DUMP_FAIL:-}" \
+    FAKE_NET_UPDATE_LOG="${FAKE_NET_UPDATE_LOG:-}" \
+    FAKE_LEASE_FILE="${FAKE_LEASE_FILE:-}" \
+    FAKE_LEASE_FAIL="${FAKE_LEASE_FAIL:-}" \
+    FAKE_LEASE_FIXTURE_DIR="${TOP}/tests/fixtures/dhcp" \
+    FAKE_NET_UPDATE_RC="${FAKE_NET_UPDATE_RC:-0}" \
+    FAKE_DESTROY_RC="${FAKE_DESTROY_RC:-0}" \
+    FAKE_UNDEFINE_RC="${FAKE_UNDEFINE_RC:-0}" \
+    FAKE_LIST_RC="${FAKE_LIST_RC:-0}" \
+    FAKE_LIST_DOMAIN="${FAKE_LIST_DOMAIN:-lab-rocky8-main}" \
     FAKE_GENISOIMAGE_FAIL="${FAKE_GENISOIMAGE_FAIL:-}" \
     FAKE_SEED_PATH_LOG="${WORKSPACE}/seed-path.txt" \
     FAKE_SEED_META_COPY="${WORKSPACE}/seed-meta.txt" \
@@ -494,6 +589,120 @@ function run_ssh_rejection_case {
         expect_contains "${name} default attempts" "${output}" "after 6 attempts"
         expect_equal "${name} sleeps between attempts" "5" "${sleeps}"
         expect_equal "${name} default retry interval" "10" "${interval_values}"
+    fi
+}
+
+# Real ssh-keygen mutates a temporary known_hosts file. The SSH transport
+# rejects a stored old identity, so success requires the actual removal path.
+function run_host_key_refresh_case {
+    local mode="$1"
+    local action="provision"
+    local node=main
+    local state="shut off"
+    local refresh=1
+    local fail=0
+    local lookup_rc=0
+    local dominfo_rc=""
+    local expected_rc=0
+    local expected_text='READY'
+    local known_hosts="${WORKSPACE}/home/.ssh/known_hosts"
+    local refresh_log="${WORKSPACE}/refresh.log"
+    local ssh_log="${WORKSPACE}/refresh-ssh.log"
+    local original="${WORKSPACE}/refresh-original"
+    local key_type key_body
+    local result output target_rc=0 unrelated_rc=0
+
+    mkdir -p "${WORKSPACE}/home/.ssh"
+    read -r key_type key_body _ < "${WORKSPACE}/host-key.pub"
+    printf '%s %s %s\n' 192.168.123.100 "${key_type}" "${key_body}" > "${known_hosts}"
+    printf '%s %s %s\n' 192.0.2.1 "${key_type}" "${key_body}" >> "${known_hosts}"
+    : > "${refresh_log}"
+    : > "${ssh_log}"
+    case "${mode}" in
+        default) refresh=0; expected_rc=1; expected_text='different host key' ;;
+        # A new domain refreshes its address without -R; the stopped restart
+        # above keeps the rejection.
+        new-static|new-dhcp)
+            refresh=0; state=absent; dominfo_rc=1
+            [[ "${mode}" != new-dhcp ]] || node=dhcp
+            mkdir -p "${WORKSPACE}/images"
+            printf '%s\n' 'ssh-ed25519 AAAAC3NzaFixture test' > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+            printf '%s\n' base > "${WORKSPACE}/images/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+            ;;
+        dhcp) node=dhcp ;;
+        hashed) "${REAL_SSH_KEYGEN}" -H -f "${known_hosts}" >/dev/null 2>&1 ;;
+        aliases)
+            printf '%s %s %s\n' 192.168.123.100,192.0.2.1 "${key_type}" "${key_body}" \
+                > "${known_hosts}"
+            ;;
+        pattern)
+            printf '%s %s %s\n' '192.168.*,192.0.2.1' "${key_type}" "${key_body}" \
+                > "${known_hosts}"
+            expected_rc=1; expected_text='cannot refresh a shared host pattern'
+            ;;
+        lookup-failure)
+            printf '%s %s %s\n' '192.168.*,192.0.2.1' "${key_type}" "${key_body}" \
+                > "${known_hosts}"
+            lookup_rc=255; expected_rc=1; expected_text='failed to refresh'
+            ;;
+        unmatched)
+            printf '%s %s %s\n' 192.0.2.1 "${key_type}" "${key_body}" > "${known_hosts}"
+            ;;
+        running) state=running; expected_text='already running' ;;
+        failure) fail=1; expected_rc=1; expected_text='failed to refresh' ;;
+        status|stop|cleanup)
+            action="${mode}"; expected_rc=1; expected_text='-R is valid only for provisioning'
+            ;;
+        missing) rm -f -- "${known_hosts}" ;;
+    esac
+    [[ ! -f "${known_hosts}" ]] || cp -p -- "${known_hosts}" "${original}"
+    reset_sleep_log
+    result=$(CASE_REFRESH_HOST_KEY="${refresh}" CASE_NODE_ID="${node}" \
+        CASE_DOMINFO_RC="${dominfo_rc}" \
+        FAKE_STATE_OVERRIDE="${state}" FAKE_CHECK_KNOWN_HOSTS=1 \
+        FAKE_REFRESH_FAIL="${fail}" SSH_ARG_LOG="${ssh_log}" \
+        FAKE_REFRESH_LOOKUP_RC="${lookup_rc}" \
+        run_create_vm "$(cloud_init_fixture "done")" "${action}")
+    output="${result#*$'\n'}"
+    expect_exit "host key ${mode} exit" "${expected_rc}" "${result%%$'\n'*}"
+    expect_contains "host key ${mode} output" "${output}" "${expected_text}"
+    "${REAL_SSH_KEYGEN}" -F 192.168.123.100 -f "${known_hosts}" \
+        >/dev/null 2>&1 || target_rc=$?
+    "${REAL_SSH_KEYGEN}" -F 192.0.2.1 -f "${known_hosts}" \
+        >/dev/null 2>&1 || unrelated_rc=$?
+    case "${mode}" in
+        default|status|stop|cleanup|failure|pattern|lookup-failure)
+            expect_equal "host key ${mode} retains target" 0 "${target_rc}"
+            ;;
+        missing) ;;
+        *) expect_equal "host key ${mode} removes target" 1 "${target_rc}" ;;
+    esac
+    if [[ "${mode}" != missing ]]; then
+        expect_equal "host key ${mode} retains unrelated key" 0 "${unrelated_rc}"
+    fi
+    case "${mode}" in
+        default|status|stop|cleanup|missing)
+            expect_equal "host key ${mode} does not invoke removal" '' "$(cat "${refresh_log}")"
+            ;;
+        lookup-failure)
+            expect_equal 'lookup failure does not invoke removal' 0 \
+                "$(grep -c -- '-R ' "${refresh_log}" || true)"
+            if cmp -s -- "${original}" "${known_hosts}"; then
+                record_pass 'lookup failure preserves original known_hosts bytes'
+            else
+                record_fail 'lookup failure preserves original known_hosts bytes' 'file changed'
+            fi
+            ;;
+        pattern) ;;
+        *)
+            expect_equal "host key ${mode} removes exactly once" 1 \
+                "$(grep -c -- '-R ' "${refresh_log}")"
+            expect_contains "host key ${mode} removes resolved address" \
+                "$(cat "${refresh_log}")" '-R 192.168.123.100'
+            ;;
+    esac
+    if [[ "${mode}" == failure || "${mode}" == pattern || "${mode}" == lookup-failure ]]; then
+        expect_equal "host key removal failure precedes SSH" '' "$(cat "${ssh_log}")"
     fi
 }
 
@@ -723,20 +932,86 @@ function run_outage_case {
     expect_not_contains "${name} not absent" "${output}" "to provision"
 }
 
-# Asserts the base image an OS type selects, and its class, through the public
-# status path. Selection is decided before anything is created, so this needs no
-# image, no libvirt, and no network.
+# Existing independent disks remain manageable without a source image pair.
+# Each case uses its own image directory so a previous case cannot supply one.
+function run_without_golden_case {
+    local os_type="$1"
+    local action="$2"
+    local state="$3"
+    local expected_rc="$4"
+    local expected_text="$5"
+    local name="${os_type} without golden ${action} ${state}"
+    local image_dir="${WORKSPACE}/without-golden-${os_type}-${action}-${state}"
+    local disk="${image_dir}/lab-${os_type}-main.qcow2"
+    local record="${disk}.creation-record"
+    local seed="${image_dir}/lab-${os_type}-main-seed.iso"
+    local marker="${image_dir}/shutdown-marker"
+    local result output
+    local dominfo_rc=0
+
+    mkdir -p "${image_dir}"
+    printf '%s\n' 'independent disk fixture' > "${disk}"
+    printf '%s\n' 'consumer record fixture' > "${record}"
+    printf '%s\n' 'seed fixture' > "${seed}"
+    [[ "${state}" != absent ]] || dominfo_rc=1
+    reset_sleep_log
+    : > "${QEMU_IMG_LOG}"
+    result=$(CASE_OS_TYPE="${os_type}" CASE_IMAGE_DIR="${image_dir}" \
+        CASE_DOMINFO_RC="${dominfo_rc}" FAKE_STATE_OVERRIDE="${state}" \
+        FAKE_SHUTDOWN_MARKER="${marker}" \
+        FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/empty.xml" \
+        run_create_vm "$(cloud_init_fixture "done")" "${action}")
+    output="${result#*$'\n'}"
+    expect_exit "${name} exit" "${expected_rc}" "${result%%$'\n'*}"
+    expect_contains "${name} result" "${output}" "${expected_text}"
+    expect_equal "${name} does not inspect or copy an image" '' "$(cat "${QEMU_IMG_LOG}")"
+    if [[ "${action}" == cleanup ]]; then
+        if [[ ! -e "${disk}" && ! -e "${record}" && ! -e "${seed}" ]]; then
+            record_pass "${name} removes VM artifacts"
+        else
+            record_fail "${name} removes VM artifacts" 'VM artifacts remain'
+        fi
+    else
+        if [[ -s "${disk}" && -s "${record}" && -s "${seed}" ]]; then
+            record_pass "${name} preserves VM artifacts"
+        else
+            record_fail "${name} preserves VM artifacts" 'VM artifacts changed'
+        fi
+    fi
+    if [[ "${action}" == status ]]; then
+        expect_not_contains "${name} omits base image" "${output}" 'Base image :'
+    fi
+}
+
+# Exercises image selection through new provisioning with real source files and
+# records; only the image-tool, libvirt and SSH command boundaries are replaced.
 function run_selection_case {
     local os_type="$1"
     local want_line="$2"
     local result output
+    local image_name
 
-    if [[ "${os_type}" == "rocky8-iocrunner" ]]; then
-        write_baked_image_fixture "iocrunner" "rocky8"
-    fi
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf '%s\n' 'ssh-ed25519 AAAAC3NzaFixture test' \
+        > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    case "${os_type}" in
+        rocky8|rocky8-epics-dev)
+            image_name="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+            ;;
+        debian13-rtbase)
+            image_name="debian-13-genericcloud-amd64-20260601-2496.qcow2"
+            ;;
+        rocky8-iocrunner)
+            write_baked_image_fixture "iocrunner" "rocky8"
+            image_name="iocrunner-rocky8-20260812T000000Z-abcdef123456.qcow2"
+            ;;
+    esac
+    printf '%s\n' 'base fixture' > "${WORKSPACE}/images/${image_name}"
     reset_sleep_log
-    result=$(CASE_OS_TYPE="${os_type}" run_create_vm "$(cloud_init_fixture "done")" "status")
+    result=$(CASE_OS_TYPE="${os_type}" CASE_NODE_ID=selection CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent run_create_vm "$(cloud_init_fixture "done")" "provision")
     output="${result#*$'\n'}"
+    expect_exit "select ${os_type} creation exit" 0 "${result%%$'\n'*}"
     expect_contains "select ${os_type}" "${output}" "${want_line}"
 }
 
@@ -751,8 +1026,10 @@ function run_bake_pair_case {
     write_baked_image_fixture "iocrunner" "${bake_os}"
     derived="iocrunner-${bake_os}-20260812T000000Z-abcdef123456.qcow2"
     reset_sleep_log
-    result=$(CASE_OS_TYPE="${consumer_os}" run_create_vm "$(cloud_init_fixture "done")" "status")
+    result=$(CASE_OS_TYPE="${consumer_os}" CASE_NODE_ID=pair CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent run_create_vm "$(cloud_init_fixture "done")" "provision")
     output="${result#*$'\n'}"
+    expect_exit "bake pair ${bake_os} creation exit" 0 "${result%%$'\n'*}"
     expect_contains "bake pair ${bake_os}" "${output}" "Base image : ${derived}"
 }
 
@@ -781,6 +1058,60 @@ function run_cleanup_pair_case {
     fi
 }
 
+function run_cleanup_teardown_case {
+    local name="$1"
+    local state="$2"
+    local destroy_rc="$3"
+    local undefine_rc="$4"
+    local list_rc="$5"
+    local expected_rc="$6"
+    local disk="${WORKSPACE}/images/lab-rocky8-main.qcow2"
+    local record="${disk}.creation-record"
+    local seed="${WORKSPACE}/images/lab-rocky8-main-seed.iso"
+    local log="${WORKSPACE}/teardown-${name}.log"
+    local result commands
+
+    printf '%s\n' disk > "${disk}"
+    printf '%s\n' record > "${record}"
+    printf '%s\n' seed > "${seed}"
+    : > "${log}"
+    result=$(FAKE_STATE_OVERRIDE="${state}" FAKE_DESTROY_RC="${destroy_rc}" \
+        FAKE_UNDEFINE_RC="${undefine_rc}" FAKE_LIST_RC="${list_rc}" \
+        FAKE_VIRSH_LOG="${log}" \
+        FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/empty.xml" \
+        run_create_vm "" cleanup)
+    expect_exit "cleanup ${name} exit" "${expected_rc}" "${result%%$'\n'*}"
+    commands="$(< "${log}")"
+    if [[ "${expected_rc}" == 0 ]]; then
+        if [[ ! -e "${disk}" && ! -e "${record}" && ! -e "${seed}" ]]; then
+            record_pass "cleanup ${name} removes files"
+        else
+            record_fail "cleanup ${name} removes files" 'resources remain'
+        fi
+        if [[ "${name}" == already-absent ]]; then
+            result=$(FAKE_STATE_OVERRIDE=absent FAKE_DESTROY_RC=1 FAKE_UNDEFINE_RC=1 \
+                FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/empty.xml" \
+                run_create_vm "" cleanup)
+            expect_exit 'cleanup absent repeat exit' 0 "${result%%$'\n'*}"
+            if [[ ! -e "${disk}" && ! -e "${record}" && ! -e "${seed}" ]]; then
+                record_pass 'cleanup absent repeat leaves files absent'
+            else
+                record_fail 'cleanup absent repeat leaves files absent' 'resources remain'
+            fi
+        fi
+    else
+        expect_contains "cleanup ${name} reports preservation" "${result}" 'were preserved'
+        if [[ -f "${disk}" && -f "${record}" && -f "${seed}" ]]; then
+            record_pass "cleanup ${name} preserves all files"
+        else
+            record_fail "cleanup ${name} preserves all files" 'resources were removed'
+        fi
+        if [[ "${destroy_rc}" != 0 && "${state}" != 'shut off' ]]; then
+            expect_not_contains "cleanup ${name} stops before undefine" "${commands}" undefine
+        fi
+    fi
+}
+
 function run_pair_rejection_case {
     local name="$1"
     local mutation="$2"
@@ -794,7 +1125,8 @@ function run_pair_rejection_case {
         sed -i 's/^image_platform=rocky8$/image_platform=debian13/' \
             "${image_path}.creation-record"
     fi
-    result=$(CASE_OS_TYPE="rocky8-iocrunner" run_create_vm "$(cloud_init_fixture "done")" "status")
+    result=$(CASE_OS_TYPE="rocky8-iocrunner" CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent run_create_vm "$(cloud_init_fixture "done")" "provision")
     rc="${result%%$'\n'*}"
     output="${result#*$'\n'}"
     expect_exit "${name} exit" "1" "${rc}"
@@ -902,9 +1234,27 @@ function run_seed_case {
         "${resize_line}"
 }
 
-# A failing genisoimage must stop the run and say why. It already stopped, by
-# set -e, but the reason was discarded with 2>/dev/null and the operator saw a
-# truncated progress line and nothing else.
+# Exercises bounded guest hostnames through the public provisioning action.
+function run_hostname_case {
+    local name="$1"
+    local prefix="$2"
+    local expected="$3"
+    local result hostname meta
+
+    result=$(CASE_PREFIX="${prefix}" CASE_DOMINFO_RC=1 FAKE_STATE_OVERRIDE=absent \
+        run_create_vm "$(cloud_init_fixture "done")" provision)
+    expect_exit "${name} exit" 0 "${result%%$'\n'*}"
+    meta="$(< "${WORKSPACE}/seed-meta.txt")"
+    hostname="$(sed -n 's/^local-hostname: //p' <<< "${meta}")"
+    expect_equal "${name} hostname" "${expected}" "${hostname}"
+    expect_equal "${name} length" 63 "${#hostname}"
+    expect_contains "${name} full domain identity" "${result#*$'\n'}" \
+        "VM Name    : ${prefix}-rocky8-main"
+    expect_contains "${name} full seed identity" "$(< "${WORKSPACE}/seed-path.txt")" \
+        "${prefix}-rocky8-main.seed_staging/meta-data"
+}
+
+# A failing genisoimage stops provisioning and exposes the diagnostic output.
 function run_seed_failure_case {
     local name="$1"
     local result rc output
@@ -1020,6 +1370,186 @@ function run_reservation_case {
     fi
 }
 
+# A lease outlives its reservation. A new domain whose address is still leased
+# to another MAC must stop before any disk, seed or reservation exists, and must
+# tell a live holder (still reserved, so waiting cannot help) from an orphan
+# lease; its own lease, a lease for another address, or no lease must not stop
+# it. Only the
+# virsh transport is replaced, with shipped lease fixtures.
+function run_lease_case {
+    local name="$1"
+    local fixture="$2"
+    local want_rc="$3"
+    local want_text="$4"
+    local reservation="${5:-}"
+    local log="${WORKSPACE}/lease-net-update.log"
+    local lease_fail=0
+    local result rc output before after
+
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf '%s\n' 'ssh-ed25519 AAAAC3NzaFixture test' > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    printf '%s\n' base > "${WORKSPACE}/images/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
+    rm -f -- "${WORKSPACE}/seed-path.txt"
+    : > "${log}"
+    [[ "${fixture}" != failure ]] || lease_fail=1
+    before=$(wc -l < "${QEMU_IMG_LOG}")
+    reset_sleep_log
+    result=$(CASE_DOMINFO_RC=1 FAKE_STATE_OVERRIDE=absent \
+        FAKE_LEASE_FAIL="${lease_fail}" \
+        FAKE_LEASE_FILE="${TOP}/tests/fixtures/dhcp/leases-${fixture}.txt" \
+        FAKE_RESERVATION_FILE="${reservation:+${TOP}/tests/fixtures/dhcp/${reservation}.xml}" \
+        FAKE_NET_UPDATE_LOG="${log}" \
+        run_create_vm "$(cloud_init_fixture "done")" provision)
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    after=$(wc -l < "${QEMU_IMG_LOG}")
+
+    expect_exit "${name} exit" "${want_rc}" "${rc}"
+    expect_contains "${name} result" "${output}" "${want_text}"
+    if [[ "${want_rc}" == 0 ]]; then
+        expect_contains "${name} reached registration" "${output}" 'Network: registering'
+    else
+        expect_equal "${name} touches no disk" "${before}" "${after}"
+        expect_equal "${name} adds no reservation" '' "$(< "${log}")"
+        if [[ -e "${WORKSPACE}/seed-path.txt" ]]; then
+            record_fail "${name} stages no seed" 'seed staging recorded'
+        else
+            record_pass "${name} stages no seed"
+        fi
+    fi
+}
+
+# Drives the public provisioning and cleanup actions with shipped network XML
+# fixtures. Only the virsh transport is replaced; ownership logic is real.
+function run_dhcp_case {
+    local name="$1"
+    local fixture="$2"
+    local action="$3"
+    local want_rc="$4"
+    local want_deletes="$5"
+    local want_adds="$6"
+    local config_fixture="${7:-${fixture}}"
+    local log="${WORKSPACE}/net-update.log"
+    local result rc output updates deletes adds
+
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf '%s\n' 'ssh-ed25519 AAAAC3NzaFixture test' > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    write_baked_image_fixture iocrunner rocky8
+    : > "${log}"
+    result=$(CASE_OS_TYPE=rocky8-iocrunner CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent \
+        FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/${fixture}.xml" \
+        FAKE_CONFIG_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/${config_fixture}.xml" \
+        FAKE_NET_UPDATE_LOG="${log}" \
+        run_create_vm "$(cloud_init_fixture "done")" "${action}")
+    rc="${result%%$'\n'*}"
+    output="${result#*$'\n'}"
+    updates="$(< "${log}")"
+    deletes=$(grep -c ' delete ip-dhcp-host ' "${log}" || true)
+    adds=$(grep -c ' add ip-dhcp-host ' "${log}" || true)
+    expect_exit "${name} exit" "${want_rc}" "${rc}"
+    expect_equal "${name} deletion count" "${want_deletes}" "${deletes}"
+    expect_equal "${name} addition count" "${want_adds}" "${adds}"
+    expect_not_contains "${name} uses MAC/IP selectors" "${updates}" 'name='
+    if [[ "${want_rc}" == 0 && "${action}" == provision ]]; then
+        expect_contains "${name} reaches readiness" "${output}" 'READY'
+        expect_contains "${name} uses a local unicast MAC" "${output}" 'MAC Address: 02:'
+    fi
+}
+
+# A failed DHCP cleanup preserves identity and files for a successful retry.
+function run_cleanup_retry_case {
+    local failure="$1"
+    local disk="${WORKSPACE}/images/lab-rocky8-iocrunner-main.qcow2"
+    local record="${disk}.creation-record"
+    local seed="${WORKSPACE}/images/lab-rocky8-iocrunner-main-seed.iso"
+    local marker="${WORKSPACE}/undefined-${failure}"
+    local log="${WORKSPACE}/cleanup-${failure}.log"
+    local updates="${WORKSPACE}/cleanup-${failure}-updates.log"
+    local read_failure=0 update_failure=0 result commands
+
+    [[ "${failure}" != read ]] || read_failure=1
+    [[ "${failure}" != delete ]] || update_failure=1
+    printf '%s\n' disk > "${disk}"
+    printf '%s\n' record > "${record}"
+    printf '%s\n' seed > "${seed}"
+    : > "${log}"
+    : > "${updates}"
+    result=$(CASE_OS_TYPE=rocky8-iocrunner CASE_DOMINFO_RC=0 \
+        FAKE_DOMAIN_MAC=02:00:00:00:00:01 FAKE_UNDEFINED_MARKER="${marker}" \
+        FAKE_VIRSH_LOG="${log}" FAKE_NET_UPDATE_LOG="${updates}" \
+        FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/unnamed-conflict.xml" \
+        FAKE_NET_DUMP_FAIL="${read_failure}" FAKE_NET_UPDATE_RC="${update_failure}" \
+        run_create_vm "" cleanup)
+    expect_exit "cleanup ${failure} failure exit" 1 "${result%%$'\n'*}"
+    commands="$(< "${log}")"
+    expect_not_contains "cleanup ${failure} preserves running domain" "${commands}" destroy
+    expect_not_contains "cleanup ${failure} preserves defined domain" "${commands}" undefine
+    if [[ -f "${disk}" && -f "${record}" && -f "${seed}" && ! -e "${marker}" ]]; then
+        record_pass "cleanup ${failure} preserves files and domain identity"
+    else
+        record_fail "cleanup ${failure} preserves files and domain identity" 'resources were removed'
+    fi
+
+    : > "${updates}"
+    result=$(CASE_OS_TYPE=rocky8-iocrunner CASE_DOMINFO_RC=0 \
+        FAKE_DOMAIN_MAC=02:00:00:00:00:01 FAKE_UNDEFINED_MARKER="${marker}" \
+        FAKE_NET_UPDATE_LOG="${updates}" \
+        FAKE_RESERVATION_FILE="${TOP}/tests/fixtures/dhcp/unnamed-conflict.xml" \
+        run_create_vm "" cleanup)
+    expect_exit "cleanup ${failure} retry exit" 0 "${result%%$'\n'*}"
+    expect_equal "cleanup ${failure} retry removes both reservations" 2 \
+        "$(grep -c ' delete ip-dhcp-host ' "${updates}" || true)"
+    if [[ ! -e "${disk}" && ! -e "${record}" && ! -e "${seed}" && -f "${marker}" ]]; then
+        record_pass "cleanup ${failure} retry removes files and domain"
+    else
+        record_fail "cleanup ${failure} retry removes files and domain" 'resources remain'
+    fi
+}
+
+function run_mac_identity_case {
+    local result output first repeat second run_mac
+
+    mkdir -p "${WORKSPACE}/home/.ssh" "${WORKSPACE}/images"
+    printf '%s\n' 'ssh-ed25519 AAAAC3NzaFixture test' > "${WORKSPACE}/home/.ssh/id_ed25519.pub"
+    write_baked_image_fixture iocrunner rocky8
+    result=$(CASE_OS_TYPE=rocky8-iocrunner CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent CASE_PREFIX=identity-a \
+        run_create_vm "$(cloud_init_fixture "done")" provision)
+    output="${result#*$'\n'}"
+    first="$(sed -n 's/^MAC Address: //p' <<< "${output}")"
+    expect_exit 'first MAC identity creation exit' 0 "${result%%$'\n'*}"
+    result=$(CASE_OS_TYPE=rocky8-iocrunner CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent CASE_PREFIX=identity-a \
+        run_create_vm "$(cloud_init_fixture "done")" provision)
+    repeat="$(sed -n 's/^MAC Address: //p' <<< "${result#*$'\n'}")"
+    expect_equal 'same full VM identity retains its MAC' "${first}" "${repeat}"
+    result=$(CASE_OS_TYPE=rocky8-iocrunner CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent CASE_PREFIX=identity-b \
+        run_create_vm "$(cloud_init_fixture "done")" provision)
+    second="$(sed -n 's/^MAC Address: //p' <<< "${result#*$'\n'}")"
+    expect_exit 'second MAC identity creation exit' 0 "${result%%$'\n'*}"
+    if [[ -n "${first}" && -n "${second}" && "${first}" != "${second}" ]]; then
+        record_pass 'different prefixes sharing one address have different MACs'
+    else
+        record_fail 'different prefixes sharing one address have different MACs' "${first} / ${second}"
+    fi
+    result=$(CASE_OS_TYPE=rocky8-iocrunner CASE_DOMINFO_RC=1 \
+        FAKE_STATE_OVERRIDE=absent CASE_PREFIX=identity-a \
+        CASE_RUN_ID=20261001T000000Z-abcdef123456 \
+        run_create_vm "$(cloud_init_fixture "done")" provision)
+    run_mac="$(sed -n 's/^MAC Address: //p' <<< "${result#*$'\n'}")"
+    if [[ -n "${run_mac}" && "${run_mac}" != "${first}" ]]; then
+        record_pass 'run-specific VM identity has a different MAC'
+    else
+        record_fail 'run-specific VM identity has a different MAC' "${run_mac} / ${first}"
+    fi
+    result=$(CASE_DOMINFO_RC=0 FAKE_DOMAIN_MAC=52:54:00:01:64:00 \
+        run_create_vm "$(cloud_init_fixture "done")" provision)
+    expect_contains 'existing VM preserves its actual interface MAC' \
+        "${result#*$'\n'}" 'MAC Address: 52:54:00:01:64:00'
+}
+
 function run_case {
     local name="$1"
     local status_output="$2"
@@ -1046,7 +1576,7 @@ function run_case {
 # previous run at the same reused address accepts the connection, fails
 # mid-request, and returns a non-blocking stdin the caller never clears.
 function assert_ssh_multiplexing_off {
-    local total multiplexing_offenders timeout_offenders
+    local total multiplexing_offenders timeout_offenders host_key_offenders
 
     if [[ ! -s "${SSH_ARG_LOG}" ]]; then
         record_fail "ssh probes were recorded" "no ssh invocation reached the log"
@@ -1059,11 +1589,16 @@ function assert_ssh_multiplexing_off {
     timeout_offenders="$(awk \
         '!/-o ConnectTimeout=5/ {count++} END {print count + 0}' \
         "${SSH_ARG_LOG}")"
+    host_key_offenders="$(awk \
+        '!/-o StrictHostKeyChecking=accept-new/ {count++} END {print count + 0}' \
+        "${SSH_ARG_LOG}")"
     printf "  ssh invocations recorded: %s (multiplexing: %s, timeout: %s)\n" \
         "${total}" "${multiplexing_offenders}" "${timeout_offenders}"
     expect_equal "every ssh probe refuses multiplexing" "0" "${multiplexing_offenders}"
     expect_equal "every default SSH probe uses the 5-second connection timeout" \
         "0" "${timeout_offenders}"
+    expect_equal 'every SSH probe accepts new keys and rejects changed keys' \
+        0 "${host_key_offenders}"
 }
 
 function print_summary {
@@ -1084,6 +1619,11 @@ mkdir -p "${FAKEBIN}"
 : > "${SSH_ARG_LOG}"
 : > "${QEMU_IMG_LOG}"
 write_fake_commands
+"${REAL_SSH_KEYGEN}" -q -t ed25519 -N '' -f "${WORKSPACE}/host-key"
+
+for refresh_mode in default new-static new-dhcp static dhcp hashed aliases pattern lookup-failure unmatched running failure status stop cleanup missing; do
+    run_host_key_refresh_case "${refresh_mode}"
+done
 
 run_case "status done" "$(cloud_init_fixture "done")" "status" 0 "cloud-init : done"
 run_case "status running" "$(cloud_init_fixture running)" "status" 1 "cloud-init : running"
@@ -1115,9 +1655,27 @@ run_lifecycle_case "status paused hints cleanup" "status" "paused" 1 ".clean' th
 run_lifecycle_case "cleanup running" "cleanup" "running" 0 "Undefining VM"
 run_lifecycle_case "cleanup absent" "cleanup" "absent" 0 "Removing disk pair"
 run_cleanup_pair_case
+run_cleanup_teardown_case destroy-failure running 1 0 0 1
+run_cleanup_teardown_case paused-failure paused 1 0 0 1
+run_cleanup_teardown_case undefine-failure 'shut off' 0 1 0 1
+run_cleanup_teardown_case list-failure absent 1 1 1 1
+run_cleanup_teardown_case undefine-list-failure 'shut off' 0 1 1 1
+run_cleanup_teardown_case already-stopped 'shut off' 1 0 0 0
+run_cleanup_teardown_case already-absent absent 1 1 0 0
 run_outage_case "status outage" "status" 1 "libvirt did not answer"
 run_outage_case "stop outage" "stop" 1 "was not checked"
 run_outage_case "provision outage" "provision" 1 "nothing was created"
+
+# Independent consumer management and absent-domain creation refusal.
+for consumer_os in rocky8-iocrunner debian13-iocrunner rocky8-iocrunner-nfs \
+    debian13-iocrunner-nfs debian13-ethercat; do
+    run_without_golden_case "${consumer_os}" status running 0 'cloud-init : done'
+    run_without_golden_case "${consumer_os}" stop running 0 'shut off [OK]'
+    run_without_golden_case "${consumer_os}" cleanup running 0 'Removing disk pair'
+    run_without_golden_case "${consumer_os}" provision running 0 'already running'
+    run_without_golden_case "${consumer_os}" provision 'shut off' 0 'READY'
+    run_without_golden_case "${consumer_os}" provision absent 1 'no valid'
+done
 
 # Image selection, ARCHITECTURE section 15.
 run_selection_case "rocky8" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
@@ -1136,6 +1694,21 @@ run_no_delete_case "unusable golden" "rocky8-iocrunner" \
 # Seed staging.
 run_seed_case "seed"
 run_seed_failure_case "seed failure"
+run_hostname_case '63-byte name is retained' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-rocky8-main'
+run_hostname_case '64-byte name is bounded' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-5a5aa761b3e6'
+run_hostname_case '90-byte name is bounded' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-e81c4f881033'
+run_hostname_case 'shared prefix keeps a distinct hash' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaac' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-0549eccd1202'
+run_hostname_case 'same identity retains its hostname' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab' \
+    'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-e81c4f881033'
 
 # Address assignment.
 run_address_case "main instance rocky8-iocrunner" "rocky8-iocrunner" "main" "150"
@@ -1147,6 +1720,31 @@ run_address_distinct_case "probe" rocky8 debian13 rocky10 rocky8-iocrunner debia
 # DHCP reservation guard. rocky8-iocrunner main maps to 192.168.123.150.
 run_reservation_case "reservation guard ignores a longer address" "192.168.123.1501" "no"
 run_reservation_case "reservation guard fires on the same address" "192.168.123.150" "yes"
+run_lease_case 'foreign lease stops a new domain' foreign 1 \
+    'is leased to MAC 02:aa:bb:cc:dd:ee until 2026-10-03 23:14:08'
+run_lease_case 'unreadable leases stop a new domain' failure 1 'cannot read the DHCP leases'
+run_lease_case 'orphan lease names its expiry as the retry point' foreign 1 \
+    'retry after the lease expires'
+run_lease_case 'a reserved holder is reported as a VM in use' foreign 1 \
+    'is in use by the VM with MAC 02:aa:bb:cc:dd:ee' lease-holder
+FAKE_NET_DUMP_FAIL=1 run_lease_case 'a foreign lease with unreadable reservations stops' \
+    foreign 1 'its reservations cannot be read'
+run_lease_case 'own lease proceeds' owned 0 'READY'
+run_lease_case 'no lease proceeds' empty 0 'READY'
+run_dhcp_case 'unnamed IP conflict' unnamed-conflict provision 1 0 0
+run_dhcp_case 'persistent-only IP conflict' empty provision 1 0 0 unnamed-conflict
+run_dhcp_case 'legacy named migration' legacy-owned provision 0 2 1
+run_dhcp_case 'unnamed reservation replacement' unnamed-owned provision 0 2 1
+run_dhcp_case 'unnamed reservation cleanup' unnamed-owned cleanup 0 2 0
+run_dhcp_case 'same MAC at another IP is refused' mac-conflict provision 1 0 0
+FAKE_NET_UPDATE_RC=1 run_dhcp_case 'failed deletion prevents addition' legacy-owned provision 1 1 0
+run_dhcp_case 'legacy orphan cleanup' legacy-owned cleanup 0 2 0
+run_dhcp_case 'foreign legacy name is preserved' legacy-foreign cleanup 0 0 0
+run_dhcp_case 'unnamed foreign reservation is preserved' unnamed-conflict cleanup 0 0 0
+FAKE_NET_DUMP_FAIL=1 run_dhcp_case 'network read failure prevents registration' empty provision 1 0 0
+run_mac_identity_case
+run_cleanup_retry_case read
+run_cleanup_retry_case delete
 
 # SSH readiness contract, ARCHITECTURE section 13. Asserted last so it covers
 # every probe every case above drove.

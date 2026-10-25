@@ -1,0 +1,7 @@
+os	identity	path	owner	group	mode	form	marker	cleanup	remnant	format
+rocky	profile	/etc/profile.d/95cloud-provision-proxy.sh	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required	hash-comment
+rocky	environment	/etc/environment	root	root	0644	shared	cloud-provision-proxy-v1	required	required	hash-comment
+rocky	dnf	/etc/dnf/dnf.conf	root	root	0644	shared	cloud-provision-proxy-v1	required	required	hash-comment
+rocky	pip	/etc/pip.conf	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required	hash-comment
+rocky	git	/etc/gitconfig	root	root	0644	shared	cloud-provision-proxy-v1	required	required	hash-comment
+rocky	maven	/etc/maven-proxy-settings.xml	root	root	0644	dedicated	cloud-provision-proxy-v1	required	required	xml
