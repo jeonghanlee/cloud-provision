@@ -879,7 +879,7 @@ function run_promotion_case {
     case "${os_type}" in
         debian13)
             os_family=debian
-            base_image_name=debian-13-genericcloud-amd64-daily.qcow2
+            base_image_name=debian-13-generic-amd64-daily.qcow2
             ;;
         rocky8)
             os_family=rocky

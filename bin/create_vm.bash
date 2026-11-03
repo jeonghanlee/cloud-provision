@@ -227,9 +227,12 @@ if [[ "${OS_TYPE}" == "rocky8" ]]; then
     BASE_IMAGE_NAME="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
     BASE_URL="https://download.rockylinux.org/pub/rocky/8/images/x86_64/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "debian13" ]]; then
+    # The "generic" variant, not "genericcloud": the genericcloud image boots a
+    # -cloud-amd64 kernel without CONFIG_HWMON, so /sys/class/hwmon is absent.
+    # The generic variant ships the full-driver kernel.
     OS_VARIANT="debian13"
     VM_BOOT_FIRMWARE="uefi"
-    BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
+    BASE_IMAGE_NAME="debian-13-generic-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "debian12" ]]; then
     # Debian 12 (bookworm) is stable, so its image comes from the
@@ -308,9 +311,10 @@ elif [[ "${OS_TYPE}" == "rocky8-epics-dev" ]]; then
     BASE_IMAGE_NAME="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
     BASE_URL="https://download.rockylinux.org/pub/rocky/8/images/x86_64/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "debian13-epics-dev" ]]; then
+    # Generic image for its full-driver kernel (hwmon); see the debian13 type.
     OS_VARIANT="debian13"
     VM_BOOT_FIRMWARE="uefi"
-    BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
+    BASE_IMAGE_NAME="debian-13-generic-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "debian12-epics-dev" ]]; then
     OS_VARIANT="debian12"
@@ -341,9 +345,10 @@ elif [[ "${OS_TYPE}" == "rocky8-archiver-dev" ]]; then
     BASE_IMAGE_NAME="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
     BASE_URL="https://download.rockylinux.org/pub/rocky/8/images/x86_64/${BASE_IMAGE_NAME}"
 elif [[ "${OS_TYPE}" == "debian13-archiver-dev" ]]; then
+    # Generic image for its full-driver kernel (hwmon); see the debian13 type.
     OS_VARIANT="debian13"
     VM_BOOT_FIRMWARE="uefi"
-    BASE_IMAGE_NAME="debian-13-genericcloud-amd64-daily.qcow2"
+    BASE_IMAGE_NAME="debian-13-generic-amd64-daily.qcow2"
     BASE_URL="https://cloud.debian.org/images/cloud/trixie/daily/latest/${BASE_IMAGE_NAME}"
 else
     printf "Error: Unsupported OS type: %s\n" "${OS_TYPE}"

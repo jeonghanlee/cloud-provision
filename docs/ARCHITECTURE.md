@@ -71,7 +71,7 @@ failed stage.
 ```
 ${IMAGE_DIR}/
 ├── Rocky-8-GenericCloud-Base.latest.x86_64.qcow2   (base, read-only, shared)
-├── debian-13-genericcloud-amd64-daily.qcow2        (base, read-only, shared)
+├── debian-13-generic-amd64-daily.qcow2             (base, read-only, shared)
 ├── iocrunner-<platform>-<run-id>.qcow2             (golden, independent)
 ├── iocrunner-<platform>-<run-id>.qcow2.manifest    (provenance sidecar)
 ├── iocrunner-<platform>-<run-id>.qcow2.creation-record

@@ -998,6 +998,9 @@ function run_selection_case {
         rocky8|rocky8-epics-dev)
             image_name="Rocky-8-GenericCloud-Base.latest.x86_64.qcow2"
             ;;
+        debian13|debian13-epics-dev|debian13-archiver-dev)
+            image_name="debian-13-generic-amd64-daily.qcow2"
+            ;;
         debian13-rtbase)
             image_name="debian-13-genericcloud-amd64-20260601-2496.qcow2"
             ;;
@@ -1683,6 +1686,9 @@ run_selection_case "debian13-rtbase" "debian-13-genericcloud-amd64-20260601-2496
 run_selection_case "rocky8-iocrunner" \
     "iocrunner-rocky8-20260812T000000Z-abcdef123456.qcow2 (baked locally, not downloadable)"
 run_selection_case "rocky8-epics-dev" "Rocky-8-GenericCloud-Base.latest.x86_64.qcow2 (upstream, moving)"
+run_selection_case "debian13" "debian-13-generic-amd64-daily.qcow2 (upstream, moving)"
+run_selection_case "debian13-epics-dev" "debian-13-generic-amd64-daily.qcow2 (upstream, moving)"
+run_selection_case "debian13-archiver-dev" "debian-13-generic-amd64-daily.qcow2 (upstream, moving)"
 run_bake_pair_case "rocky8" "rocky8-iocrunner"
 run_bake_pair_case "debian13" "debian13-iocrunner"
 run_pair_rejection_case "missing creation record" "missing"
